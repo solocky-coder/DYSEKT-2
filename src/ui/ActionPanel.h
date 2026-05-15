@@ -17,6 +17,9 @@ public:
     /// Invoked when the user clicks the "?" button to open the shortcuts panel.
     std::function<void()> onShortcutsToggle;
 
+    /// Invoked when the user clicks the SEQ button.
+    std::function<void()> onSeqToggle;
+
     // Callbacks wired up by DysektEditor
     void setBrowserActive    (bool v) { browserActive    = v; repaint(); }
     void setWaveActive       (bool v) { waveActive       = v; repaint(); }
@@ -37,6 +40,4 @@ private:
     juce::TextButton lazyChopBtn    { "LAZY" };
     juce::TextButton shortcutsBtn   { "HELP" };
     juce::TextButton seqBtn         { "SEQ"  };
-
-    std::function<void()> onSeqToggle;
 };

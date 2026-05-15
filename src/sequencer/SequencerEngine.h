@@ -74,7 +74,7 @@ public:
         clipLengthTicks.store (juce::jmax ((int64_t) MidiClip::kPPQ, ticks),
                                std::memory_order_relaxed);
         const juce::ScopedWriteLock sl (tracksLock);
-        for (auto& t : tracks) t.clip.setLengthTicks (ticks);
+        for (auto* t : tracks) t->clip.setLengthTicks (ticks);
     }
 
     //==========================================================================
@@ -91,7 +91,7 @@ public:
         const juce::ScopedReadLock sl (tracksLock);
         if (! juce::isPositiveAndBelow (i, tracks.size()))
             return {};
-        const auto& t = tracks.getReference (i);
+        const auto& t = *tracks[i];
         return { t.type, t.enabled, t.name, t.colour, t.sliceIdx, t.midiChannel, t.preset };
     }
 
@@ -99,18 +99,18 @@ public:
     {
         const juce::ScopedReadLock sl (tracksLock);
         if (juce::isPositiveAndBelow (trackIndex, tracks.size()))
-            return &tracks.getReference (trackIndex).clip;
+            return &tracks[trackIndex]->clip;
         return nullptr;
     }
 
     // Legacy single-clip accessor (main track)
-    MidiClip& getClip() { return tracks.getReference (0).clip; }
+    MidiClip& getClip() { return tracks[0]->clip; }
 
     void setTrackEnabled (int i, bool enabled)
     {
         const juce::ScopedWriteLock sl (tracksLock);
         if (juce::isPositiveAndBelow (i, tracks.size()))
-            tracks.getReference (i).enabled = enabled;
+            tracks[i]->enabled = enabled;
     }
 
     void addMainTrack()
@@ -118,9 +118,9 @@ public:
         const juce::ScopedWriteLock sl (tracksLock);
         if (tracks.isEmpty())
         {
-            auto t = SequencerTrack::makeMain();
-            t.clip.setLengthTicks (clipLengthTicks.load (std::memory_order_relaxed));
-            tracks.add (std::move (t));
+            auto* t = new SequencerTrack (SequencerTrack::makeMain());
+            t->clip.setLengthTicks (clipLengthTicks.load (std::memory_order_relaxed));
+            tracks.add (t);
         }
     }
 
@@ -128,40 +128,40 @@ public:
                             const juce::String& name, juce::Colour colour)
     {
         const juce::ScopedWriteLock sl (tracksLock);
-        for (auto& t : tracks)
-            if (t.type == TrackType::ChromaticSlice && t.sliceIdx == sliceIdx)
+        for (auto* t : tracks)
+            if (t->type == TrackType::ChromaticSlice && t->sliceIdx == sliceIdx)
                 return;
-        auto t = SequencerTrack::makeChromatic (sliceIdx, chromaticChannel, name, colour);
-        t.clip.setLengthTicks (clipLengthTicks.load (std::memory_order_relaxed));
-        tracks.add (std::move (t));
+        auto* t = new SequencerTrack (SequencerTrack::makeChromatic (sliceIdx, chromaticChannel, name, colour));
+        t->clip.setLengthTicks (clipLengthTicks.load (std::memory_order_relaxed));
+        tracks.add (t);
     }
 
     void removeChromaticTrack (int sliceIdx)
     {
         const juce::ScopedWriteLock sl (tracksLock);
         for (int i = tracks.size() - 1; i >= 0; --i)
-            if (tracks[i].type == TrackType::ChromaticSlice && tracks[i].sliceIdx == sliceIdx)
+            if (tracks[i]->type == TrackType::ChromaticSlice && tracks[i]->sliceIdx == sliceIdx)
                 tracks.remove (i);
     }
 
     void addSfTrack (const Sf2PresetInfo& preset, juce::Colour colour)
     {
         const juce::ScopedWriteLock sl (tracksLock);
-        for (auto& t : tracks)
-            if (t.type == TrackType::SfPlayer
-                && t.preset.bank == preset.bank
-                && t.preset.preset == preset.preset)
+        for (auto* t : tracks)
+            if (t->type == TrackType::SfPlayer
+                && t->preset.bank == preset.bank
+                && t->preset.preset == preset.preset)
                 return;
-        auto t = SequencerTrack::makeSfPlayer (preset, colour);
-        t.clip.setLengthTicks (clipLengthTicks.load (std::memory_order_relaxed));
-        tracks.add (std::move (t));
+        auto* t = new SequencerTrack (SequencerTrack::makeSfPlayer (preset, colour));
+        t->clip.setLengthTicks (clipLengthTicks.load (std::memory_order_relaxed));
+        tracks.add (t);
     }
 
     void removeSfTrack (int trackIndex)
     {
         const juce::ScopedWriteLock sl (tracksLock);
         if (juce::isPositiveAndBelow (trackIndex, tracks.size())
-            && tracks[trackIndex].type == TrackType::SfPlayer)
+            && tracks[trackIndex]->type == TrackType::SfPlayer)
             tracks.remove (trackIndex);
     }
 
@@ -170,7 +170,7 @@ public:
     {
         const juce::ScopedWriteLock sl (tracksLock);
         for (int i = tracks.size() - 1; i >= 0; --i)
-            if (tracks[i].type == TrackType::SfPlayer)
+            if (tracks[i]->type == TrackType::SfPlayer)
                 tracks.remove (i);
 
         const int64_t len = clipLengthTicks.load (std::memory_order_relaxed);
@@ -178,9 +178,9 @@ public:
         {
             const juce::Colour col = paletteSize > 0
                 ? palette[i % paletteSize] : juce::Colour (0xFF406080);
-            auto t = SequencerTrack::makeSfPlayer (presets[i], col);
-            t.clip.setLengthTicks (len);
-            tracks.add (std::move (t));
+            auto* t = new SequencerTrack (SequencerTrack::makeSfPlayer (presets[i], col));
+            t->clip.setLengthTicks (len);
+            tracks.add (t);
         }
     }
 
@@ -236,7 +236,7 @@ public:
             const juce::ScopedReadLock sl (tracksLock);
             for (int ti = 0; ti < tracks.size(); ++ti)
             {
-                auto& track = tracks.getReference (ti);
+                auto& track = *tracks[ti];
                 if (! track.enabled) continue;
 
                 // SF-player: program change at start of playback
@@ -281,8 +281,8 @@ public:
 
         const juce::ScopedReadLock sl (tracksLock);
         s.writeInt (tracks.size());
-        for (const auto& t : tracks)
-            const_cast<SequencerTrack&>(t).writeToStream (s);
+        for (const auto* t : tracks)
+            const_cast<SequencerTrack*>(t)->writeToStream (s);
     }
 
     bool readFromStream (juce::MemoryInputStream& s)
@@ -294,12 +294,12 @@ public:
         const int     n    = s.readInt();
         if (bpm < 20.f || bpm > 999.f || n < 0 || n > 256) return false;
 
-        juce::Array<SequencerTrack> loaded;
+        juce::OwnedArray<SequencerTrack> loaded;
         for (int i = 0; i < n; ++i)
         {
-            SequencerTrack t;
-            if (! t.readFromStream (s)) return false;
-            loaded.add (std::move (t));
+            auto t = std::make_unique<SequencerTrack>();
+            if (! t->readFromStream (s)) return false;
+            loaded.add (t.release());
         }
 
         internalBpm    .store (bpm,  std::memory_order_relaxed);
@@ -308,13 +308,14 @@ public:
         clipLengthTicks.store (len,  std::memory_order_relaxed);
 
         const juce::ScopedWriteLock sl (tracksLock);
-        tracks = std::move (loaded);
+        tracks.clear();
+        tracks.swapWith (loaded);
         return true;
     }
 
 private:
     //==========================================================================
-    juce::Array<SequencerTrack> tracks;
+    juce::OwnedArray<SequencerTrack> tracks;
     mutable juce::ReadWriteLock tracksLock;
 
     double               currentTick = 0.0;

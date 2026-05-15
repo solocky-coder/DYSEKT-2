@@ -2222,10 +2222,12 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (auto pos = ph->getPosition())
         {
             if (auto bpmOpt = pos->getBpm())
+            {
                 dawBpm.store ((float) *bpmOpt, std::memory_order_relaxed);
                 sequencer.setHostBpm ((float) *bpmOpt);
                 if (abletonLink.isEnabled())
                     abletonLink.setBpm (*bpmOpt);
+            }
         }
     }
 
@@ -3124,6 +3126,10 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             }
         }
     }
+
+    // Sequencer state (graceful — older saves won't have this block)
+    if (! stream.isExhausted())
+        sequencer.readFromStream (stream);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
@@ -3137,10 +3143,6 @@ void DysektProcessor::loadDefaultSampleIfNeeded()
         return;
 
     defaultSampleScheduled = true;
-
-    // Sequencer state (graceful — older saves won't have this block)
-    if (! stream.isExhausted())
-        sequencer.readFromStream (stream);
 
     // Write BinaryData::Empty_wav to a temp file and load it.
     // This ensures the plugin opens with a sample already loaded.
