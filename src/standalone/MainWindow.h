@@ -94,7 +94,7 @@ public:
 
     void setActivePattern (int i)
     {
-        if (! juce::isPositiveAndBelow (i, patterns.size())) return;
+        if (! juce::isPositiveAndBelow (i, (int)patterns.size())) return;
         activeIdx = i;
 
         // Swap the active clip into the engine
@@ -113,7 +113,7 @@ private:
     };
 
     DysektProcessor&            processor;
-    juce::Array<PatternEntry>   patterns;
+    std::vector<PatternEntry>   patterns;
     int                         activeIdx = 0;
 
     juce::ListBox    patternList;
@@ -128,20 +128,20 @@ private:
             ? ("Pattern " + juce::String (patterns.size() + 1))
             : name;
         e.clip = std::make_unique<MidiClip>();
-        patterns.add (std::move (e));
+        patterns.push_back (std::move (e));
         patternList.updateContent();
         setActivePattern (patterns.size() - 1);
     }
 
     void duplicatePattern()
     {
-        if (! juce::isPositiveAndBelow (activeIdx, patterns.size())) return;
+        if (! juce::isPositiveAndBelow (activeIdx, (int)patterns.size())) return;
         PatternEntry e;
         e.name = patterns[activeIdx].name + " (copy)";
         e.clip = std::make_unique<MidiClip>();
         e.clip->setNotes (patterns[activeIdx].clip->getNotes());
         e.clip->setLengthTicks (patterns[activeIdx].clip->getLengthTicks());
-        patterns.insert (activeIdx + 1, std::move (e));
+        patterns.insert (patterns.begin() + activeIdx + 1, std::move (e));
         patternList.updateContent();
         setActivePattern (activeIdx + 1);
     }
@@ -149,8 +149,8 @@ private:
     void deletePattern()
     {
         if (patterns.size() <= 1) return;   // always keep at least one
-        patterns.remove (activeIdx);
-        activeIdx = juce::jlimit (0, patterns.size() - 1, activeIdx);
+        patterns.erase (patterns.begin() + activeIdx);
+        activeIdx = juce::jlimit (0, (int)patterns.size() - 1, activeIdx);
         patternList.updateContent();
         setActivePattern (activeIdx);
     }
@@ -159,7 +159,7 @@ private:
     {
         const int newIdx = activeIdx + delta;
         if (! juce::isPositiveAndBelow (newIdx, patterns.size())) return;
-        patterns.swap (activeIdx, newIdx);
+        std::swap (patterns[activeIdx], patterns[newIdx]);
         activeIdx = newIdx;
         patternList.updateContent();
         patternList.repaint();
@@ -209,7 +209,7 @@ private:
                     auto name = awPtr->getTextEditorContents ("name");
                     if (name.isNotEmpty())
                     {
-                        patterns.getReference (row).name = name;
+                        patterns[row].name = name;
                         patternList.repaint();
                     }
                 }
