@@ -17,6 +17,17 @@ FetchContent_Declare(
 set(CHOWDSP_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(chowdsp_utils)
 
+
+# --- Ableton Link (tempo sync across apps on LAN/WiFi) ---
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/link/include/ableton/Link.hpp")
+    set(DYSEKT_HAS_LINK TRUE)
+    message(STATUS "Ableton Link SDK found — Link sync enabled")
+else()
+    set(DYSEKT_HAS_LINK FALSE)
+    message(STATUS "Ableton Link SDK NOT found — Link sync disabled.")
+    message(STATUS "  To enable: git submodule add https://github.com/Ableton/link.git link")
+endif()
+
 # --- sfizz (SFZ/SF2 engine — SoundFontLoader slice-render + SfzPlayer live SFZ playback) ---
 if(TRUE)
     set(SFIZZ_CLIENTS    OFF CACHE BOOL "" FORCE)
@@ -146,6 +157,7 @@ target_sources(Dysekt PRIVATE
 
 target_include_directories(Dysekt PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    $<$<BOOL:${DYSEKT_HAS_LINK}>:${CMAKE_CURRENT_SOURCE_DIR}/link/include>
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     # sfizz C API header (sfizz.h) — needed by SoundFontLoader.cpp and SfzPlayer.cpp
@@ -154,6 +166,7 @@ target_include_directories(Dysekt PRIVATE
 
 target_compile_definitions(Dysekt PUBLIC
     JUCE_USE_CURL=0
+    DYSEKT_HAS_LINK=$<BOOL:${DYSEKT_HAS_LINK}>
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     DYSEKT_HAS_SFIZZ=$<BOOL:${DYSEKT_HAS_SFIZZ}>
@@ -168,6 +181,91 @@ target_link_libraries(Dysekt
         # sfizz — slice-render pipeline (SoundFontLoader) + live SFZ playback (SfzPlayer)
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         # FluidSynth — live SF2 playback (SfzPlayer)
+        $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
+        $<$<PLATFORM_ID:Linux>:asound>
+        chowdsp::chowdsp_filters
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DYSEKT Standalone App
+#  Same engine + UI as the plugin, plus piano roll, pattern manager,
+#  and audio device selection.
+# ─────────────────────────────────────────────────────────────────────────────
+juce_add_gui_app(DysektStandalone
+    PRODUCT_NAME "DYSEKT"
+)
+
+if (MSVC)
+    target_compile_options(DysektStandalone PRIVATE /source-charset:utf-8)
+endif()
+
+target_sources(DysektStandalone PRIVATE
+    src/PluginProcessor.cpp
+    src/PluginEditor.cpp
+    src/audio/SampleData.cpp
+    src/audio/SliceManager.cpp
+    src/audio/VoicePool.cpp
+    src/audio/GrainEngine.cpp
+    src/audio/LazyChopEngine.cpp
+    src/audio/SoundFontLoader.cpp
+    src/audio/SfzPlayer.cpp
+    src/params/ParamLayout.cpp
+    src/ui/DysektLookAndFeel.cpp
+    src/ui/HeaderBar.cpp
+    src/ui/SliceControlBar.cpp
+    src/ui/WaveformView.cpp
+    src/ui/WaveformCache.cpp
+    src/ui/SliceLane.cpp
+    src/ui/ActionPanel.cpp
+    src/ui/LogoBar.cpp
+    src/ui/KeysPanel.cpp
+    src/ui/FileBrowserPanel.cpp
+    src/ui/SliceLcdDisplay.cpp
+    src/ui/TrimDialog.cpp
+    src/ui/MidiLearnDialog.cpp
+    src/ui/MixerPanel.cpp
+    src/ui/ShortcutsPanel.cpp
+    src/ui/PadGridView.cpp
+    src/ui/SliceWaveformLcd.cpp
+    src/ui/DualLcdControlFrame.cpp
+    src/ui/SfzDropdownPanel.cpp
+    src/ui/SfzModulePanel.cpp
+    src/ui/WaveformOverview.cpp
+    src/ui/ArchiveIntegration.cpp
+    src/ui/GlobalEqPanel.cpp
+    src/standalone/Main.cpp
+    src/standalone/MainWindow.cpp
+)
+
+target_include_directories(DysektStandalone PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    $<$<BOOL:${DYSEKT_HAS_LINK}>:${CMAKE_CURRENT_SOURCE_DIR}/link/include>
+    ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
+    ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
+    $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
+)
+
+target_compile_definitions(DysektStandalone PUBLIC
+    JUCE_USE_CURL=0
+    DYSEKT_HAS_LINK=$<BOOL:${DYSEKT_HAS_LINK}>
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_WEB_BROWSER=0
+    DYSEKT_HAS_SFIZZ=$<BOOL:${DYSEKT_HAS_SFIZZ}>
+    DYSEKT_HAS_FLUIDSYNTH=$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>
+    DYSEKT_STANDALONE=1
+)
+
+target_link_libraries(DysektStandalone
+    PRIVATE
+        juce::juce_audio_utils
+        juce::juce_audio_devices
+        juce::juce_dsp
+        DysektFonts
+        $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
         chowdsp::chowdsp_filters

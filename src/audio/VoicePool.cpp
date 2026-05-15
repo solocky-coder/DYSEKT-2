@@ -213,20 +213,7 @@ void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
     v.startSample = s.startSample;
     // Marker model: derive end from the next slice's start (or buffer end).
     const int sliceEnd = sm.getEndForSlice (sliceIdx, sample.getNumFrames());
-
-    // If a release time is stored, set endSample earlier so the voice
-    // triggers its end-of-sample path (noteOff / forceRelease) at the
-    // fade-start point rather than at the physical slice boundary.
-    // releaseTail voices keep the full sliceEnd so audio continues past it.
-    // Looping and one-shot voices are unaffected — their termination is
-    // handled by separate logic (loop wrap / immediate deactivate).
-    {
-        const int releaseSamples = (s.releaseSec > 0.001f && !s.releaseTail)
-            ? juce::jlimit (0, sliceEnd - s.startSample - 1,
-                            (int)(s.releaseSec * (float)sampleRate))
-            : 0;
-        v.endSample = sliceEnd - releaseSamples;
-    }
+    v.endSample = sliceEnd;
 
     // Resolve parameters via inheritance
     // ADSR always reads per-slice — lock = protection only, not inheritance
@@ -676,10 +663,10 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr
                         voicePositions[i].store (0.0f, std::memory_order_relaxed);
                         return;
                     }
-                    // Gate voice reached endSample — trigger noteOff so the
-                    // envelope fires its own release curve (loaded at noteOn).
+                    // Gate voices: forceRelease so the voice doesn't play silence forever
+                    // waiting for a note-off that may never come.
                     if (v.envelope.getState() != AdsrEnvelope::Release)
-                        v.envelope.noteOff();
+                        v.envelope.forceRelease (kShortReleaseSec, sampleRate);
                 }
             }
             else
@@ -778,11 +765,10 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr
                         outR = voiceR * v.panR;
                         return;
                     }
-                    // Gate voice reached endSample (which may be earlier than the
-                    // physical slice end if releaseSec > 0 — see startVoice).
-                    // Trigger noteOff so the envelope fires its own release curve.
+                    // Gate voices: forceRelease so the voice doesn't play silence forever
+                    // waiting for a note-off that may never come.
                     if (v.envelope.getState() != AdsrEnvelope::Release)
-                        v.envelope.noteOff();
+                        v.envelope.forceRelease (kShortReleaseSec, sampleRate);
 
                     newPos = juce::jlimit ((double) v.startSample, (double) v.endSample - 1, newPos);
                 }

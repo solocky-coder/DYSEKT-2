@@ -36,4 +36,7 @@ private:
 
     juce::TextButton lazyChopBtn    { "LAZY" };
     juce::TextButton shortcutsBtn   { "HELP" };
+    juce::TextButton seqBtn         { "SEQ"  };
+
+    std::function<void()> onSeqToggle;
 };

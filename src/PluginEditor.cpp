@@ -92,6 +92,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  };
  shortcutsPanel.setVisible (false);
  addChildComponent (shortcutsPanel);
+    addChildComponent (pianoRollPanel);
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
  shortcutsPanel.onThemeRequest = [this]
  {
@@ -186,6 +187,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar.onWaveToggle = [this] { toggleSoftWave(); };
  headerBar.onMidiFollowToggle = [this] { toggleMidiFollow(); };
  headerBar.onShortcutsToggle = [this] { toggleShortcutsPanel(); };
+    actionPanel.onSeqToggle = [this] { togglePianoRoll(); };
 
  ensureDefaultThemes();
  loadUserSettings();
@@ -438,6 +440,20 @@ void DysektEditor::toggleShortcutsPanel()
  shortcutsPanel.toFront (true);
  shortcutsPanel.grabKeyboardFocus();
  }
+}
+
+void DysektEditor::togglePianoRoll()
+{
+    const bool show = ! pianoRollPanel.isVisible();
+    pianoRollPanel.setVisible (show);
+    if (show)
+    {
+        pianoRollPanel.setBounds (getLocalBounds());
+        pianoRollPanel.toFront (true);
+        pianoRollPanel.grabKeyboardFocus();
+        pianoRollPanel.syncSnap();
+    }
+    repaint();
 }
 
 void DysektEditor::toggleThemeEditor()

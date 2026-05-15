@@ -198,6 +198,8 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    sequencer.setAbletonLink (&abletonLink);
+    sequencer.addMainTrack();
     const bool rateChanged = (std::abs (sampleRate - currentSampleRate) > 0.01);
 
     currentSampleRate = sampleRate;
@@ -2221,6 +2223,9 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         {
             if (auto bpmOpt = pos->getBpm())
                 dawBpm.store ((float) *bpmOpt, std::memory_order_relaxed);
+                sequencer.setHostBpm ((float) *bpmOpt);
+                if (abletonLink.isEnabled())
+                    abletonLink.setBpm (*bpmOpt);
         }
     }
 
@@ -2484,6 +2489,15 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
             }
         }
+    }
+
+
+    // ── Sequencer MIDI injection ──────────────────────────────────────────────
+    if (sequencer.isPlaying())
+    {
+        juce::MidiBuffer seqEvents;
+        sequencer.processBlock (seqEvents, buffer.getNumSamples(), currentSampleRate);
+        midi.addEvents (seqEvents, 0, buffer.getNumSamples(), 0);
     }
 
     processMidi (midi);
@@ -2933,6 +2947,9 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     stream.writeFloat (sfzPlayer.getPan());
     stream.writeFloat (sfzPlayer.getFineTune());
     stream.writeInt   (sfzPlayer.getMidiChannel());
+
+    // Sequencer state
+    sequencer.writeToStream (stream);
 }
 
 void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
@@ -3120,6 +3137,10 @@ void DysektProcessor::loadDefaultSampleIfNeeded()
         return;
 
     defaultSampleScheduled = true;
+
+    // Sequencer state (graceful — older saves won't have this block)
+    if (! stream.isExhausted())
+        sequencer.readFromStream (stream);
 
     // Write BinaryData::Empty_wav to a temp file and load it.
     // This ensures the plugin opens with a sample already loaded.

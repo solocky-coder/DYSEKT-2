@@ -25,6 +25,7 @@
 #include "ui/SfzDropdownPanel.h"
 #include "ui/GlobalEqPanel.h"
 #include "ui/PadGridView.h"
+#include "ui/PianoRollPanel.h"
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 #include "ui/PluginEditorConstants.h"
@@ -128,6 +129,7 @@ private:
     SfzDropdownPanel sfzDropdown;
     ShortcutsPanel   shortcutsPanel { processor };
     GlobalEqPanel    eqPanel;
+    PianoRollPanel   pianoRollPanel { processor.sequencer, &processor.abletonLink };
 
     juce::TooltipWindow tooltipWindow { this, 500 };
 
@@ -135,6 +137,7 @@ private:
     void toggleEqPanel();
     void toggleShortcutsPanel();
     void toggleThemeEditor();
+    void togglePianoRoll();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DysektEditor)
 };

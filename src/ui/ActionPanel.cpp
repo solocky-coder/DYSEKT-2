@@ -37,6 +37,9 @@ ActionPanel::ActionPanel (DysektProcessor& p, WaveformView& wv)
     };
 
     shortcutsBtn.onClick = [this] { if (onShortcutsToggle) onShortcutsToggle(); };
+    seqBtn.onClick = [this] { if (onSeqToggle) onSeqToggle(); };
+    seqBtn.setTooltip ("Piano Roll Sequencer");
+    addAndMakeVisible (seqBtn);
     shortcutsBtn.setTooltip ("Keyboard Shortcuts (?)");
     lazyChopBtn.setTooltip ("MIDI Slice");
 
@@ -91,6 +94,7 @@ void ActionPanel::resized()
     lazyChopBtn.setBounds (0, 0, btnW, h);
 
     shortcutsBtn.setVisible (false);
+    seqBtn.setBounds (getWidth() - btnW, 0, btnW, h);
 }
 
 void ActionPanel::paint (juce::Graphics& g)
