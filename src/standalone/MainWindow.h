@@ -192,20 +192,29 @@ private:
 
     void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override
     {
-        // Inline rename
-        auto* editor = patternList.getCellComponent (0, row);
-        if (editor == nullptr) return;
-        juce::AlertWindow::showInputBoxAsync (
-            "Rename Pattern", "Enter new name:",
-            patterns[row].name, nullptr,
-            [this, row] (const juce::String& result)
+        // Inline rename via manually constructed AlertWindow (JUCE 8 compatible)
+        auto* aw = new juce::AlertWindow ("Rename Pattern",
+                                          "Enter new name:",
+                                          juce::MessageBoxIconType::QuestionIcon);
+        aw->addTextEditor ("name", patterns[row].name);
+        aw->addButton ("OK",     1, juce::KeyPress (juce::KeyPress::returnKey));
+        aw->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+        auto* awPtr = aw;
+        aw->enterModalState (true,
+            juce::ModalCallbackFunction::create ([this, row, awPtr] (int result)
             {
-                if (result.isNotEmpty())
+                if (result == 1)
                 {
-                    patterns.getReference (row).name = result;
-                    patternList.repaint();
+                    auto name = awPtr->getTextEditorContents ("name");
+                    if (name.isNotEmpty())
+                    {
+                        patterns.getReference (row).name = name;
+                        patternList.repaint();
+                    }
                 }
-            });
+            }),
+            true);
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatternManagerComponent)
