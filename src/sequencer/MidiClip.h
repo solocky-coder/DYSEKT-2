@@ -37,6 +37,31 @@ public:
     //==========================================================================
     MidiClip() = default;
 
+    /** Move constructor — creates a fresh lock and steals the note data.
+        Required because juce::ReadWriteLock is non-copyable and non-movable. */
+    MidiClip (MidiClip&& other) noexcept
+    {
+        const juce::ScopedWriteLock sl (other.lock);
+        lengthTicks       = other.lengthTicks;
+        notes             = std::move (other.notes);
+        other.lengthTicks = kPPQ * 4 * 4;
+    }
+
+    MidiClip& operator= (MidiClip&& other) noexcept
+    {
+        if (this != &other)
+        {
+            const juce::ScopedWriteLock wl (lock);
+            const juce::ScopedWriteLock rl (other.lock);
+            lengthTicks       = other.lengthTicks;
+            notes             = std::move (other.notes);
+            other.lengthTicks = kPPQ * 4 * 4;
+        }
+        return *this;
+    }
+
+    JUCE_DECLARE_NON_COPYABLE (MidiClip)
+
     /** Replace all notes atomically (call from message thread). */
     void setNotes (juce::Array<MidiNote> newNotes)
     {

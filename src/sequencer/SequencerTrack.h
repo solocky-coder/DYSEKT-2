@@ -23,6 +23,12 @@ enum class TrackType { MainSlice, ChromaticSlice, SfPlayer };
 struct SequencerTrack
 {
     //==========================================================================
+    SequencerTrack() = default;
+    SequencerTrack (SequencerTrack&&) = default;
+    SequencerTrack& operator= (SequencerTrack&&) = default;
+    JUCE_DECLARE_NON_COPYABLE (SequencerTrack)
+
+    //==========================================================================
     TrackType    type        = TrackType::MainSlice;
     bool         enabled     = true;   // mute when false
 

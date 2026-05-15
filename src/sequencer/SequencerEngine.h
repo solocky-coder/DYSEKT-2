@@ -4,6 +4,23 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <atomic>
 
+//==============================================================================
+//  SequencerTrackInfo  —  lightweight metadata-only snapshot of a SequencerTrack.
+//
+//  Returned by SequencerEngine::getTrackInfo() so UI code can read track
+//  properties without attempting to copy the non-copyable MidiClip/ReadWriteLock.
+//==============================================================================
+struct SequencerTrackInfo
+{
+    TrackType     type        = TrackType::MainSlice;
+    bool          enabled     = true;
+    juce::String  name;
+    juce::Colour  colour      = juce::Colour (0xFF3A6080);
+    int           sliceIdx    = -1;
+    int           midiChannel = 0;
+    Sf2PresetInfo preset;
+};
+
 class SequencerEngine
 {
 public:
@@ -69,10 +86,13 @@ public:
         return tracks.size();
     }
 
-    SequencerTrack getTrackInfo (int i) const
+    SequencerTrackInfo getTrackInfo (int i) const
     {
         const juce::ScopedReadLock sl (tracksLock);
-        return juce::isPositiveAndBelow (i, tracks.size()) ? tracks[i] : SequencerTrack{};
+        if (! juce::isPositiveAndBelow (i, tracks.size()))
+            return {};
+        const auto& t = tracks.getReference (i);
+        return { t.type, t.enabled, t.name, t.colour, t.sliceIdx, t.midiChannel, t.preset };
     }
 
     MidiClip* getClip (int trackIndex)

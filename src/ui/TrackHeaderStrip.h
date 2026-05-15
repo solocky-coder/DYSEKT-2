@@ -55,7 +55,7 @@ public:
 
             // Colour swatch
             g.setColour (info.colour);
-            g.fillRect (rowR.removeFromLeft (4).toFloat());
+            g.fillRect (rowR.withTrimmedRight (rowR.getWidth() - 4).toFloat());
 
             // Mute indicator
             const auto muteR = rowR.withTrimmedLeft (rowR.getWidth() - 28)

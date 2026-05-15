@@ -12,7 +12,8 @@
 //  Track switching is handled by PianoRollPanel / TrackHeaderStrip.
 //==============================================================================
 class PianoRollComponent : public juce::Component,
-                           private juce::Timer
+                           private juce::Timer,
+                           private juce::ScrollBar::Listener
 {
 public:
     static constexpr int kKeysW     = 52;
@@ -31,21 +32,26 @@ public:
         hScroll.setCurrentRange (0.0, 0.3);
         hScroll.setAutoHide (false);
         hScroll.setColour (juce::ScrollBar::thumbColourId, juce::Colour (0xFF2A3848));
-        hScroll.onScroll = [this] { scrollX = hScroll.getCurrentRangeStart(); syncScroll(); repaint(); };
+        hScroll.addListener (this);
         addAndMakeVisible (hScroll);
 
         vScroll.setRangeLimits (0.0, 1.0);
         vScroll.setCurrentRange (0.3, 0.7);
         vScroll.setAutoHide (false);
         vScroll.setColour (juce::ScrollBar::thumbColourId, juce::Colour (0xFF2A3848));
-        vScroll.onScroll = [this] { noteRowOffset = juce::jlimit (0, kNumNotes - visibleRows(), (int) vScroll.getCurrentRangeStart()); repaint(); };
+        vScroll.addListener (this);
         addAndMakeVisible (vScroll);
 
         setWantsKeyboardFocus (true);
         startTimerHz (30);
     }
 
-    ~PianoRollComponent() override { stopTimer(); }
+    ~PianoRollComponent() override
+    {
+        hScroll.removeListener (this);
+        vScroll.removeListener (this);
+        stopTimer();
+    }
 
     //==========================================================================
     void setActiveTrack (int trackIndex)
@@ -312,6 +318,21 @@ private:
     }
 
     void timerCallback() override { repaint (gridBounds); }
+
+    void scrollBarMoved (juce::ScrollBar* bar, double newRangeStart) override
+    {
+        if (bar == &hScroll)
+        {
+            scrollX = newRangeStart;
+            syncScroll();
+            repaint();
+        }
+        else if (bar == &vScroll)
+        {
+            noteRowOffset = juce::jlimit (0, kNumNotes - visibleRows(), (int) newRangeStart);
+            repaint();
+        }
+    }
 
     //==========================================================================
     void drawRuler (juce::Graphics& g)
