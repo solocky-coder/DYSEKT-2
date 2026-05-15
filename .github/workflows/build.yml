@@ -1,4 +1,4 @@
-name: Build DYSEKT VST3
+name: Build DYSEKT Standalone
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-windows:
-    name: Windows VST3
+    name: Windows Standalone
     runs-on: windows-latest
 
     steps:
@@ -68,8 +68,6 @@ jobs:
         run: |
           $file = "sfizz/cmake/SfizzConfig.cmake"
           $content = Get-Content $file -Raw
-          # Remove the line that hardcodes /MT — the parent CMake's
-          # -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL cache flag takes over.
           $content = $content -replace `
             'set\(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded\$<\$<CONFIG:Debug>:Debug>"\)\r?\n?', ''
           Set-Content $file $content
@@ -78,12 +76,7 @@ jobs:
       - name: Install FluidSynth via vcpkg (static)
         shell: pwsh
         run: |
-          # x64-windows-static-md links FluidSynth statically but keeps the
-          # MSVC runtime as a DLL (which every Windows machine already has).
-          # This means zero extra DLLs needed next to the VST3.
           vcpkg install fluidsynth:x64-windows-static-md
-
-          # Still add to PATH so juce_vst3_helper can load the VST3 post-build
           $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md\bin"
           if (Test-Path $vcpkgBin) {
             echo "$vcpkgBin" >> $env:GITHUB_PATH
@@ -100,19 +93,19 @@ jobs:
             -DJUCE_BUILD_EXTRAS=OFF `
             -DJUCE_BUILD_EXAMPLES=OFF
 
-      - name: Build
+      - name: Build Standalone only
         shell: pwsh
-        run: cmake --build build --config RelWithDebInfo --parallel
+        run: cmake --build build --config RelWithDebInfo --target DysektStandalone --parallel
 
-      - name: Collect VST3
+      - name: Collect Standalone
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
 
-          # Copy the VST3 bundle
-          $dirs = Get-ChildItem -Recurse -Filter "*.vst3" build/ | Where-Object { $_.PSIsContainer }
-          foreach ($d in $dirs) {
-            Copy-Item -Recurse -Force $d.FullName artifacts/
+          # Copy the standalone .exe
+          $exes = Get-ChildItem -Recurse -Filter "DYSEKT.exe" build/
+          foreach ($e in $exes) {
+            Copy-Item -Force $e.FullName artifacts/
           }
 
           # Copy PDB for crash symbolication
@@ -121,15 +114,12 @@ jobs:
             Copy-Item -Force $p.FullName artifacts/
           }
 
-          # With static linking there are no extra DLLs to copy —
-          # FluidSynth is baked directly into DYSEKT.vst3
-
           Write-Host "Collected artifacts:"
           Get-ChildItem artifacts/ -Recurse
 
-      - name: Upload VST3
+      - name: Upload Standalone
         uses: actions/upload-artifact@v4
         with:
-          name: DYSEKT-VST3
+          name: DYSEKT-Standalone
           path: artifacts/
           if-no-files-found: error
