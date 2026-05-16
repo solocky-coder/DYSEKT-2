@@ -17,6 +17,9 @@
 //    SfPlayer       — one track per SF2 instrument group. Fires notes on
 //                     MIDI channel 16 (index 15), prepends a program change
 //                     at playback start.
+//
+//  Note: this file is unchanged from the original.  All Tracktion Engine
+//  integration lives in SequencerEngine.h and MidiClip.h.
 //==============================================================================
 enum class TrackType { MainSlice, ChromaticSlice, SfPlayer };
 
@@ -43,7 +46,7 @@ struct SequencerTrack
     // SfPlayer fields
     Sf2PresetInfo preset;              // bank + program + name
 
-    // The clip — owns its own note data
+    // The clip — owns its own note data and te::MidiList mirror
     MidiClip     clip;
 
     //==========================================================================
@@ -51,36 +54,35 @@ struct SequencerTrack
     static SequencerTrack makeMain()
     {
         SequencerTrack t;
-        t.type    = TrackType::MainSlice;
-        t.name    = "MAIN";
-        t.colour  = juce::Colour (0xFF25D9D9);  // accent teal
+        t.type   = TrackType::MainSlice;
+        t.name   = "MAIN";
+        t.colour = juce::Colour (0xFF25D9D9);
         return t;
     }
 
-    static SequencerTrack makeChromatic (int sliceIdx, int chromaticChannel,
+    static SequencerTrack makeChromatic (int sliceIdx_, int chromaticChannel,
                                          const juce::String& sliceName,
                                          juce::Colour sliceColour)
     {
         SequencerTrack t;
         t.type        = TrackType::ChromaticSlice;
-        t.sliceIdx    = sliceIdx;
+        t.sliceIdx    = sliceIdx_;
         t.midiChannel = chromaticChannel - 1;  // convert 1-16 → 0-15
         t.name        = sliceName.isEmpty()
-                            ? ("CHROM " + juce::String (sliceIdx + 1))
+                            ? ("CHROM " + juce::String (sliceIdx_ + 1))
                             : sliceName;
         t.colour      = sliceColour;
         return t;
     }
 
-    static SequencerTrack makeSfPlayer (const Sf2PresetInfo& p,
-                                        juce::Colour colour)
+    static SequencerTrack makeSfPlayer (const Sf2PresetInfo& p, juce::Colour colour)
     {
         SequencerTrack t;
-        t.type    = TrackType::SfPlayer;
-        t.preset  = p;
+        t.type        = TrackType::SfPlayer;
+        t.preset      = p;
         t.midiChannel = 15;   // channel 16 (0-indexed)
-        t.name    = p.name;
-        t.colour  = colour;
+        t.name        = p.name;
+        t.colour      = colour;
         return t;
     }
 
@@ -88,14 +90,14 @@ struct SequencerTrack
     //  Serialisation
     void writeToStream (juce::MemoryOutputStream& s) const
     {
-        s.writeInt  ((int) type);
-        s.writeBool (enabled);
+        s.writeInt    ((int) type);
+        s.writeBool   (enabled);
         s.writeString (name);
-        s.writeInt  (colour.getARGB());
-        s.writeInt  (sliceIdx);
-        s.writeInt  (midiChannel);
-        s.writeInt  (preset.bank);
-        s.writeInt  (preset.preset);
+        s.writeInt    (colour.getARGB());
+        s.writeInt    (sliceIdx);
+        s.writeInt    (midiChannel);
+        s.writeInt    (preset.bank);
+        s.writeInt    (preset.preset);
         s.writeString (preset.name);
         clip.writeToStream (s);
     }

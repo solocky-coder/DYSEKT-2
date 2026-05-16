@@ -17,6 +17,26 @@ FetchContent_Declare(
 set(CHOWDSP_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(chowdsp_utils)
 
+# --- Tracktion Engine (sequencer backend — standalone only) ---
+# Uses FetchContent so no submodule init is required.
+# GIT_SUBMODULES_RECURSE FALSE prevents Tracktion pulling its own bundled
+# JUCE copy, which would collide with the JUCE submodule above.
+# TRACKTION_JUCE_MODULES_DIR redirects Tracktion's CMake at our JUCE instead.
+FetchContent_Declare(
+    tracktion_engine
+    GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
+    GIT_TAG        develop
+    GIT_SUBMODULES_RECURSE FALSE
+)
+set(TRACKTION_JUCE_MODULES_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules" CACHE PATH "" FORCE)
+set(TRACKTION_ENABLE_EXAMPLES   OFF CACHE BOOL "" FORCE)
+set(TRACKTION_ENABLE_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(TRACKTION_ENABLE_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(tracktion_engine)
+# FetchContent populates tracktion_engine_SOURCE_DIR automatically.
+set(TRACKTION_ENGINE_MODULES_DIR "${tracktion_engine_SOURCE_DIR}/modules")
+message(STATUS "Tracktion Engine fetched — sequencer backend enabled")
 
 # --- Ableton Link (tempo sync across apps on LAN/WiFi) ---
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/link/include/ableton/Link.hpp")
@@ -91,7 +111,9 @@ if(DYSEKT_HAS_SFIZZ)
     message(STATUS "sfizz C API include: ${SFIZZ_C_API_INCLUDE}")
 endif()
 
-# Define the target
+# =============================================================================
+#  VST3 Plugin target
+# =============================================================================
 juce_add_plugin(Dysekt
     COMPANY_NAME "DunSoft"
     PLUGIN_MANUFACTURER_CODE Dnst
@@ -104,7 +126,6 @@ juce_add_plugin(Dysekt
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
 )
 
-# FIXED: Use source-charset ONLY to fix character reading without breaking Nuendo compatibility
 if (MSVC)
     target_compile_options(Dysekt PRIVATE /source-charset:utf-8)
 endif()
@@ -152,7 +173,7 @@ target_sources(Dysekt PRIVATE
     src/ui/SfzModulePanel.cpp
     src/ui/WaveformOverview.cpp
     src/ui/ArchiveIntegration.cpp
-    src/ui/GlobalEqPanel.cpp   
+    src/ui/GlobalEqPanel.cpp
 )
 
 target_include_directories(Dysekt PRIVATE
@@ -160,7 +181,6 @@ target_include_directories(Dysekt PRIVATE
     $<$<BOOL:${DYSEKT_HAS_LINK}>:${CMAKE_CURRENT_SOURCE_DIR}/link/include>
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
-    # sfizz C API header (sfizz.h) — needed by SoundFontLoader.cpp and SfzPlayer.cpp
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
 )
 
@@ -178,9 +198,7 @@ target_link_libraries(Dysekt
         juce::juce_audio_utils
         juce::juce_dsp
         DysektFonts
-        # sfizz — slice-render pipeline (SoundFontLoader) + live SFZ playback (SfzPlayer)
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
-        # FluidSynth — live SF2 playback (SfzPlayer)
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
         chowdsp::chowdsp_filters
@@ -190,11 +208,12 @@ target_link_libraries(Dysekt
         juce::juce_recommended_warning_flags
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
 #  DYSEKT Standalone App
 #  Same engine + UI as the plugin, plus piano roll, pattern manager,
 #  and audio device selection.
-# ─────────────────────────────────────────────────────────────────────────────
+#  Tracktion Engine is linked here only — the VST3 plugin has no sequencer.
+# =============================================================================
 juce_add_gui_app(DysektStandalone
     PRODUCT_NAME "DYSEKT"
 )
@@ -247,6 +266,8 @@ target_include_directories(DysektStandalone PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
+    # Tracktion Engine module headers (SequencerEngine.h, MidiClip.h)
+    ${TRACKTION_ENGINE_MODULES_DIR}
 )
 
 target_compile_definitions(DysektStandalone PUBLIC
@@ -257,6 +278,7 @@ target_compile_definitions(DysektStandalone PUBLIC
     DYSEKT_HAS_SFIZZ=$<BOOL:${DYSEKT_HAS_SFIZZ}>
     DYSEKT_HAS_FLUIDSYNTH=$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>
     DYSEKT_STANDALONE=1
+    TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=0
 )
 
 target_link_libraries(DysektStandalone
@@ -269,6 +291,7 @@ target_link_libraries(DysektStandalone
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
         chowdsp::chowdsp_filters
+        tracktion_engine   # sequencer backend
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
