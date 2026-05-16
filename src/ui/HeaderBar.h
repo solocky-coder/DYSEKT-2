@@ -44,10 +44,11 @@ public:
     juce::TextButton redoBtn      { "REDO"  };
     juce::TextButton panicBtn     { "PANIC" };
     juce::TextButton shortcutsBtn;
-    juce::TextButton seqBtn { "SEQ" };
 
     std::function<void()> onShortcutsToggle;
-    std::function<void()> onSeqToggle;
+    std::function<void()> onSeqToggle;   ///< Forwarded from DualLcdControlFrame::onSeqToggle
+
+    void setSeqActive (bool v);
 
     void showThemePopup();
 

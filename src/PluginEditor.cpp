@@ -23,7 +23,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  waveformView (p),
  waveformOverview (p),
  sliceControlBar (p),
- actionPanel (p, waveformView),
  browserPanel (p),
  mixerPanel (p),
       eqPanel (p),
@@ -46,9 +45,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  addAndMakeVisible (waveformView);
  addAndMakeVisible (waveformOverview);
  addAndMakeVisible (sliceControlBar);
- addAndMakeVisible (actionPanel);
-
- browserPanel.setVisible (false);
+  browserPanel.setVisible (false);
  addChildComponent (browserPanel);
  mixerPanel.setVisible (false);
  addChildComponent (mixerPanel);
@@ -187,8 +184,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar.onWaveToggle = [this] { toggleSoftWave(); };
  headerBar.onMidiFollowToggle = [this] { toggleMidiFollow(); };
  headerBar.onShortcutsToggle = [this] { toggleShortcutsPanel(); };
-    actionPanel.onSeqToggle = [this] { togglePianoRoll(); };
-    headerBar.onSeqToggle   = [this] { togglePianoRoll(); };
+    headerBar.onSeqToggle   = [this] { toggleSeqPanel(); };
 
  ensureDefaultThemes();
  loadUserSettings();
@@ -333,6 +329,16 @@ void DysektEditor::toggleBrowserPanel()
             mixerPanel.setVisible (false);
             headerBar.setBodeActive (false);
         }
+        else if (activeSlot == SlotContent::Eq)
+        {
+            eqPanel.setVisible (false);
+            headerBar.setEqActive (false);
+        }
+        else if (activeSlot == SlotContent::Seq)
+        {
+            pianoRollPanel.setVisible (false);
+            headerBar.setSeqActive (false);
+        }
         activeSlot = SlotContent::Browser;
         browserPanel.setVisible (true);
         headerBar.setBrowserActive (true);
@@ -416,7 +422,6 @@ void DysektEditor::toggleSoftWave()
  waveformMode = (waveformMode + 1) % 8;
  waveformView.setWaveformMode (waveformMode);
  waveformOverview.setWaveformMode (waveformMode);
- actionPanel.setWaveActive (waveformMode != 0);
  headerBar.setBrowserActive (activeSlot == SlotContent::Browser);
  headerBar.setWaveMode (waveformMode);
  float scale = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
@@ -443,18 +448,30 @@ void DysektEditor::toggleShortcutsPanel()
  }
 }
 
-void DysektEditor::togglePianoRoll()
+void DysektEditor::toggleSeqPanel()
 {
-    const bool show = ! pianoRollPanel.isVisible();
-    pianoRollPanel.setVisible (show);
-    if (show)
-    {
-        pianoRollPanel.setBounds (getLocalBounds());
-        pianoRollPanel.toFront (true);
-        pianoRollPanel.grabKeyboardFocus();
+    if (activeSlot == SlotContent::Seq) {
+        activeSlot = SlotContent::None;
+        pianoRollPanel.setVisible (false);
+        headerBar.setSeqActive (false);
+    } else {
+        // Close any currently open slot
+        if (activeSlot == SlotContent::Mixer) {
+            mixerPanel.setVisible (false);
+            headerBar.setBodeActive (false);
+        } else if (activeSlot == SlotContent::Browser) {
+            browserPanel.setVisible (false);
+            headerBar.setBrowserActive (false);
+        } else if (activeSlot == SlotContent::Eq) {
+            eqPanel.setVisible (false);
+            headerBar.setEqActive (false);
+        }
+        activeSlot = SlotContent::Seq;
+        pianoRollPanel.setVisible (true);
         pianoRollPanel.syncSnap();
+        headerBar.setSeqActive (true);
     }
-    repaint();
+    resized(); repaint(); resized(); repaint();
 }
 
 void DysektEditor::toggleThemeEditor()
@@ -695,6 +712,7 @@ void DysektEditor::resized()
  mixerPanel.setBounds (kFX, mixTop, kFW, mixBot - mixTop);
  browserPanel.setBounds ({});
  eqPanel.setBounds ({});
+ pianoRollPanel.setBounds ({});
  }
  else if (activeSlot == SlotContent::Browser && ! initBrowserOpen) {
  // Expand browser to fill ALL available area (waveformView space + slot)
@@ -703,6 +721,7 @@ void DysektEditor::resized()
  browserPanel.setBounds (kFX, browserTop, kFW, browserBot - browserTop);
  mixerPanel.setBounds ({});
  eqPanel.setBounds ({});
+ pianoRollPanel.setBounds ({});
  }
  else if (activeSlot == SlotContent::Eq) {
      const int eqTop = actionArea.getY();
@@ -710,9 +729,19 @@ void DysektEditor::resized()
      eqPanel.setBounds (kFX, eqTop, kFW, eqBot - eqTop);
      mixerPanel.setBounds ({});
      browserPanel.setBounds ({});
+     pianoRollPanel.setBounds ({});
+ }
+ else if (activeSlot == SlotContent::Seq) {
+     const int seqTop = actionArea.getY();
+     const int seqBot = slot.getBottom();
+     pianoRollPanel.setBounds (kFX, seqTop, kFW, seqBot - seqTop);
+     mixerPanel.setBounds ({});
+     browserPanel.setBounds ({});
+     eqPanel.setBounds ({});
  } else {
  mixerPanel.setBounds ({});
  eqPanel.setBounds ({});
+ pianoRollPanel.setBounds ({});
  if (! initBrowserOpen)
  browserPanel.setBounds ({});
  // initBrowserOpen browser is sized below, in the waveform frame area
@@ -794,8 +823,7 @@ void DysektEditor::resized()
  const int screenTop = frameTop + kFrameInset;
  const int screenBot = frameBot - kFrameInset;
 
- actionPanel.setBounds (actionArea);
- int y = screenTop;
+  int y = screenTop;
  sliceLane.setBounds ({});
 
  int trimH = (trimDialog != nullptr) ? si (kTrimBarH) : 0;
@@ -889,6 +917,9 @@ void DysektEditor::toggleMixerPanel()
  } else if (activeSlot == SlotContent::Eq) {
  eqPanel.setVisible (false);
  headerBar.setEqActive (false);
+ } else if (activeSlot == SlotContent::Seq) {
+ pianoRollPanel.setVisible (false);
+ headerBar.setSeqActive (false);
  }
  activeSlot = SlotContent::Mixer;
  mixerPanel.setVisible (true);
@@ -911,6 +942,9 @@ void DysektEditor::toggleEqPanel()
         } else if (activeSlot == SlotContent::Browser) {
             browserPanel.setVisible (false);
             headerBar.setBrowserActive (false);
+        } else if (activeSlot == SlotContent::Seq) {
+            pianoRollPanel.setVisible (false);
+            headerBar.setSeqActive (false);
         }
         activeSlot = SlotContent::Eq;
         eqPanel.setVisible (true);
@@ -1068,7 +1102,6 @@ void DysektEditor::timerCallback()
  if (trimNow != lastTrimActive)
  {
  lastTrimActive = trimNow;
- actionPanel.setTrimActive (trimNow);
  }
  }
 
@@ -1213,8 +1246,8 @@ void DysektEditor::timerCallback()
  headerBar.repaint();
  sliceControlBar.updateMidiLearnPulse();
  sliceControlBar.repaint();
- if (uiChanged) actionPanel.repaint();
- if (activeSlot == SlotContent::Mixer) mixerPanel.updateFromSnapshot();
+  if (activeSlot == SlotContent::Mixer) mixerPanel.updateFromSnapshot();
+if (activeSlot == SlotContent::Seq)   pianoRollPanel.syncSnap();
 }
 
 void DysektEditor::ensureDefaultThemes()
@@ -1364,8 +1397,6 @@ void DysektEditor::loadUserSettings()
  waveformOverview.setWaveformMode (waveformMode);
  headerBar.dualFrame().setPadGridActive (uiMode == 1);
  headerBar.setWaveMode (waveformMode);
- actionPanel.setWaveActive (waveformMode != 0);
-
  headerBar.setMidiFollowActive (processor.midiSelectsSlice.load());
 }
 

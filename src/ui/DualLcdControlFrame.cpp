@@ -299,6 +299,43 @@ void DualLcdControlFrame::drawIcon (juce::Graphics& g, juce::Rectangle<float> b,
         g.fillRoundedRectangle (startX + keyW - bkW * 0.5f,                 keyY, bkW, bkH, 0.8f);
         g.fillRoundedRectangle (startX + keyW * 2.0f + 1.0f - bkW * 0.5f,  keyY, bkW, bkH, 0.8f);
     }
+    else if (type == 6) // Sequencer — mini piano-roll grid (note blocks)
+    {
+        // Draw a small grid of note blocks: 3 rows, staggered lengths
+        const float gridL  = cx - 9.0f;
+        const float gridR  = cx + 9.0f;
+        const float noteH  = 2.8f;
+        const float gap2   = 1.4f;
+        const float totalH = 3.0f * noteH + 2.0f * gap2;
+        float rowY = cy2 - totalH * 0.5f;
+
+        // Row data: [startFrac, endFrac] of grid width
+        struct NoteRow { float x0, x1; };
+        NoteRow rows[3] = {
+            { 0.00f, 0.55f },  // top note: left-biased
+            { 0.30f, 1.00f },  // middle note: right-biased
+            { 0.10f, 0.70f },  // bottom note: centred
+        };
+
+        const float gridW = gridR - gridL;
+        for (int r = 0; r < 3; ++r)
+        {
+            float nx = gridL + rows[r].x0 * gridW;
+            float nw = (rows[r].x1 - rows[r].x0) * gridW;
+            // Note fill
+            g.setColour (col.withAlpha (active ? 0.85f : 0.55f));
+            g.fillRoundedRectangle (nx, rowY, nw, noteH, 1.0f);
+            // Note outline
+            g.setColour (col);
+            g.drawRoundedRectangle (nx, rowY, nw, noteH, 1.0f, 0.7f);
+            rowY += noteH + gap2;
+        }
+
+        // Vertical grid line at beat 1/2 position
+        g.setColour (col.withAlpha (0.25f));
+        const float midX = gridL + gridW * 0.5f;
+        g.drawLine (midX, cy2 - totalH * 0.5f - 1.0f, midX, cy2 + totalH * 0.5f + 1.0f, 0.7f);
+    }
     else // type == 3: Mixer — three vertical faders at different positions
     {
         // Three fader grooves
@@ -401,16 +438,17 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
         drawTab (padTabArea,  "SF-PLAYER",  padGridActive);
     }
 
-    // ── Top row: four icons evenly spread across full width ──────────────────
+    // ── Top row: five icons evenly spread across full width ─────────────────
     {
-        const int btnSz  = si (28);
+        const int btnSz  = si (26);
         const int btnY   = (half - btnSz) / 2;
-        const int gap    = (w - 4 * btnSz) / 5;
+        const int gap    = (w - 5 * btnSz) / 6;
 
         filIconArea        = { gap,                       btnY, btnSz, btnSz };
         waIconArea         = { gap * 2 + btnSz,           btnY, btnSz, btnSz };
         midiFollowIconArea = { gap * 3 + btnSz * 2,       btnY, btnSz, btnSz };
         bodeIconArea       = { gap * 4 + btnSz * 3,       btnY, btnSz, btnSz };
+        seqIconArea        = { gap * 5 + btnSz * 4,       btnY, btnSz, btnSz };
         eqIconArea         = {};
         sfzIconArea        = {};
 
@@ -418,13 +456,14 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
         drawIcon (g, waIconArea        .toFloat(), 1, waveMode != 0);
         drawIcon (g, midiFollowIconArea.toFloat(), 2, midiFollowActive);
         drawIcon (g, bodeIconArea      .toFloat(), 3, bodeActive);
+        drawIcon (g, seqIconArea       .toFloat(), 6, seqActive);
 
         // ── Hover tooltip label ──────────────────────────────────────
         if (hoveredIcon >= 0)
         {
-            static const char* kLabels[] = { "FILE BROWSER", "WAVEFORM", "MIDI FOLLOW", "MIXER" };
+            static const char* kLabels[] = { "FILE BROWSER", "WAVEFORM", "MIDI FOLLOW", "MIXER", "SEQUENCER" };
             const juce::Rectangle<int>* areas[] = { &filIconArea, &waIconArea,
-                                                     &midiFollowIconArea, &bodeIconArea };
+                                                     &midiFollowIconArea, &bodeIconArea, &seqIconArea };
             const auto& area = *areas[hoveredIcon];
             const int labelH  = si (9);
             const int labelY  = area.getY() - labelH - 2;
@@ -609,6 +648,13 @@ void DualLcdControlFrame::mouseDown (const juce::MouseEvent& e)
         if (onBodeToggle) onBodeToggle();
         return;
     }
+    if (seqIconArea.contains (pos))
+    {
+        seqActive = ! seqActive;
+        repaint();
+        if (onSeqToggle) onSeqToggle();
+        return;
+    }
     // ── EDIT | SFZ tabs ──────────────────────────────────────────────────────
     if (editTabArea.contains (pos))
     {
@@ -707,6 +753,7 @@ void DualLcdControlFrame::mouseMove (const juce::MouseEvent& e)
     else if (waIconArea.contains (pos))         found = 1;
     else if (midiFollowIconArea.contains (pos)) found = 2;
     else if (bodeIconArea.contains (pos))       found = 3;
+    else if (seqIconArea.contains (pos))        found = 4;
 
     if (found != hoveredIcon)
     {

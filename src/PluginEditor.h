@@ -9,7 +9,6 @@
 #include "ui/SliceLane.h"
 #include "ui/SliceControlBar.h"
 #include "ui/WaveformView.h"
-#include "ui/ActionPanel.h"
 #include "ui/ShortcutsPanel.h"
 #include "ui/FileBrowserPanel.h"
 #include "ui/MixerPanel.h"
@@ -89,7 +88,7 @@ private:
 
     /// Which panel occupies the bottom slot (browser or mixer).
     /// Mutually exclusive.
-    enum class SlotContent { None, Browser, Mixer, Eq };
+    enum class SlotContent { None, Browser, Mixer, Eq, Seq };
     SlotContent activeSlot   = SlotContent::None;
     bool initBrowserOpen     = false;  // true until the first real sample is loaded
     int  waveformMode = 0;  // 0=Hard 1=Soft 2=Outline 3=Rectified 4=Mirrored 5=Bars 6=RMS 7=Stepped
@@ -121,7 +120,6 @@ private:
     WaveformView     waveformView;
     WaveformOverview waveformOverview;
     SliceControlBar  sliceControlBar;
-    ActionPanel      actionPanel;
 
     FileBrowserPanel browserPanel;
     MixerPanel       mixerPanel;
@@ -137,7 +135,7 @@ private:
     void toggleEqPanel();
     void toggleShortcutsPanel();
     void toggleThemeEditor();
-    void togglePianoRoll();
+    void toggleSeqPanel();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DysektEditor)
 };

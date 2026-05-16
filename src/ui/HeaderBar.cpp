@@ -11,7 +11,7 @@ HeaderBar::HeaderBar (DysektProcessor& p)
    controlFrame (p)
 {
     // Standard buttons
-    for (auto* btn : { &undoBtn, &redoBtn, &panicBtn, &shortcutsBtn, &seqBtn })
+    for (auto* btn : { &undoBtn, &redoBtn, &panicBtn, &shortcutsBtn })
     {
         btn->setAlwaysOnTop (true);
         btn->setColour (juce::TextButton::buttonColourId, getTheme().button);
@@ -25,9 +25,6 @@ HeaderBar::HeaderBar (DysektProcessor& p)
     shortcutsBtn.setTooltip ("Settings");
     shortcutsBtn.onClick = [this] { if (onShortcutsToggle) onShortcutsToggle(); };
 
-    seqBtn.setTooltip ("Piano Roll Sequencer");
-    seqBtn.setClickingTogglesState (true);
-    seqBtn.onClick = [this] { if (onSeqToggle) onSeqToggle(); };
 
     panicBtn.setTooltip ("Panic: kill all sound");
     panicBtn.onClick = [this] {
@@ -56,6 +53,7 @@ HeaderBar::HeaderBar (DysektProcessor& p)
     controlFrame.onMidiFollowToggle = [this] { if (onMidiFollowToggle) onMidiFollowToggle(); };
     controlFrame.onBodeToggle    = [this] { if (onBodeToggle)    onBodeToggle(); };
     controlFrame.onEqToggle      = [this] { if (onEqToggle)      onEqToggle(); };
+    controlFrame.onSeqToggle     = [this] { if (onSeqToggle)     onSeqToggle(); };
     // Note: controlFrame is NOT added as a visible child here —
     // PluginEditor::resized() calls addAndMakeVisible(*headerBar.getControlFrame())
     // and positions it between the two LCD panels.
@@ -69,6 +67,7 @@ void HeaderBar::setWaveMode       (int  m) { controlFrame.setWaveMode (m); }
 void HeaderBar::setMidiFollowActive (bool v) { controlFrame.setMidiFollowActive (v); }
 void HeaderBar::setBodeActive     (bool v) { controlFrame.setBodeActive (v); }
 void HeaderBar::setEqActive       (bool v) { controlFrame.setEqActive (v); }
+void HeaderBar::setSeqActive      (bool v) { controlFrame.setSeqActive (v); }
 
 // ── resized ───────────────────────────────────────────────────────────────────
 
@@ -90,8 +89,7 @@ void HeaderBar::resized()
     undoBtn     .setBounds (pad,               pad, btnW - gap, h - pad * 2);
     redoBtn     .setBounds (pad + btnW,        pad, btnW - gap, h - pad * 2);
     panicBtn    .setBounds (pad + btnW * 2,    pad, btnW - gap, h - pad * 2);
-    seqBtn      .setBounds (pad + btnW * 3,    pad, btnW - gap, h - pad * 2);
-    shortcutsBtn.setBounds (pad + btnW * 4,    pad, w - pad - btnW * 4 - gap, h - pad * 2);
+    shortcutsBtn.setBounds (pad + btnW * 3,    pad, w - pad - btnW * 3 - gap, h - pad * 2);
 }
 
 // ── paint ─────────────────────────────────────────────────────────────────────
@@ -99,7 +97,7 @@ void HeaderBar::resized()
 void HeaderBar::paint (juce::Graphics& g)
 {
     // Refresh standard button colours to follow theme
-    for (auto* btn : { &undoBtn, &redoBtn, &panicBtn, &shortcutsBtn, &seqBtn })
+    for (auto* btn : { &undoBtn, &redoBtn, &panicBtn, &shortcutsBtn })
     {
         btn->setColour (juce::TextButton::buttonColourId, getTheme().button);
         btn->setColour (juce::TextButton::textColourOnId,  getTheme().accent);
