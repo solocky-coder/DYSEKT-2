@@ -25,6 +25,7 @@
 #include "ui/GlobalEqPanel.h"
 #include "ui/PadGridView.h"
 #include "ui/PianoRollPanel.h"
+#include "ui/ArrangeView.h"
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 #include "ui/PluginEditorConstants.h"
@@ -128,6 +129,7 @@ private:
     ShortcutsPanel   shortcutsPanel { processor };
     GlobalEqPanel    eqPanel;
     PianoRollPanel   pianoRollPanel { processor.sequencer, &processor.abletonLink };
+    ArrangeView      arrangeView    { processor.sequencer, &processor.abletonLink };
 
     juce::TooltipWindow tooltipWindow { this, 500 };
 

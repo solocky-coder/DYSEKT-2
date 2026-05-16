@@ -62,6 +62,13 @@ public:
         pianoRoll.setSnapTicks (transport.getSnapTicks());
     }
 
+    /** Set active track from outside (e.g. from ArrangeView double-click). */
+    void setActiveTrackPublic (int trackIndex)
+    {
+        trackStrip.setSelectedTrack (trackIndex);
+        pianoRoll.setActiveTrack (trackIndex);
+    }
+
     void visibilityChanged() override
     {
         if (isVisible()) syncSnap();

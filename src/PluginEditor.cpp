@@ -90,6 +90,16 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  shortcutsPanel.setVisible (false);
  addChildComponent (shortcutsPanel);
     addChildComponent (pianoRollPanel);
+    addChildComponent (arrangeView);
+
+    // Wire ArrangeView double-click → show PianoRollPanel as overlay
+    arrangeView.onClipDoubleClicked = [this] (int trackIndex)
+    {
+        pianoRollPanel.setActiveTrackPublic (trackIndex);
+        pianoRollPanel.setVisible (true);
+        pianoRollPanel.toFront (false);
+        resized();
+    };
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
  shortcutsPanel.onThemeRequest = [this]
  {
@@ -337,6 +347,7 @@ void DysektEditor::toggleBrowserPanel()
         else if (activeSlot == SlotContent::Seq)
         {
             pianoRollPanel.setVisible (false);
+            arrangeView.setVisible (false);
             headerBar.setSeqActive (false);
         }
         activeSlot = SlotContent::Browser;
@@ -452,6 +463,7 @@ void DysektEditor::toggleSeqPanel()
 {
     if (activeSlot == SlotContent::Seq) {
         activeSlot = SlotContent::None;
+        arrangeView.setVisible (false);
         pianoRollPanel.setVisible (false);
         headerBar.setSeqActive (false);
     } else {
@@ -467,8 +479,8 @@ void DysektEditor::toggleSeqPanel()
             headerBar.setEqActive (false);
         }
         activeSlot = SlotContent::Seq;
-        pianoRollPanel.setVisible (true);
-        pianoRollPanel.syncSnap();
+        arrangeView.setVisible (true);
+        pianoRollPanel.setVisible (false);  // opens only on clip double-click
         headerBar.setSeqActive (true);
     }
     resized(); repaint(); resized(); repaint();
@@ -713,6 +725,7 @@ void DysektEditor::resized()
  browserPanel.setBounds ({});
  eqPanel.setBounds ({});
  pianoRollPanel.setBounds ({});
+ arrangeView.setBounds ({});
  }
  else if (activeSlot == SlotContent::Browser && ! initBrowserOpen) {
  // Expand browser to fill ALL available area (waveformView space + slot)
@@ -722,6 +735,7 @@ void DysektEditor::resized()
  mixerPanel.setBounds ({});
  eqPanel.setBounds ({});
  pianoRollPanel.setBounds ({});
+ arrangeView.setBounds ({});
  }
  else if (activeSlot == SlotContent::Eq) {
      const int eqTop = actionArea.getY();
@@ -730,11 +744,27 @@ void DysektEditor::resized()
      mixerPanel.setBounds ({});
      browserPanel.setBounds ({});
      pianoRollPanel.setBounds ({});
+     arrangeView.setBounds ({});
  }
  else if (activeSlot == SlotContent::Seq) {
      const int seqTop = actionArea.getY();
      const int seqBot = slot.getBottom();
-     pianoRollPanel.setBounds (kFX, seqTop, kFW, seqBot - seqTop);
+     const int seqH   = seqBot - seqTop;
+
+     arrangeView.setBounds (kFX, seqTop, kFW, seqH);
+
+     // PianoRollPanel floats as overlay on top of ArrangeView when visible
+     if (pianoRollPanel.isVisible())
+     {
+         const int overlayH = juce::jmax (250, seqH * 3 / 4);
+         pianoRollPanel.setBounds (kFX, seqTop, kFW, juce::jmin (seqH, overlayH));
+         pianoRollPanel.toFront (false);
+     }
+     else
+     {
+         pianoRollPanel.setBounds ({});
+     }
+
      mixerPanel.setBounds ({});
      browserPanel.setBounds ({});
      eqPanel.setBounds ({});
@@ -742,6 +772,7 @@ void DysektEditor::resized()
  mixerPanel.setBounds ({});
  eqPanel.setBounds ({});
  pianoRollPanel.setBounds ({});
+ arrangeView.setBounds ({});
  if (! initBrowserOpen)
  browserPanel.setBounds ({});
  // initBrowserOpen browser is sized below, in the waveform frame area
@@ -919,6 +950,7 @@ void DysektEditor::toggleMixerPanel()
  headerBar.setEqActive (false);
  } else if (activeSlot == SlotContent::Seq) {
  pianoRollPanel.setVisible (false);
+ arrangeView.setVisible (false);
  headerBar.setSeqActive (false);
  }
  activeSlot = SlotContent::Mixer;
@@ -944,6 +976,7 @@ void DysektEditor::toggleEqPanel()
             headerBar.setBrowserActive (false);
         } else if (activeSlot == SlotContent::Seq) {
             pianoRollPanel.setVisible (false);
+            arrangeView.setVisible (false);
             headerBar.setSeqActive (false);
         }
         activeSlot = SlotContent::Eq;
@@ -968,6 +1001,16 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
 
  if (code == juce::KeyPress::escapeKey && shortcutsPanel.isVisible())
  { toggleShortcutsPanel(); return true; }
+
+ // Esc dismisses the PianoRoll overlay, returning to ArrangeView-only
+ if (code == juce::KeyPress::escapeKey &&
+     activeSlot == SlotContent::Seq &&
+     pianoRollPanel.isVisible())
+ {
+     pianoRollPanel.setVisible (false);
+     resized(); repaint();
+     return true;
+ }
 
  if (code == '?') { toggleShortcutsPanel(); return true; }
 
