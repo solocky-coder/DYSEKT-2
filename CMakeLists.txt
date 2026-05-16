@@ -4,13 +4,19 @@ project(Dysekt VERSION 1.0.0)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Silence the CMake 3.28+ deprecation warning for FetchContent_Populate.
+# We intentionally use source-only population to avoid evaluating third-party
+# root CMakeLists.txt files (Tracktion, chowdsp_utils) that break on Windows.
+cmake_policy(SET CMP0169 OLD)
+
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 
 include(FetchContent)
 
 # --- chowdsp_utils (SVF EQ filters — used by VoicePool per-slice EQ) ---
-# Use source-only population (same pattern as Tracktion) to avoid configuring
-# chowdsp's root CMakeLists.txt, which fails on Windows with FetchContent_MakeAvailable.
+# Source-only fetch: the filter types we use (StateVariableFilter, etc.) are
+# all header-only templates. We expose the modules directory as an include path
+# and skip chowdsp's root CMakeLists.txt entirely to avoid Windows build failures.
 FetchContent_Declare(
     chowdsp_utils
     GIT_REPOSITORY https://github.com/Chowdhury-DSP/chowdsp_utils
@@ -18,15 +24,13 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
     GIT_SUBMODULES ""
 )
-
 FetchContent_GetProperties(chowdsp_utils)
 if(NOT chowdsp_utils_POPULATED)
     FetchContent_Populate(chowdsp_utils)
 endif()
-
-# Register only the module(s) we actually use — bypasses the entire chowdsp build system.
-juce_add_modules("${chowdsp_utils_SOURCE_DIR}/modules/chowdsp_filters")
-message(STATUS "chowdsp_utils fetched; chowdsp_filters registered via juce_add_modules")
+# Include path: gives access to <chowdsp_filters/chowdsp_filters.h> etc.
+set(CHOWDSP_MODULES_DIR "${chowdsp_utils_SOURCE_DIR}/modules")
+message(STATUS "chowdsp_utils fetched — headers at ${CHOWDSP_MODULES_DIR}")
 
 # --- Tracktion Engine (Source Download Only) ---
 # Populates the source tree without evaluating Tracktion's own root CMake tree.
@@ -37,13 +41,11 @@ FetchContent_Declare(
     GIT_TAG        master
     GIT_SUBMODULES ""
 )
-
 FetchContent_GetProperties(tracktion_engine)
 if(NOT tracktion_engine_POPULATED)
     FetchContent_Populate(tracktion_engine)
 endif()
 
-# Register Tracktion modules natively into the JUCE build ecosystem
 juce_add_modules("${tracktion_engine_SOURCE_DIR}/modules/tracktion_engine")
 juce_add_modules("${tracktion_engine_SOURCE_DIR}/modules/tracktion_graph")
 
@@ -189,6 +191,8 @@ target_include_directories(Dysekt PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
+    # chowdsp: expose modules root so #include <chowdsp_filters/chowdsp_filters.h> resolves.
+    ${CHOWDSP_MODULES_DIR}
 )
 
 target_compile_definitions(Dysekt PUBLIC
@@ -208,7 +212,7 @@ target_link_libraries(Dysekt
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
-        chowdsp_filters   # juce_add_modules target — no chowdsp:: namespace prefix
+        # chowdsp_filters is header-only templates — no library target to link.
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
@@ -270,6 +274,7 @@ target_include_directories(DysektStandalone PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
+    ${CHOWDSP_MODULES_DIR}
     ${TRACKTION_ENGINE_MODULES_DIR}
 )
 
@@ -293,7 +298,7 @@ target_link_libraries(DysektStandalone
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
-        chowdsp_filters   # juce_add_modules target — no chowdsp:: namespace prefix
+        # chowdsp_filters is header-only templates — no library target to link.
         tracktion_engine
         tracktion_graph
     PUBLIC
