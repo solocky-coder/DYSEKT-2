@@ -24,7 +24,8 @@
 //   +/-                       → track height
 //==============================================================================
 class ArrangeView : public juce::Component,
-                    private juce::Timer
+                    private juce::Timer,
+                    private juce::ScrollBar::Listener
 {
 public:
     static constexpr int kTransportH  = 34;

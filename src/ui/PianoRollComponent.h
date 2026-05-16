@@ -1099,33 +1099,47 @@ private:
         const juce::ScopedReadLock sl (clip->getLock());
         const auto& n = clip->getNotes().getReference (idx);
 
-        juce::AlertWindow dlg ("Note Properties",
-            "Pitch: " + juce::MidiMessage::getMidiNoteName(n.note, true, true, 4) +
-            "\nStart: " + juce::String(n.startTick) + " ticks" +
-            "\nLength: " + juce::String(n.durationTick) + " ticks" +
-            "\nVelocity: " + juce::String(n.velocity),
-            juce::MessageBoxIconType::InfoIcon);
-        dlg.addButton ("OK", 1);
-        dlg.runModalLoop();
+        juce::MessageBoxOptions opts = juce::MessageBoxOptions()
+            .withIconType (juce::MessageBoxIconType::InfoIcon)
+            .withTitle ("Note Properties")
+            .withMessage ("Pitch: " + juce::MidiMessage::getMidiNoteName(n.note, true, true, 4) +
+                          "\nStart: " + juce::String(n.startTick) + " ticks" +
+                          "\nLength: " + juce::String(n.durationTick) + " ticks" +
+                          "\nVelocity: " + juce::String(n.velocity))
+            .withButton ("OK");
+        juce::AlertWindow::showAsync (opts, nullptr);
     }
 
     void showSetVelocityDialog (MidiClip* clip)
     {
-        juce::AlertWindow dlg ("Set Velocity", "Enter velocity (1-127):",
-                               juce::MessageBoxIconType::QuestionIcon);
-        dlg.addTextEditor ("vel", juce::String (lastVelocity));
-        dlg.addButton ("OK",     1);
-        dlg.addButton ("Cancel", 0);
-        if (dlg.runModalLoop() == 1)
-        {
-            const int v = juce::jlimit (1, 127,
-                dlg.getTextEditorContents ("vel").getIntValue());
-            lastVelocity = v;
-            pushUndo (clip);
-            for (int i : selectedNotes)
-                clip->setNoteVelocity (i, v);
-            repaint(); velocityLane.repaint();
-        }
+        // juce::AlertWindow::runModalLoop() was removed in JUCE 8.
+        // We use enterModalState with a self-owning window instead.
+        auto* dlg = new juce::AlertWindow ("Set Velocity", "Enter velocity (1-127):",
+                                           juce::MessageBoxIconType::QuestionIcon);
+        dlg->addTextEditor ("vel", juce::String (lastVelocity));
+        dlg->addButton ("OK",     1);
+        dlg->addButton ("Cancel", 0);
+
+        dlg->enterModalState (
+            true,
+            juce::ModalCallbackFunction::forComponent (
+                [] (int result, PianoRollComponent* self, MidiClip* c,
+                    juce::AlertWindow* w)
+                {
+                    if (result == 1)
+                    {
+                        const int v = juce::jlimit (1, 127,
+                            w->getTextEditorContents ("vel").getIntValue());
+                        self->lastVelocity = v;
+                        self->pushUndo (c);
+                        for (int i : self->selectedNotes)
+                            c->setNoteVelocity (i, v);
+                        self->repaint();
+                        self->velocityLane.repaint();
+                    }
+                },
+                this, clip, dlg),
+            true /* deleteWhenDismissed */);
     }
 
     //==========================================================================
