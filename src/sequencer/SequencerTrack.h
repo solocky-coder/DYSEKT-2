@@ -1,7 +1,7 @@
 #pragma once
 #include "MidiClip.h"
 #include "../audio/SfzPlayer.h"
-#include <juce_core/juce_core.h>
+#include <juce_graphics/juce_graphics.h>
 
 //==============================================================================
 //  SequencerTrack

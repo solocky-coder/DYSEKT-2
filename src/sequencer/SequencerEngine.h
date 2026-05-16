@@ -1,6 +1,7 @@
 #pragma once
 #include "SequencerTrack.h"
 #include "AbletonLink.h"
+#include <juce_graphics/juce_graphics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <memory>
 #include <vector>

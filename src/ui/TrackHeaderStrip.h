@@ -266,9 +266,12 @@ private:
             menu.addItem (i + 1, lbl, /*enabled=*/ ! already, /*ticked=*/ already);
         }
 
-        const int result = menu.showMenu (juce::PopupMenu::Options{});
-        if (result > 0 && onAddSfTrackRequested)
-            onAddSfTrackRequested (availablePresets[(size_t)(result - 1)]);
+        menu.showMenuAsync (juce::PopupMenu::Options{},
+            [this] (int result)
+            {
+                if (result > 0 && onAddSfTrackRequested)
+                    onAddSfTrackRequested (availablePresets[(size_t)(result - 1)]);
+            });
     }
 
     bool isAlreadyAdded (const Sf2PresetInfo& p) const
