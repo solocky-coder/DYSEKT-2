@@ -530,6 +530,9 @@ private:
     juce::TextButton btnSelect, btnDraw, btnErase, btnSplit, btnGlue;
     juce::TextButton btnUndo, btnRedo, btnZoomFit;
 
+    //── Overlays ────────────────────────────────────────────────────────────────
+    std::unique_ptr<juce::Component> velOverlay;
+
     //==========================================================================
     //  Helpers: coordinate mapping
     //==========================================================================
@@ -1112,34 +1115,118 @@ private:
 
     void showSetVelocityDialog (MidiClip* clip)
     {
-        // juce::AlertWindow::runModalLoop() was removed in JUCE 8.
-        // We use enterModalState with a self-owning window instead.
-        auto* dlg = new juce::AlertWindow ("Set Velocity", "Enter velocity (1-127):",
-                                           juce::MessageBoxIconType::QuestionIcon);
-        dlg->addTextEditor ("vel", juce::String (lastVelocity));
-        dlg->addButton ("OK",     1);
-        dlg->addButton ("Cancel", 0);
+        // runModalLoop() removed in JUCE 8 — use an inline overlay instead.
+        class SetVelocityOverlay : public juce::Component
+        {
+        public:
+            std::function<void(bool, int)> onResult;
 
-        dlg->enterModalState (
-            true,
-            juce::ModalCallbackFunction::forComponent (
-                [] (int result, PianoRollComponent* self, MidiClip* c,
-                    juce::AlertWindow* w)
-                {
-                    if (result == 1)
-                    {
-                        const int v = juce::jlimit (1, 127,
-                            w->getTextEditorContents ("vel").getIntValue());
-                        self->lastVelocity = v;
-                        self->pushUndo (c);
-                        for (int i : self->selectedNotes)
-                            c->setNoteVelocity (i, v);
-                        self->repaint();
-                        self->velocityLane.repaint();
-                    }
-                },
-                this, clip, dlg),
-            true /* deleteWhenDismissed */);
+            SetVelocityOverlay (int currentVel)
+            {
+                editor.setText (juce::String (currentVel), false);
+                editor.setInputRestrictions (3, "0123456789");
+                editor.setSelectAllWhenFocused (true);
+                editor.onReturnKey  = [this] { commit(); };
+                editor.onEscapeKey  = [this] { dismiss(); };
+                addAndMakeVisible (editor);
+
+                okBtn.setButtonText ("OK");
+                okBtn.onClick = [this] { commit(); };
+                addAndMakeVisible (okBtn);
+
+                cancelBtn.setButtonText ("Cancel");
+                cancelBtn.onClick = [this] { dismiss(); };
+                addAndMakeVisible (cancelBtn);
+
+                setInterceptsMouseClicks (true, true);
+            }
+
+            void visibilityChanged() override
+            {
+                if (isVisible()) editor.grabKeyboardFocus();
+            }
+
+            void paint (juce::Graphics& g) override
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.55f));
+                g.fillRect (getLocalBounds());
+                const auto box = dialogBox();
+                g.setColour (juce::Colour (0xFF1A2030));
+                g.fillRoundedRectangle (box.toFloat(), 5.0f);
+                g.setColour (juce::Colour (0xFF3A8FCC).withAlpha (0.7f));
+                g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 5.0f, 1.5f);
+                g.setFont (14.0f);
+                g.setColour (juce::Colours::white);
+                g.drawText ("Set Velocity", box.getX() + 16, box.getY() + 12,
+                            box.getWidth() - 32, 20, juce::Justification::centredLeft);
+                g.setFont (11.0f);
+                g.setColour (juce::Colours::white.withAlpha (0.6f));
+                g.drawText ("Enter velocity (1-127):", box.getX() + 16, box.getY() + 38,
+                            box.getWidth() - 32, 16, juce::Justification::centredLeft);
+            }
+
+            void resized() override
+            {
+                const auto box = dialogBox();
+                editor.setBounds (box.getX() + 16, box.getY() + 58,
+                                  box.getWidth() - 32, 26);
+                const int btnY = box.getBottom() - 38;
+                const int btnW = (box.getWidth() - 48) / 2;
+                okBtn    .setBounds (box.getX() + 16,           btnY, btnW, 26);
+                cancelBtn.setBounds (box.getX() + 16 + btnW + 8, btnY, btnW, 26);
+            }
+
+            void mouseDown (const juce::MouseEvent& e) override
+            {
+                if (! dialogBox().contains (e.getPosition())) dismiss();
+            }
+
+        private:
+            juce::TextEditor editor;
+            juce::TextButton okBtn, cancelBtn;
+
+            juce::Rectangle<int> dialogBox() const
+            {
+                const int w = juce::jmin (300, getWidth() - 40);
+                const int h = 140;
+                return { (getWidth() - w) / 2, (getHeight() - h) / 2, w, h };
+            }
+
+            void commit()
+            {
+                const int v = juce::jlimit (1, 127, editor.getText().getIntValue());
+                if (onResult) onResult (true, v);
+            }
+
+            void dismiss()
+            {
+                if (onResult) onResult (false, 0);
+            }
+        };
+
+        auto overlay = std::make_unique<SetVelocityOverlay> (lastVelocity);
+        overlay->setBounds (getLocalBounds());
+
+        auto* overlayPtr = overlay.get();
+        overlayPtr->onResult = [this, clip, overlayPtr] (bool ok, int v)
+        {
+            if (ok)
+            {
+                lastVelocity = v;
+                pushUndo (clip);
+                for (int i : selectedNotes)
+                    clip->setNoteVelocity (i, v);
+                repaint();
+                velocityLane.repaint();
+            }
+            removeChildComponent (overlayPtr);
+            velOverlay.reset();
+        };
+
+        velOverlay = std::move (overlay);
+        addAndMakeVisible (*velOverlay);
+        velOverlay->setBounds (getLocalBounds());
+        velOverlay->grabKeyboardFocus();
     }
 
     //==========================================================================
