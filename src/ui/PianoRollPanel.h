@@ -62,6 +62,12 @@ public:
         pianoRoll.setSnapTicks (transport.getSnapTicks());
     }
 
+    /** Forward tool selection (e.g. from a global toolbar). */
+    void setActiveTool (PianoRollComponent::Tool t)
+    {
+        pianoRoll.setActiveTool (t);
+    }
+
     /** Set active track from outside (e.g. from ArrangeView double-click). */
     void setActiveTrackPublic (int trackIndex)
     {
