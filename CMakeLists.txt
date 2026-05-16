@@ -14,9 +14,10 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 include(FetchContent)
 
 # --- chowdsp_utils (SVF EQ filters — used by VoicePool per-slice EQ) ---
-# Source-only fetch: the filter types we use (StateVariableFilter, etc.) are
-# all header-only templates. We expose the modules directory as an include path
-# and skip chowdsp's root CMakeLists.txt entirely to avoid Windows build failures.
+# Source-only fetch: the filter types we use are all header-only templates.
+# We expose them via an INTERFACE library so the include path propagates
+# transitively — this ensures JUCE's unity build .cpp files also see the
+# headers when they #include Voice.h and other headers that pull in chowdsp.
 FetchContent_Declare(
     chowdsp_utils
     GIT_REPOSITORY https://github.com/Chowdhury-DSP/chowdsp_utils
@@ -28,9 +29,14 @@ FetchContent_GetProperties(chowdsp_utils)
 if(NOT chowdsp_utils_POPULATED)
     FetchContent_Populate(chowdsp_utils)
 endif()
-# Include path: gives access to <chowdsp_filters/chowdsp_filters.h> etc.
-set(CHOWDSP_MODULES_DIR "${chowdsp_utils_SOURCE_DIR}/modules")
-message(STATUS "chowdsp_utils fetched — headers at ${CHOWDSP_MODULES_DIR}")
+
+# INTERFACE library: anything that links chowdsp_headers (PUBLIC or INTERFACE)
+# automatically gets the include path, including JUCE's internal unity targets.
+add_library(chowdsp_headers INTERFACE)
+target_include_directories(chowdsp_headers INTERFACE
+    "${chowdsp_utils_SOURCE_DIR}/modules"
+)
+message(STATUS "chowdsp_utils fetched — headers at ${chowdsp_utils_SOURCE_DIR}/modules")
 
 # --- Tracktion Engine (Source Download Only) ---
 # Populates the source tree without evaluating Tracktion's own root CMake tree.
@@ -191,8 +197,6 @@ target_include_directories(Dysekt PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
-    # chowdsp: expose modules root so #include <chowdsp_filters/chowdsp_filters.h> resolves.
-    ${CHOWDSP_MODULES_DIR}
 )
 
 target_compile_definitions(Dysekt PUBLIC
@@ -212,8 +216,10 @@ target_link_libraries(Dysekt
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
-        # chowdsp_filters is header-only templates — no library target to link.
     PUBLIC
+        # PUBLIC so JUCE's internal unity-build targets inherit the chowdsp include path.
+        # chowdsp_filters is header-only — chowdsp_headers carries only an INTERFACE include.
+        chowdsp_headers
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
@@ -274,7 +280,6 @@ target_include_directories(DysektStandalone PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
-    ${CHOWDSP_MODULES_DIR}
     ${TRACKTION_ENGINE_MODULES_DIR}
 )
 
@@ -298,10 +303,11 @@ target_link_libraries(DysektStandalone
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
-        # chowdsp_filters is header-only templates — no library target to link.
         tracktion_engine
         tracktion_graph
     PUBLIC
+        # PUBLIC so JUCE's internal unity-build targets inherit the chowdsp include path.
+        chowdsp_headers
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
