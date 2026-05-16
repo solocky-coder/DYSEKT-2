@@ -309,7 +309,7 @@ void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
         if (v.eqActive)
         {
             // maxBlockSize=1: DYSEKT processes sample-by-sample via processSample()
-            const juce::dsp::ProcessSpec spec { sampleRate, 1, 2 };
+            const chowdsp::ProcessSpec spec { sampleRate, 1, 2 };
 
             v.eqLowShelf.prepare (spec);
             v.eqLowShelf.reset();

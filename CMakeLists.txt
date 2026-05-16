@@ -137,6 +137,7 @@ target_sources(Dysekt PRIVATE
     src/audio/LazyChopEngine.cpp
     src/audio/SoundFontLoader.cpp
     src/audio/SfzPlayer.cpp
+    src/sequencer/MidiClip.cpp
     src/params/ParamLayout.cpp
     src/ui/DysektLookAndFeel.cpp
     src/ui/HeaderBar.cpp
@@ -215,6 +216,7 @@ target_sources(DysektStandalone PRIVATE
     src/audio/LazyChopEngine.cpp
     src/audio/SoundFontLoader.cpp
     src/audio/SfzPlayer.cpp
+    src/sequencer/MidiClip.cpp
     src/params/ParamLayout.cpp
     src/ui/DysektLookAndFeel.cpp
     src/ui/HeaderBar.cpp
