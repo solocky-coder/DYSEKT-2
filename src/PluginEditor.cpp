@@ -100,6 +100,26 @@ DysektEditor::DysektEditor (DysektProcessor& p)
         pianoRollPanel.toFront (false);
         resized();
     };
+
+    // Wire SF track picker — user taps "+ SF TRACK" in the strip footer
+    arrangeView.onAddSfTrackRequested = [this] (const Sf2PresetInfo& preset)
+    {
+        // Pick a colour cycling through a small palette
+        static const juce::Colour kSfPalette[] = {
+            juce::Colour (0xFF406888), juce::Colour (0xFF886040),
+            juce::Colour (0xFF508860), juce::Colour (0xFF705088),
+            juce::Colour (0xFF887050), juce::Colour (0xFF508888),
+        };
+        const int n = processor.sequencer.getNumTracks();
+        const juce::Colour col = kSfPalette[n % 6];
+        processor.sequencer.addSfTrack (preset, col);
+    };
+
+    // Wire SF track remove — user clicks × on an SF row
+    arrangeView.onRemoveSfTrack = [this] (int trackIndex)
+    {
+        processor.sequencer.removeSfTrack (trackIndex);
+    };
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
  shortcutsPanel.onThemeRequest = [this]
  {
@@ -1242,6 +1262,18 @@ void DysektEditor::timerCallback()
                  -1, std::memory_order_relaxed);
              if (pending >= 0)
                  processor.sfzPlayer.setPresetByIndex (pending);
+
+             // Feed full preset list into the strip picker (never bulk-add tracks)
+             arrangeView.setStripAvailablePresets (presets);
+
+             // Auto-add a track for the currently active preset only
+             // (so there's always at least one SF track ready to sequence)
+             const int activeIdx = juce::jmax (0, pending);
+             if (activeIdx < (int) presets.size())
+             {
+                 const juce::Colour col (0xFF406888);
+                 processor.sequencer.addSfTrack (presets[(size_t) activeIdx], col);
+             }
 
              sfzDropdown.panelDidShow();
              sfzPanelRestored = true;
