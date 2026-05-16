@@ -44,8 +44,10 @@ public:
     juce::TextButton redoBtn      { "REDO"  };
     juce::TextButton panicBtn     { "PANIC" };
     juce::TextButton shortcutsBtn;
+    juce::TextButton seqBtn { "SEQ" };
 
     std::function<void()> onShortcutsToggle;
+    std::function<void()> onSeqToggle;
 
     void showThemePopup();
 
