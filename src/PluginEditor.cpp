@@ -1291,6 +1291,30 @@ void DysektEditor::timerCallback()
  sliceControlBar.repaint();
   if (activeSlot == SlotContent::Mixer) mixerPanel.updateFromSnapshot();
 if (activeSlot == SlotContent::Seq)   pianoRollPanel.syncSnap();
+
+    // ── Chromatic track sync ────────────────────────────────────────────────
+    // Whenever the UI snapshot changes, walk slices and keep the sequencer
+    // engine's ChromaticSlice tracks in sync with chromaticChannel settings.
+    // addChromaticTrack / removeChromaticTrack are both idempotent.
+    if (uiChanged)
+    {
+        const auto& snap = processor.getUiSliceSnapshot();
+        for (int i = 0; i < snap.numSlices; ++i)
+        {
+            const auto& sl = snap.slices[(size_t) i];
+            if (sl.chromaticChannel > 0)
+            {
+                const juce::String sliceName = "Slice " + juce::String (i + 1);
+                pianoRollPanel.onSliceChromaticToggled (
+                    i, true, sl.chromaticChannel, sliceName, sl.colour);
+            }
+            else
+            {
+                pianoRollPanel.onSliceChromaticToggled (
+                    i, false, 0, {}, juce::Colours::transparentBlack);
+            }
+        }
+    }
 }
 
 void DysektEditor::ensureDefaultThemes()
