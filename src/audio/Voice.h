@@ -1,6 +1,6 @@
 #pragma once
 #include "AdsrEnvelope.h"
-#include <chowdsp_filters/chowdsp_filters.h>
+#include "chowdsp_svf_filters.h"
 #include <memory>
 #include <vector>
 

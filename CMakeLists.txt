@@ -8,12 +8,6 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 
 include(FetchContent)
 
-# --- chowdsp_utils (SVF EQ filters — used by VoicePool per-slice EQ) ---
-# Vendored directly in the repo at ./chowdsp_utils (extracted from the v2.3.0 zip).
-# chowdsp_filters lives under modules/dsp/, so that is the include root.
-# All filter types we use are header-only templates — no library target needed.
-set(CHOWDSP_MODULES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/chowdsp_utils/modules/dsp")
-message(STATUS "chowdsp_utils — headers at ${CHOWDSP_MODULES_DIR}")
 
 # --- Tracktion Engine (Source Download Only) ---
 # Populates the source tree without evaluating Tracktion's own root CMake tree.
@@ -175,7 +169,6 @@ target_include_directories(Dysekt PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
-    ${CHOWDSP_MODULES_DIR}
 )
 
 target_compile_definitions(Dysekt PUBLIC
@@ -257,7 +250,6 @@ target_include_directories(DysektStandalone PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
     ${TRACKTION_ENGINE_MODULES_DIR}
-    ${CHOWDSP_MODULES_DIR}
 )
 
 target_compile_definitions(DysektStandalone PUBLIC
