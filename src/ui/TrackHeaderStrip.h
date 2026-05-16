@@ -266,7 +266,7 @@ private:
             menu.addItem (i + 1, lbl, /*enabled=*/ ! already, /*ticked=*/ already);
         }
 
-        const int result = menu.show();
+        const int result = menu.showMenu (juce::PopupMenu::Options{});
         if (result > 0 && onAddSfTrackRequested)
             onAddSfTrackRequested (availablePresets[(size_t)(result - 1)]);
     }
