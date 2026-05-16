@@ -10,33 +10,34 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 include(FetchContent)
 FetchContent_Declare(
     chowdsp_utils
-    GIT_REPOSITORY https://github.com/Chowdhury-DSP/chowdsp_utils
+    GIT_REPOSITORY https://github.com
     GIT_TAG        v2.3.0
     GIT_SHALLOW    TRUE
 )
 set(CHOWDSP_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(chowdsp_utils)
 
-# --- Tracktion Engine (sequencer backend — standalone only) ---
-# Uses FetchContent so no submodule init is required.
-# GIT_SUBMODULES_RECURSE FALSE prevents Tracktion pulling its own bundled
-# JUCE copy, which would collide with the JUCE submodule above.
-# TRACKTION_JUCE_MODULES_DIR redirects Tracktion's CMake at our JUCE instead.
+# --- Tracktion Engine (Source Download Only) ---
+# Populates the source tree without evaluating Tracktion's own root CMake tree.
+# This completely bypasses its internal JUCE copies, benchmarks, and tests.
 FetchContent_Declare(
     tracktion_engine
-    GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
+    GIT_REPOSITORY https://github.com
     GIT_TAG        master
     GIT_SUBMODULES ""
 )
-set(TRACKTION_JUCE_MODULES_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules" CACHE PATH "" FORCE)
-set(TRACKTION_ENABLE_EXAMPLES   OFF CACHE BOOL "" FORCE)
-set(TRACKTION_ENABLE_BENCHMARKS OFF CACHE BOOL "" FORCE)
-set(TRACKTION_ENABLE_UNIT_TESTS OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(tracktion_engine)
-# FetchContent populates tracktion_engine_SOURCE_DIR automatically.
+
+FetchContent_GetProperties(tracktion_engine)
+if(NOT tracktion_engine_POPULATED)
+    FetchContent_Populate(tracktion_engine)
+endif()
+
+# Register Tracktion modules natively into the JUCE build ecosystem
+juce_add_modules("${tracktion_engine_SOURCE_DIR}/modules/tracktion_engine")
+juce_add_modules("${tracktion_engine_SOURCE_DIR}/modules/tracktion_graph")
+
 set(TRACKTION_ENGINE_MODULES_DIR "${tracktion_engine_SOURCE_DIR}/modules")
-message(STATUS "Tracktion Engine fetched — sequencer backend enabled")
+message(STATUS "Tracktion Engine fetched and modules registered cleanly via juce_add_module")
 
 # --- Ableton Link (tempo sync across apps on LAN/WiFi) ---
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/link/include/ableton/Link.hpp")
@@ -45,10 +46,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/link/include/ableton/Link.hpp")
 else()
     set(DYSEKT_HAS_LINK FALSE)
     message(STATUS "Ableton Link SDK NOT found — Link sync disabled.")
-    message(STATUS "  To enable: git submodule add https://github.com/Ableton/link.git link")
+    message(STATUS "  To enable: git submodule add https://github.com link")
 endif()
 
-# --- sfizz (SFZ/SF2 engine — SoundFontLoader slice-render + SfzPlayer live SFZ playback) ---
+# --- sfizz (SFZ/SF2 engine) ---
 if(TRUE)
     set(SFIZZ_CLIENTS    OFF CACHE BOOL "" FORCE)
     set(SFIZZ_SHARED     OFF CACHE BOOL "" FORCE)
@@ -57,8 +58,6 @@ if(TRUE)
     set(SFIZZ_VST        OFF CACHE BOOL "" FORCE)
     set(SFIZZ_BENCHMARKS OFF CACHE BOOL "" FORCE)
     set(SFIZZ_TESTS      OFF CACHE BOOL "" FORCE)
-    # Disable sfizz_render CLI tool — it pulls in cxxopts which collides
-    # with vcpkg's pre-registered cxxopts alias target on Windows CI.
     set(SFIZZ_RENDER     OFF CACHE BOOL "" FORCE)
     add_subdirectory(sfizz EXCLUDE_FROM_ALL)
     set(DYSEKT_HAS_SFIZZ TRUE)
@@ -68,7 +67,7 @@ else()
     message(STATUS "sfizz NOT found at ./sfizz — SF2/SFZ slice-render support disabled.")
 endif()
 
-# --- FluidSynth (SF2 live-playback engine — used by SfzPlayer) ---
+# --- FluidSynth (SF2 live-playback engine) ---
 find_package(FluidSynth CONFIG QUIET)
 
 if(FluidSynth_FOUND)
@@ -96,13 +95,10 @@ else()
     endif()
 endif()
 
-# Resolve the sfizz C API include directory.
-# sfizz.h (C API) lives at sfizz/src/sfizz.h in the sfizz source tree.
-# The sfizz::sfizz CMake target only exposes C++ headers, so we add it manually.
 if(DYSEKT_HAS_SFIZZ)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz.h")
         set(SFIZZ_C_API_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src")
-    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz/sfizz.h")
+    elif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz/sfizz.h")
         set(SFIZZ_C_API_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz")
     else()
         message(WARNING "sfizz.h not found — SoundFontLoader/SfzPlayer may fail to compile")
@@ -210,9 +206,6 @@ target_link_libraries(Dysekt
 
 # =============================================================================
 #  DYSEKT Standalone App
-#  Same engine + UI as the plugin, plus piano roll, pattern manager,
-#  and audio device selection.
-#  Tracktion Engine is linked here only — the VST3 plugin has no sequencer.
 # =============================================================================
 juce_add_gui_app(DysektStandalone
     PRODUCT_NAME "DYSEKT"
@@ -266,7 +259,6 @@ target_include_directories(DysektStandalone PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
-    # Tracktion Engine module headers (SequencerEngine.h, MidiClip.h)
     ${TRACKTION_ENGINE_MODULES_DIR}
 )
 
@@ -291,7 +283,10 @@ target_link_libraries(DysektStandalone
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
         chowdsp::chowdsp_filters
-        tracktion_engine   # sequencer backend
+        
+        # Link both registered Tracktion modules explicitly here
+        tracktion_engine
+        tracktion_graph
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
