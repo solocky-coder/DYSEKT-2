@@ -188,6 +188,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar.onMidiFollowToggle = [this] { toggleMidiFollow(); };
  headerBar.onShortcutsToggle = [this] { toggleShortcutsPanel(); };
     actionPanel.onSeqToggle = [this] { togglePianoRoll(); };
+    headerBar.onSeqToggle   = [this] { togglePianoRoll(); };
 
  ensureDefaultThemes();
  loadUserSettings();
@@ -793,7 +794,7 @@ void DysektEditor::resized()
  const int screenTop = frameTop + kFrameInset;
  const int screenBot = frameBot - kFrameInset;
 
- actionPanel.setBounds ({});
+ actionPanel.setBounds (actionArea);
  int y = screenTop;
  sliceLane.setBounds ({});
 
