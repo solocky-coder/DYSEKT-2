@@ -138,6 +138,7 @@ target_sources(Dysekt PRIVATE
     src/audio/SoundFontLoader.cpp
     src/audio/SfzPlayer.cpp
     src/sequencer/MidiClip.cpp
+    src/sequencer/SequencerEngine.cpp
     src/params/ParamLayout.cpp
     src/ui/DysektLookAndFeel.cpp
     src/ui/HeaderBar.cpp
@@ -217,6 +218,7 @@ target_sources(DysektStandalone PRIVATE
     src/audio/SoundFontLoader.cpp
     src/audio/SfzPlayer.cpp
     src/sequencer/MidiClip.cpp
+    src/sequencer/SequencerEngine.cpp
     src/params/ParamLayout.cpp
     src/ui/DysektLookAndFeel.cpp
     src/ui/HeaderBar.cpp
