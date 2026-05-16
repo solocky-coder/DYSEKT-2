@@ -6,23 +6,34 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 
-# --- chowdsp_utils (SVF EQ filters — used by VoicePool per-slice EQ) ---
 include(FetchContent)
+
+# --- chowdsp_utils (SVF EQ filters — used by VoicePool per-slice EQ) ---
+# Use source-only population (same pattern as Tracktion) to avoid configuring
+# chowdsp's root CMakeLists.txt, which fails on Windows with FetchContent_MakeAvailable.
 FetchContent_Declare(
     chowdsp_utils
-    GIT_REPOSITORY https://github.com
+    GIT_REPOSITORY https://github.com/Chowdhury-DSP/chowdsp_utils
     GIT_TAG        v2.3.0
     GIT_SHALLOW    TRUE
+    GIT_SUBMODULES ""
 )
-set(CHOWDSP_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(chowdsp_utils)
+
+FetchContent_GetProperties(chowdsp_utils)
+if(NOT chowdsp_utils_POPULATED)
+    FetchContent_Populate(chowdsp_utils)
+endif()
+
+# Register only the module(s) we actually use — bypasses the entire chowdsp build system.
+juce_add_modules("${chowdsp_utils_SOURCE_DIR}/modules/chowdsp_filters")
+message(STATUS "chowdsp_utils fetched; chowdsp_filters registered via juce_add_modules")
 
 # --- Tracktion Engine (Source Download Only) ---
 # Populates the source tree without evaluating Tracktion's own root CMake tree.
 # This completely bypasses its internal JUCE copies, benchmarks, and tests.
 FetchContent_Declare(
     tracktion_engine
-    GIT_REPOSITORY https://github.com
+    GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine
     GIT_TAG        master
     GIT_SUBMODULES ""
 )
@@ -46,7 +57,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/link/include/ableton/Link.hpp")
 else()
     set(DYSEKT_HAS_LINK FALSE)
     message(STATUS "Ableton Link SDK NOT found — Link sync disabled.")
-    message(STATUS "  To enable: git submodule add https://github.com link")
+    message(STATUS "  To enable: git submodule add https://github.com/Ableton/link link")
 endif()
 
 # --- sfizz (SFZ/SF2 engine) ---
@@ -98,7 +109,7 @@ endif()
 if(DYSEKT_HAS_SFIZZ)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz.h")
         set(SFIZZ_C_API_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src")
-    elif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz/sfizz.h")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz/sfizz.h")
         set(SFIZZ_C_API_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz")
     else()
         message(WARNING "sfizz.h not found — SoundFontLoader/SfzPlayer may fail to compile")
@@ -197,7 +208,7 @@ target_link_libraries(Dysekt
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
-        chowdsp::chowdsp_filters
+        chowdsp_filters   # juce_add_modules target — no chowdsp:: namespace prefix
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
@@ -282,9 +293,7 @@ target_link_libraries(DysektStandalone
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
-        chowdsp::chowdsp_filters
-        
-        # Link both registered Tracktion modules explicitly here
+        chowdsp_filters   # juce_add_modules target — no chowdsp:: namespace prefix
         tracktion_engine
         tracktion_graph
     PUBLIC
