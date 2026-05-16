@@ -6,26 +6,245 @@
 #include "../sequencer/MidiClip.h"
 
 //==============================================================================
+//  PatternManagerComponent
+//
+//  Sidebar panel for the standalone app that lets the user manage multiple
+//  MIDI clips (patterns): add, rename, duplicate, reorder, delete.
+//  The active pattern is loaded into SequencerEngine.
+//==============================================================================
+class PatternManagerComponent : public juce::Component,
+                                private juce::ListBoxModel
+{
+public:
+    explicit PatternManagerComponent (DysektProcessor& proc)
+        : processor (proc)
+    {
+        // Toolbar buttons
+        auto makeBtn = [this] (juce::TextButton& b, const juce::String& t)
+        {
+            b.setButtonText (t);
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xFF1C2028));
+            b.setColour (juce::TextButton::textColourOffId, juce::Colour (0xFFCCD0D8));
+            addAndMakeVisible (b);
+        };
+
+        makeBtn (addBtn,   "+");
+        makeBtn (dupBtn,   "DUP");
+        makeBtn (delBtn,   "DEL");
+        makeBtn (upBtn,    "▲");
+        makeBtn (downBtn,  "▼");
+
+        addBtn .onClick = [this] { addPattern();       };
+        dupBtn .onClick = [this] { duplicatePattern(); };
+        delBtn .onClick = [this] { deletePattern();    };
+        upBtn  .onClick = [this] { movePattern (-1);   };
+        downBtn.onClick = [this] { movePattern (+1);   };
+
+        // Pattern list
+        patternList.setModel (this);
+        patternList.setColour (juce::ListBox::backgroundColourId,
+                               juce::Colour (0xFF090910));
+        patternList.setColour (juce::ListBox::outlineColourId,
+                               juce::Colour (0xFF1C2028));
+        patternList.setRowHeight (26);
+        addAndMakeVisible (patternList);
+
+        // Title
+        title.setText ("PATTERNS", juce::dontSendNotification);
+        title.setFont (DysektLookAndFeel::makeFont (11.f, true));
+        title.setColour (juce::Label::textColourId,
+                         juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 1.0f));
+        title.setJustificationType (juce::Justification::centred);
+        addAndMakeVisible (title);
+
+        // Seed with one default pattern
+        addPattern ("Pattern 1");
+    }
+
+    //==========================================================================
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        title.setBounds (r.removeFromTop (22));
+
+        auto btnRow = r.removeFromTop (26);
+        const int bw = btnRow.getWidth() / 5;
+        addBtn .setBounds (btnRow.removeFromLeft (bw));
+        dupBtn .setBounds (btnRow.removeFromLeft (bw));
+        delBtn .setBounds (btnRow.removeFromLeft (bw));
+        upBtn  .setBounds (btnRow.removeFromLeft (bw));
+        downBtn.setBounds (btnRow);
+
+        patternList.setBounds (r);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xFF0D0D14));
+        g.setColour (juce::Colour (0xFF1C2028));
+        g.drawRect (getLocalBounds(), 1);
+    }
+
+    //==========================================================================
+    //  Public API
+    int getNumPatterns() const   { return patterns.size(); }
+    int getActivePattern() const { return activeIdx; }
+
+    MidiClip& getPattern (int i) { return *patterns[i].clip; }
+
+    void setActivePattern (int i)
+    {
+        if (! juce::isPositiveAndBelow (i, (int)patterns.size())) return;
+        activeIdx = i;
+
+        // Swap the active clip into the engine
+        processor.sequencer.getClip().setNotes (patterns[i].clip->getNotes());
+        processor.sequencer.getClip().setLengthTicks (patterns[i].clip->getLengthTicks());
+
+        patternList.repaint();
+    }
+
+private:
+    //==========================================================================
+    struct PatternEntry
+    {
+        juce::String             name;
+        std::unique_ptr<MidiClip> clip;
+    };
+
+    DysektProcessor&            processor;
+    std::vector<PatternEntry>   patterns;
+    int                         activeIdx = 0;
+
+    juce::ListBox    patternList;
+    juce::TextButton addBtn, dupBtn, delBtn, upBtn, downBtn;
+    juce::Label      title;
+
+    //==========================================================================
+    void addPattern (const juce::String& name = juce::String())
+    {
+        PatternEntry e;
+        e.name = name.isEmpty()
+            ? ("Pattern " + juce::String (patterns.size() + 1))
+            : name;
+        e.clip = std::make_unique<MidiClip>();
+        patterns.push_back (std::move (e));
+        patternList.updateContent();
+        setActivePattern (patterns.size() - 1);
+    }
+
+    void duplicatePattern()
+    {
+        if (! juce::isPositiveAndBelow (activeIdx, (int)patterns.size())) return;
+        PatternEntry e;
+        e.name = patterns[activeIdx].name + " (copy)";
+        e.clip = std::make_unique<MidiClip>();
+        e.clip->setNotes (patterns[activeIdx].clip->getNotes());
+        e.clip->setLengthTicks (patterns[activeIdx].clip->getLengthTicks());
+        patterns.insert (patterns.begin() + activeIdx + 1, std::move (e));
+        patternList.updateContent();
+        setActivePattern (activeIdx + 1);
+    }
+
+    void deletePattern()
+    {
+        if (patterns.size() <= 1) return;   // always keep at least one
+        patterns.erase (patterns.begin() + activeIdx);
+        activeIdx = juce::jlimit (0, (int)patterns.size() - 1, activeIdx);
+        patternList.updateContent();
+        setActivePattern (activeIdx);
+    }
+
+    void movePattern (int delta)
+    {
+        const int newIdx = activeIdx + delta;
+        if (! juce::isPositiveAndBelow (newIdx, patterns.size())) return;
+        std::swap (patterns[activeIdx], patterns[newIdx]);
+        activeIdx = newIdx;
+        patternList.updateContent();
+        patternList.repaint();
+    }
+
+    //==========================================================================
+    //  ListBoxModel
+    int getNumRows() override { return patterns.size(); }
+
+    void paintListBoxItem (int row, juce::Graphics& g,
+                           int w, int h, bool selected) override
+    {
+        const bool isActive = (row == activeIdx);
+        g.fillAll (isActive ? juce::Colour (0xFF1C3040)
+                  : selected ? juce::Colour (0xFF181822)
+                             : juce::Colour (0xFF090910));
+
+        g.setFont (DysektLookAndFeel::makeMonoFont (11.f));
+        g.setColour (isActive
+            ? juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 1.0f)
+            : juce::Colour (0xFFCCD0D8));
+        g.drawText (patterns[row].name, 8, 0, w - 8, h,
+                    juce::Justification::centredLeft, true);
+    }
+
+    void listBoxItemClicked (int row, const juce::MouseEvent&) override
+    {
+        setActivePattern (row);
+    }
+
+    void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override
+    {
+        // Inline rename via manually constructed AlertWindow (JUCE 8 compatible)
+        auto* aw = new juce::AlertWindow ("Rename Pattern",
+                                          "Enter new name:",
+                                          juce::MessageBoxIconType::QuestionIcon);
+        aw->addTextEditor ("name", patterns[row].name);
+        aw->addButton ("OK",     1, juce::KeyPress (juce::KeyPress::returnKey));
+        aw->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+        auto* awPtr = aw;
+        aw->enterModalState (true,
+            juce::ModalCallbackFunction::create ([this, row, awPtr] (int result)
+            {
+                if (result == 1)
+                {
+                    auto name = awPtr->getTextEditorContents ("name");
+                    if (name.isNotEmpty())
+                    {
+                        patterns[row].name = name;
+                        patternList.repaint();
+                    }
+                }
+            }),
+            true);
+    }
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatternManagerComponent)
+};
+
+
+//==============================================================================
 //  MainWindow
 //
 //  The standalone app's main window.  Layout:
 //
 //    ┌─────────────────────────────────────────────────┐
 //    │  MenuBar (File / Audio / Help)                  │
-//    ├─────────────────────────────────────────────────┤
-//    │                                                 │
-//    │   DysektEditor  (full plugin UI)                │
-//    │                                                 │
-//    └─────────────────────────────────────────────────┘
+//    ├──────────────────┬──────────────────────────────┤
+//    │                  │                              │
+//    │  Pattern Manager │   DysektEditor               │
+//    │  (160px wide)    │   (full plugin UI)           │
+//    │                  │                              │
+//    └──────────────────┴──────────────────────────────┘
 //
-//  Audio I/O is handled by AudioDeviceManager.
+//  Audio I/O is handled by AudioDeviceManager — same as JUCE's
+//  StandalonePluginHolder, but with our own UI for device selection.
 //==============================================================================
 class MainWindow : public juce::DocumentWindow,
                    public juce::MenuBarModel,
                    private juce::ChangeListener
 {
 public:
-    static constexpr int kMenuH = 24;
+    static constexpr int kPatternPanelW = 160;
+    static constexpr int kMenuH         = 24;
 
     //==========================================================================
     explicit MainWindow (const juce::String& appName)
@@ -58,15 +277,18 @@ public:
             deviceManager.addMidiInputDeviceCallback (input.identifier, &player);
         }
 
-        // ── Set editor directly as window content ─────────────────────────
-        setContentNonOwned (editor.get(), true);
+        // ── Main content component ────────────────────────────────────────
+        contentHolder = std::make_unique<ContentHolder> (*processor, *editor);
+        setContentOwned (contentHolder.release(), true);
 
         // ── Menu ──────────────────────────────────────────────────────────
         menuBar = std::make_unique<juce::MenuBarComponent> (this);
         setMenuBar (this, kMenuH);
 
         // ── Initial size ──────────────────────────────────────────────────
-        setSize (editor->getWidth(), editor->getHeight() + kMenuH);
+        const int plugW = editor->getWidth();
+        const int plugH = editor->getHeight();
+        setSize (plugW + kPatternPanelW, plugH + kMenuH);
         setVisible (true);
         centreWithSize (getWidth(), getHeight());
     }
@@ -138,6 +360,32 @@ public:
     }
 
 private:
+    //==========================================================================
+    //  ContentHolder: horizontal split — pattern panel left, plugin editor right
+    class ContentHolder : public juce::Component
+    {
+    public:
+        ContentHolder (DysektProcessor& proc, DysektEditor& ed)
+            : patternPanel (proc), pluginEditor (ed)
+        {
+            addAndMakeVisible (patternPanel);
+            addAndMakeVisible (pluginEditor);
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            patternPanel.setBounds (r.removeFromLeft (kPatternPanelW));
+            pluginEditor.setBounds (r);
+        }
+
+    private:
+        PatternManagerComponent patternPanel;
+        DysektEditor&           pluginEditor;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ContentHolder)
+    };
+
     //==========================================================================
     //  Project save / load
     void newProject()
@@ -303,6 +551,7 @@ private:
 
     std::unique_ptr<DysektProcessor>    processor;
     std::unique_ptr<DysektEditor>       editor;
+    std::unique_ptr<juce::Component>    contentHolder;
     std::unique_ptr<juce::MenuBarComponent> menuBar;
     std::unique_ptr<juce::FileChooser>  fileChooser;
 
