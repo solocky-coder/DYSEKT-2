@@ -6,38 +6,56 @@
 #include "../sequencer/MidiClip.h"
 
 //==============================================================================
-//  ArrangeView  —  Cubase-style arrange window (full revision)
+//  ArrangeView  —  Cubase-style arrange window
 //
-//  Interaction:
-//   Ruler left-click          → seek playhead
-//   Ruler click-drag          → scrub playhead
-//   Ruler Alt+drag            → set loop in/out markers
-//   Ruler right-click         → clear loop region
-//   Clip left-click           → select clip
-//   Clip drag body            → move clip (shifts all notes, committed on mouseUp)
-//   Clip drag right edge      → resize clip length (8 px zone)
-//   Clip double-click         → open piano roll (fires onClipDoubleClicked)
-//   Clip right-click          → context menu (Mute, Rename, Duplicate, Clear, Open)
-//   Empty row right-click     → context menu (Mute track, Toggle track type badge)
-//   Ctrl+scroll               → horizontal zoom (centred on mouse)
+//  Ruler:
+//   Left-click / drag         → seek + scrub playhead
+//   Alt + drag                → set loop in/out (L/R markers)
+//   Right-click               → clear loop markers
+//
+//  Clip body:
+//   Left-click                → select track
+//   Drag                      → move clip (ghost preview, committed on mouseUp)
+//   Drag right edge (8 px)    → resize clip length
+//   Double-click              → open piano roll
+//   Right-click               → context menu
+//
+//  Empty space:
+//   Left-click                → deselect
+//   Right-click               → track context menu
+//
+//  Keyboard:
+//   Space                     → play / stop toggle
+//   Home / Numpad 0           → rewind to bar 1
+//   +/-                       → increase / decrease track height
+//   Delete                    → clear selected clip contents
+//
+//  Scroll / zoom:
+//   Ctrl + scroll             → horizontal zoom (centred on mouse)
+//   Shift + scroll            → fast horizontal scroll
 //   Scroll                    → horizontal scroll
-//   +/-                       → track height
+//   Vertical scrollbar        → track rows scroll (when > screen height)
+//
+//  Auto-scroll:
+//   Playhead auto-follows during playback (Cubase-style page scroll)
 //==============================================================================
 class ArrangeView : public juce::Component,
                     private juce::Timer,
                     private juce::ScrollBar::Listener
 {
 public:
-    static constexpr int kTransportH  = 34;
-    static constexpr int kStripW      = 160;
-    static constexpr int kRulerH      = 24;
-    static constexpr int kMinClipPx   = 6;
-    static constexpr int kResizeZone  = 8;
-    static constexpr int kDefaultTrackH = 52;
-    static constexpr int kMinTrackH   = 28;
-    static constexpr int kMaxTrackH   = 120;
+    static constexpr int kTransportH   = 34;
+    static constexpr int kStripW       = 160;
+    static constexpr int kRulerH       = 28;
+    static constexpr int kScrollH      = 14;
+    static constexpr int kScrollW      = 14;
+    static constexpr int kMinClipPx    = 6;
+    static constexpr int kResizeZone   = 10;
+    static constexpr int kDefaultTrackH = 54;
+    static constexpr int kMinTrackH    = 24;
+    static constexpr int kMaxTrackH    = 140;
 
-    /** Fired when user double-clicks a clip — owner should open PianoRollPanel. */
+    /** Owner wires this to open the piano roll for the given track. */
     std::function<void(int trackIndex)> onClipDoubleClicked;
 
     //==========================================================================
@@ -49,19 +67,29 @@ public:
         addAndMakeVisible (transport);
         addAndMakeVisible (trackStrip);
 
+        // ── Horizontal scrollbar ──────────────────────────────────────────────
+        hScroll.setRangeLimits (0.0, 1.0);
+        hScroll.setCurrentRange (0.0, 0.5);
+        hScroll.setAutoHide (false);
+        styleScrollBar (hScroll);
+        hScroll.addListener (this);
+        addAndMakeVisible (hScroll);
+
+        // ── Vertical scrollbar ────────────────────────────────────────────────
+        vScroll.setRangeLimits (0.0, 1.0);
+        vScroll.setCurrentRange (0.0, 1.0);
+        vScroll.setAutoHide (false);
+        styleScrollBar (vScroll);
+        vScroll.addListener (this);
+        addAndMakeVisible (vScroll);
+
+        // ── Track-strip callbacks ─────────────────────────────────────────────
         trackStrip.onTrackSelected = [this] (int idx)
         {
             selectedTrack = idx;
             repaint();
         };
         trackStrip.onTrackMuted = [this] (int, bool) { repaint(); };
-
-        hScroll.setRangeLimits (0.0, 1.0);
-        hScroll.setCurrentRange (0.0, 0.5);
-        hScroll.setAutoHide (false);
-        hScroll.setColour (juce::ScrollBar::thumbColourId, juce::Colour (0xFF2A3848));
-        hScroll.addListener (this);
-        addAndMakeVisible (hScroll);
 
         setWantsKeyboardFocus (true);
         startTimerHz (30);
@@ -70,6 +98,7 @@ public:
     ~ArrangeView() override
     {
         hScroll.removeListener (this);
+        vScroll.removeListener (this);
         stopTimer();
     }
 
@@ -79,159 +108,199 @@ public:
         auto r = getLocalBounds();
         transport.setBounds (r.removeFromTop (kTransportH));
 
-        auto hScrollR = r.removeFromBottom (14);
-        hScroll.setBounds (hScrollR.withTrimmedLeft (kStripW));
+        // Corner square between the two scrollbars
+        auto cornerR = r;
+        cornerR = cornerR.removeFromBottom (kScrollH).removeFromRight (kScrollW);
 
-        // Strip occupies full remaining height (minus ruler)
+        auto hScrollR = r.removeFromBottom (kScrollH).withTrimmedRight (kScrollW);
+        auto vScrollR = r.removeFromRight  (kScrollW);
+
+        hScroll.setBounds (hScrollR.withTrimmedLeft (kStripW));
+        vScroll.setBounds (vScrollR);
+
         auto leftCol = r.removeFromLeft (kStripW);
-        leftCol.removeFromTop (kRulerH);    // ruler gap
+        leftCol.removeFromTop (kRulerH);
         trackStrip.setBounds (leftCol);
 
-        gridArea     = r;
-        rulerBounds  = gridArea.removeFromTop (kRulerH);
+        gridArea      = r;
+        rulerBounds   = gridArea.removeFromTop (kRulerH);
         clipGridBounds = gridArea;
 
-        updateScrollRange();
+        updateScrollRanges();
     }
 
     void paint (juce::Graphics& g) override
     {
         g.fillAll (juce::Colour (0xFF080810));
-        paintRuler    (g);
+        paintRuler (g);
         paintTrackRows (g);
+        paintLoopOverlay (g);
         paintPlayhead (g);
+
+        // Corner fill between scrollbars
+        if (getWidth() > kStripW && getHeight() > kTransportH + kScrollH)
+        {
+            g.setColour (juce::Colour (0xFF0A0A14));
+            g.fillRect (getWidth() - kScrollW,
+                        getHeight() - kScrollH,
+                        kScrollW, kScrollH);
+        }
     }
 
     //==========================================================================
     //  Mouse
     //==========================================================================
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        updateCursor (e);
+    }
+
     void mouseDown (const juce::MouseEvent& e) override
     {
         grabKeyboardFocus();
 
-        // ── Ruler ────────────────────────────────────────────────────────────
+        // ── Ruler ─────────────────────────────────────────────────────────────
         if (rulerBounds.contains (e.getPosition()))
         {
             if (e.mods.isRightButtonDown())
             {
-                loopStart = -1; loopEnd = -1; repaint(); return;
+                loopStart = -1; loopEnd = -1;
+                repaint(); return;
             }
             const int64_t tick = xToTick (e.x);
             if (e.mods.isAltDown())
             {
                 loopStart = tick; loopEnd = tick;
-                rulerDrag = RulerDrag::LoopEnd;
+                rulerDrag = RulerDrag::LoopSet;
+                loopDragAnchor = tick;
             }
             else
             {
-                engine.seekToTick (tick);
+                engine.seekToTick (juce::jmax ((int64_t)0, tick));
                 rulerDrag = RulerDrag::Scrub;
             }
             repaint(); return;
         }
 
-        // ── Clip grid ────────────────────────────────────────────────────────
+        // ── Clip grid ─────────────────────────────────────────────────────────
         if (! clipGridBounds.contains (e.getPosition())) return;
 
         const int trackIdx = trackFromY (e.y);
         if (! juce::isPositiveAndBelow (trackIdx, engine.getNumTracks())) return;
 
-        auto clipR = clipRectForTrack (trackIdx);
+        const auto clipR = clipRectForTrack (trackIdx);
+        const bool onClip = clipR.contains (e.getPosition());
 
         if (e.mods.isRightButtonDown())
         {
-            showContextMenu (trackIdx, clipR.contains (e.getPosition()));
+            showContextMenu (trackIdx, onClip);
             return;
         }
 
-        // Near right edge → resize
-        if (clipR.contains (e.getPosition()) &&
-            e.x >= clipR.getRight() - kResizeZone)
+        // Resize handle — right edge
+        if (onClip && e.x >= clipR.getRight() - kResizeZone)
         {
-            dragMode        = DragMode::ResizeRight;
-            dragTrack       = trackIdx;
-            dragStartX      = e.x;
-            dragStartTicks  = engine.getLengthTicks();
-            selectedTrack   = trackIdx;
+            dragMode       = DragMode::ResizeRight;
+            dragTrack      = trackIdx;
+            dragStartX     = e.x;
+            dragStartTicks = engine.getLengthTicks();
+            selectedTrack  = trackIdx;
+            updateCursor (e);
             repaint(); return;
         }
 
-        // Clip body → move
-        if (clipR.contains (e.getPosition()))
+        // Clip body — move
+        if (onClip)
         {
-            dragMode        = DragMode::MoveClip;
-            dragTrack       = trackIdx;
-            dragStartX      = e.x;
-            dragStartTicks  = clipOffsets[trackIdx];
-            selectedTrack   = trackIdx;
+            dragMode       = DragMode::MoveClip;
+            dragTrack      = trackIdx;
+            dragStartX     = e.x;
+            dragStartTicks = clipOffsets[trackIdx];
+            dragLiveOffset = dragStartTicks;
+            selectedTrack  = trackIdx;
+            updateCursor (e);
             repaint(); return;
         }
 
-        // Empty space → deselect
+        // Empty space — deselect
         selectedTrack = -1;
         repaint();
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        // Ruler scrub / loop drag
+        // ── Ruler scrub / loop drag ────────────────────────────────────────────
         if (rulerDrag == RulerDrag::Scrub)
         {
             engine.seekToTick (juce::jmax ((int64_t)0, xToTick (e.x)));
             repaint(); return;
         }
-        if (rulerDrag == RulerDrag::LoopEnd)
+
+        if (rulerDrag == RulerDrag::LoopSet)
         {
             const int64_t tick = xToTick (e.x);
-            loopEnd = juce::jmax (loopStart, tick);
+            if (tick >= loopDragAnchor)
+            {
+                loopStart = loopDragAnchor;
+                loopEnd   = tick;
+            }
+            else
+            {
+                loopStart = tick;
+                loopEnd   = loopDragAnchor;
+            }
             repaint(); return;
         }
 
         if (dragMode == DragMode::None) return;
 
-        const double tpp = ticksPerPixel();
-        const int    dx  = e.x - dragStartX;
+        const int dx = e.x - dragStartX;
 
         if (dragMode == DragMode::ResizeRight)
         {
             const int64_t newLen = juce::jmax (
                 MidiClip::kPPQ,
-                dragStartTicks + (int64_t)(dx * tpp));
+                dragStartTicks + (int64_t)(dx * ticksPerPixel()));
             engine.setLengthTicks (snapTick (newLen));
             repaint(); return;
         }
 
         if (dragMode == DragMode::MoveClip)
         {
-            // Show a ghost offset while dragging — commit on mouseUp
-            const int64_t newOffset = juce::jmax ((int64_t)0,
-                dragStartTicks + (int64_t)(dx * tpp));
-            dragLiveOffset = snapTick (newOffset);
+            const int64_t newOff = juce::jmax ((int64_t)0,
+                dragStartTicks + (int64_t)(dx * ticksPerPixel()));
+            dragLiveOffset = snapTick (newOff);
+
+            // Auto-scroll: nudge scrollX if near edges
+            const int margin = 40;
+            if (e.x < clipGridBounds.getX() + margin)
+                scrollX = juce::jmax (0.0, scrollX - 8.0);
+            else if (e.x > clipGridBounds.getRight() - margin)
+                scrollX = scrollX + 8.0;
+
+            updateScrollRanges();
             repaint(); return;
         }
     }
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        // Commit clip move
         if (dragMode == DragMode::MoveClip && dragTrack >= 0)
         {
-            // Commit: shift all notes in the clip by the delta
-            const int64_t oldOffset = clipOffsets[dragTrack];
-            const int64_t newOffset = dragLiveOffset;
-            const int64_t delta     = newOffset - oldOffset;
-
+            const int64_t delta = dragLiveOffset - clipOffsets[dragTrack];
             if (delta != 0)
             {
                 MidiClip* clip = engine.getClip (dragTrack);
                 if (clip)
                 {
                     const juce::ScopedReadLock sl (clip->getLock());
-                    juce::Array<MidiNote> shifted = clip->getNotes();
-                    for (auto& n : shifted)
+                    auto notes = clip->getNotes();
+                    for (auto& n : notes)
                         n.startTick = juce::jmax ((int64_t)0, n.startTick + delta);
-                    clip->setNotes (shifted);
+                    clip->setNotes (notes);
                 }
-                clipOffsets[dragTrack] = newOffset;
+                clipOffsets[dragTrack] = dragLiveOffset;
             }
             dragLiveOffset = 0;
         }
@@ -239,16 +308,15 @@ public:
         rulerDrag  = RulerDrag::None;
         dragMode   = DragMode::None;
         dragTrack  = -1;
+        setMouseCursor (juce::MouseCursor::NormalCursor);
         repaint();
     }
 
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
         if (! clipGridBounds.contains (e.getPosition())) return;
-
         const int trackIdx = trackFromY (e.y);
         if (! juce::isPositiveAndBelow (trackIdx, engine.getNumTracks())) return;
-
         if (clipRectForTrack (trackIdx).contains (e.getPosition()))
         {
             selectedTrack = trackIdx;
@@ -262,72 +330,158 @@ public:
     {
         if (e.mods.isCtrlDown())
         {
-            // Horizontal zoom around mouse
+            // Zoom around mouse position
             const double tickAtMouse = xToTick (e.x);
-            const double zf = w.deltaY > 0 ? 1.15 : (1.0 / 1.15);
-            pixelsPerTick = juce::jlimit (0.005, 4.0, pixelsPerTick * zf);
-            scrollX = juce::jmax (0.0, tickAtMouse * pixelsPerTick
-                                       - (e.x - clipGridBounds.getX()));
+            const double factor      = w.deltaY > 0 ? 1.18 : (1.0 / 1.18);
+            pixelsPerTick = juce::jlimit (0.003, 6.0, pixelsPerTick * factor);
+            scrollX = juce::jmax (0.0,
+                tickAtMouse * pixelsPerTick - (e.x - clipGridBounds.getX()));
+        }
+        else if (e.mods.isShiftDown())
+        {
+            scrollX = juce::jmax (0.0, scrollX - w.deltaY * 200.0);
+        }
+        else if (e.mods.isAltDown())
+        {
+            // Vertical scroll with Alt
+            const int totalH = engine.getNumTracks() * trackH;
+            const int viewH  = clipGridBounds.getHeight();
+            scrollY = juce::jlimit (0, juce::jmax (0, totalH - viewH),
+                                    scrollY - (int)(w.deltaY * 40.0));
         }
         else
         {
             scrollX = juce::jmax (0.0, scrollX - w.deltaY * 80.0);
         }
-        updateScrollRange(); repaint();
+        updateScrollRanges();
+        repaint();
     }
 
     bool keyPressed (const juce::KeyPress& k) override
     {
-        if (k.getKeyCode() == '+' || k.getKeyCode() == '=')
-            { trackH = juce::jlimit (kMinTrackH, kMaxTrackH, trackH + 4); trackStrip.repaint(); repaint(); return true; }
-        if (k.getKeyCode() == '-')
-            { trackH = juce::jlimit (kMinTrackH, kMaxTrackH, trackH - 4); trackStrip.repaint(); repaint(); return true; }
-        if (k.getKeyCode() == juce::KeyPress::deleteKey && selectedTrack >= 0)
+        if (k == juce::KeyPress::spaceKey)
         {
-            // Clear clip contents
-            MidiClip* clip = engine.getClip (selectedTrack);
-            if (clip) { clip->clear(); repaint(); }
+            if (engine.isPlaying()) engine.stop();
+            else                    engine.play();
             return true;
         }
+
+        if (k == juce::KeyPress::homeKey ||
+            k.getKeyCode() == juce::KeyPress::numberPad0)
+        {
+            engine.rewind();
+            scrollX = 0.0;
+            updateScrollRanges();
+            repaint();
+            return true;
+        }
+
+        if (k.getKeyCode() == '+' || k.getKeyCode() == '=')
+        {
+            trackH = juce::jlimit (kMinTrackH, kMaxTrackH, trackH + 6);
+            updateScrollRanges(); trackStrip.repaint(); repaint();
+            return true;
+        }
+        if (k.getKeyCode() == '-')
+        {
+            trackH = juce::jlimit (kMinTrackH, kMaxTrackH, trackH - 6);
+            updateScrollRanges(); trackStrip.repaint(); repaint();
+            return true;
+        }
+
+        if ((k == juce::KeyPress::deleteKey || k == juce::KeyPress::backspaceKey)
+            && selectedTrack >= 0)
+        {
+            if (MidiClip* c = engine.getClip (selectedTrack))
+                c->clear();
+            repaint();
+            return true;
+        }
+
         return false;
     }
 
 private:
     //==========================================================================
+    //  State
+    //==========================================================================
     SequencerEngine&      engine;
     TransportBar          transport;
     TrackHeaderStrip      trackStrip;
     juce::ScrollBar       hScroll { false };
+    juce::ScrollBar       vScroll { true  };
 
     juce::Rectangle<int>  gridArea, rulerBounds, clipGridBounds;
 
-    int     selectedTrack  = -1;
-    int     trackH         = kDefaultTrackH;
-
-    // Per-track clip start offset (message thread only — not serialised yet)
-    std::array<int64_t, 256> clipOffsets {};  // zero-initialised
+    int      selectedTrack  = -1;
+    int      trackH         = kDefaultTrackH;
 
     // Horizontal scroll / zoom
-    double  pixelsPerTick  = 0.08;
-    double  scrollX        = 0.0;
-    int64_t dragLiveOffset = 0;
+    double   pixelsPerTick  = 0.08;
+    double   scrollX        = 0.0;
 
-    // Loop markers (-1 = not set)
-    int64_t loopStart = -1, loopEnd = -1;
+    // Vertical scroll (pixels from top of track list)
+    int      scrollY        = 0;
+
+    // Per-track clip start offsets (arrange-view only, not serialised)
+    std::array<int64_t, 256> clipOffsets {};
+
+    // Loop markers (-1 = unset)
+    int64_t  loopStart      = -1;
+    int64_t  loopEnd        = -1;
+    int64_t  loopDragAnchor = 0;
+
+    // Playhead auto-scroll
+    int64_t  lastAutoScrollTick = -1;
 
     // Drag state
     enum class DragMode  { None, MoveClip, ResizeRight };
-    enum class RulerDrag { None, Scrub, LoopEnd };
+    enum class RulerDrag { None, Scrub, LoopSet };
     DragMode  dragMode       = DragMode::None;
     RulerDrag rulerDrag      = RulerDrag::None;
     int       dragTrack      = -1;
     int       dragStartX     = 0;
     int64_t   dragStartTicks = 0;
+    int64_t   dragLiveOffset = 0;
+
+    //==========================================================================
+    //  Timer — repaints + auto-scroll
+    //==========================================================================
+    void timerCallback() override
+    {
+        if (engine.isPlaying())
+            autoScrollToPlayhead();
+        repaint();
+    }
+
+    void autoScrollToPlayhead()
+    {
+        const int64_t tick = engine.getPlayheadTick();
+        if (tick == lastAutoScrollTick) return;
+        lastAutoScrollTick = tick;
+
+        const float px = tickToX (tick);
+        const int   right = clipGridBounds.getRight();
+        const int   left  = clipGridBounds.getX();
+
+        // Page-scroll: if playhead goes past the right edge, jump one page
+        if (px > right - 20)
+        {
+            scrollX += clipGridBounds.getWidth() * 0.85;
+            updateScrollRanges();
+        }
+        // Snap back if rewound past left edge
+        else if (px < left && scrollX > 0)
+        {
+            scrollX = juce::jmax (0.0, tick * pixelsPerTick - 40.0);
+            updateScrollRanges();
+        }
+    }
 
     //==========================================================================
     //  Coordinate helpers
     //==========================================================================
-    double  ticksPerPixel() const noexcept
+    double ticksPerPixel() const noexcept
     {
         return pixelsPerTick > 0.0 ? 1.0 / pixelsPerTick : 1.0;
     }
@@ -345,79 +499,130 @@ private:
 
     int trackFromY (int y) const noexcept
     {
-        return (y - clipGridBounds.getY()) / trackH;
+        return (y - clipGridBounds.getY() + scrollY) / trackH;
+    }
+
+    int trackTopY (int i) const noexcept
+    {
+        return clipGridBounds.getY() + i * trackH - scrollY;
     }
 
     juce::Rectangle<int> clipRectForTrack (int i) const
     {
         if (clipGridBounds.isEmpty()) return {};
-
-        // During a live move drag, show offset preview
         const int64_t offset = (dragMode == DragMode::MoveClip && dragTrack == i)
-                                ? dragLiveOffset
-                                : clipOffsets[i];
-
+                                ? dragLiveOffset : clipOffsets[i];
         const int64_t len = engine.getLengthTicks();
-        const int w   = juce::jmax (kMinClipPx, (int)(len * pixelsPerTick));
-        const int x   = clipGridBounds.getX() + (int)(offset * pixelsPerTick) - (int)scrollX;
-        const int y   = clipGridBounds.getY() + i * trackH;
+        const int w = juce::jmax (kMinClipPx, (int)(len * pixelsPerTick));
+        const int x = clipGridBounds.getX() + (int)(offset * pixelsPerTick - scrollX);
+        const int y = trackTopY (i);
         return { x, y, w, trackH - 1 };
     }
 
     int64_t snapTick (int64_t t) const noexcept
     {
-        const int64_t snap = MidiClip::kPPQ;   // snap to quarter note in arrange view
+        const int64_t snap = MidiClip::kPPQ;  // quarter-note snap
         return ((t + snap / 2) / snap) * snap;
     }
 
     int64_t totalVisibleTicks() const noexcept
     {
         return juce::jmax (engine.getLengthTicks() * 2,
-                           MidiClip::kPPQ * 4 * 16);
+                           MidiClip::kPPQ * 4 * 32);
     }
 
-    void updateScrollRange()
+    //==========================================================================
+    //  Scrollbars
+    //==========================================================================
+    static void styleScrollBar (juce::ScrollBar& sb)
     {
+        sb.setColour (juce::ScrollBar::backgroundColourId, juce::Colour (0xFF0A0A14));
+        sb.setColour (juce::ScrollBar::thumbColourId,      juce::Colour (0xFF2A3848));
+        sb.setColour (juce::ScrollBar::trackColourId,      juce::Colour (0xFF111820));
+    }
+
+    void updateScrollRanges()
+    {
+        // Horizontal
         const double totalW = totalVisibleTicks() * pixelsPerTick;
         hScroll.setRangeLimits (0.0, totalW);
-        hScroll.setCurrentRange (scrollX, scrollX + clipGridBounds.getWidth(),
+        hScroll.setCurrentRange (scrollX,
+                                 scrollX + clipGridBounds.getWidth(),
+                                 juce::dontSendNotification);
+
+        // Vertical
+        const int totalH = engine.getNumTracks() * trackH;
+        const int viewH  = clipGridBounds.getHeight();
+        scrollY = juce::jlimit (0, juce::jmax (0, totalH - viewH), scrollY);
+        vScroll.setRangeLimits (0.0, (double)juce::jmax (viewH, totalH));
+        vScroll.setCurrentRange ((double)scrollY, (double)(scrollY + viewH),
                                  juce::dontSendNotification);
     }
 
-    void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override
+    void scrollBarMoved (juce::ScrollBar* sb, double newRangeStart) override
     {
-        scrollX = newRangeStart;
+        if (sb == &hScroll)
+            scrollX = newRangeStart;
+        else
+            scrollY = (int) newRangeStart;
         repaint();
     }
 
-    void timerCallback() override { repaint(); }
+    //==========================================================================
+    //  Cursor
+    //==========================================================================
+    void updateCursor (const juce::MouseEvent& e)
+    {
+        if (dragMode == DragMode::ResizeRight)
+        { setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); return; }
+        if (dragMode == DragMode::MoveClip)
+        { setMouseCursor (juce::MouseCursor::DraggingHandCursor); return; }
+
+        if (clipGridBounds.contains (e.getPosition()))
+        {
+            const int trackIdx = trackFromY (e.y);
+            if (juce::isPositiveAndBelow (trackIdx, engine.getNumTracks()))
+            {
+                const auto clipR = clipRectForTrack (trackIdx);
+                if (clipR.contains (e.getPosition()))
+                {
+                    if (e.x >= clipR.getRight() - kResizeZone)
+                        setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
+                    else
+                        setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+                    return;
+                }
+            }
+        }
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+    }
 
     //==========================================================================
     //  Context menus
     //==========================================================================
     void showContextMenu (int trackIdx, bool onClip)
     {
-        juce::PopupMenu m;
         const auto info = engine.getTrackInfo (trackIdx);
+        juce::PopupMenu m;
 
         if (onClip)
         {
             m.addItem (1, "Open in piano roll");
             m.addSeparator();
             m.addItem (2, info.enabled ? "Mute track" : "Unmute track");
-            m.addItem (3, "Clear clip contents");
-            m.addItem (4, "Duplicate clip to next track");
+            m.addItem (3, "Clear clip");
+            m.addItem (4, "Duplicate to next track");
             m.addSeparator();
-            m.addItem (5, "Rename track…");
+            m.addItem (5, "Set loop to clip length");
         }
         else
         {
             m.addItem (2, info.enabled ? "Mute track" : "Unmute track");
-            m.addItem (5, "Rename track…");
+            m.addItem (5, "Set loop to clip length");
         }
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
-            [this, trackIdx, info](int result)
+            [this, trackIdx, info] (int result)
             {
                 switch (result)
                 {
@@ -430,16 +635,16 @@ private:
                         engine.setTrackEnabled (trackIdx, ! info.enabled);
                         break;
                     case 3:
-                    {
-                        MidiClip* c = engine.getClip (trackIdx);
-                        if (c) c->clear();
+                        if (MidiClip* c = engine.getClip (trackIdx))
+                            c->clear();
                         break;
-                    }
                     case 4:
                         duplicateClipToNextTrack (trackIdx);
                         break;
                     case 5:
-                        promptRenameTrack (trackIdx);
+                        // Snap loop to clip length
+                        loopStart = clipOffsets[trackIdx];
+                        loopEnd   = clipOffsets[trackIdx] + engine.getLengthTicks();
                         break;
                     default: break;
                 }
@@ -449,7 +654,6 @@ private:
 
     void duplicateClipToNextTrack (int srcIdx)
     {
-        // Copy notes from srcIdx clip into the next track's clip
         const int dstIdx = srcIdx + 1;
         MidiClip* src = engine.getClip (srcIdx);
         MidiClip* dst = engine.getClip (dstIdx);
@@ -459,66 +663,60 @@ private:
         repaint();
     }
 
-    void promptRenameTrack (int /*trackIdx*/)
-    {
-        // Rename is driven by TrackHeaderStrip in the full UI;
-        // here we just flash the strip so the user knows where to double-click.
-        trackStrip.repaint();
-    }
-
     //==========================================================================
     //  Painting
     //==========================================================================
     void paintRuler (juce::Graphics& g) const
     {
         // Background
-        g.setColour (juce::Colour (0xFF0C0C18));
+        g.setColour (juce::Colour (0xFF0C0C1A));
         g.fillRect (rulerBounds);
 
-        // Strip gap fill (left of clip area)
-        g.setColour (juce::Colour (0xFF0A0A14));
+        // Left-strip region
+        g.setColour (juce::Colour (0xFF090912));
         g.fillRect (rulerBounds.withWidth (kStripW));
 
-        g.setColour (juce::Colour (0xFF1C2030));
+        // Bottom border
+        g.setColour (juce::Colour (0xFF1E2436));
         g.fillRect (rulerBounds.getX(), rulerBounds.getBottom() - 1,
                     rulerBounds.getWidth(), 1);
 
-        // Loop region
+        // Loop region shading inside ruler
         if (loopStart >= 0 && loopEnd > loopStart)
         {
             const float lx = tickToX (loopStart);
             const float rx = tickToX (loopEnd);
-            g.setColour (juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 0.18f));
-            g.fillRect (lx, (float)rulerBounds.getY(), rx - lx, (float)rulerBounds.getHeight());
-            g.setColour (juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 0.7f));
-            g.drawVerticalLine ((int)lx, (float)rulerBounds.getY(), (float)rulerBounds.getBottom());
-            g.drawVerticalLine ((int)rx, (float)rulerBounds.getY(), (float)rulerBounds.getBottom());
-
-            // "L" / "R" labels
-            g.setFont (juce::Font (9.f, juce::Font::bold));
-            g.setColour (juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 0.9f));
-            g.drawText ("L", (int)lx + 2, rulerBounds.getY(), 12, rulerBounds.getHeight(), juce::Justification::centredLeft);
-            g.drawText ("R", (int)rx - 14, rulerBounds.getY(), 12, rulerBounds.getHeight(), juce::Justification::centredRight);
+            g.setColour (juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 0.22f));
+            g.fillRect (lx, (float)rulerBounds.getY(), rx - lx,
+                        (float)rulerBounds.getHeight());
         }
 
-        // Bar ticks + labels
         const int64_t ppq    = MidiClip::kPPQ;
         const int64_t barLen = ppq * 4;
-        const int64_t total  = totalVisibleTicks();
         const int     gx     = clipGridBounds.getX();
         const int     gw     = clipGridBounds.getWidth();
+        const int64_t total  = totalVisibleTicks();
 
-        // Beat sub-ticks
-        const int64_t firstBeat = (int64_t)(scrollX / (pixelsPerTick * ppq));
-        const int64_t lastBeat  = firstBeat + (int64_t)(gw / (pixelsPerTick * ppq)) + 2;
-        for (int64_t beat = firstBeat; beat <= lastBeat && beat * ppq <= total; ++beat)
+        // Decide beat/bar visibility based on zoom
+        const double pxPerBar  = barLen * pixelsPerTick;
+        const double pxPerBeat = ppq  * pixelsPerTick;
+        const bool showBeats   = pxPerBeat >= 6.0;
+
+        // Beat ticks
+        if (showBeats)
         {
-            const int x = gx + (int)((beat * ppq) * pixelsPerTick - scrollX);
-            if (x < gx || x > gx + gw) continue;
-            const bool isBar = (beat % 4 == 0);
-            g.setColour (isBar ? juce::Colour (0xFF2A3448) : juce::Colour (0xFF181E2A));
-            g.fillRect (x, rulerBounds.getY(),
-                        1, isBar ? rulerBounds.getHeight() : rulerBounds.getHeight() / 2);
+            const int64_t firstBeat = (int64_t)(scrollX / (pixelsPerTick * ppq));
+            const int64_t lastBeat  = firstBeat + (int64_t)(gw / (pixelsPerTick * ppq)) + 2;
+            for (int64_t b = firstBeat; b <= lastBeat && b * ppq <= total; ++b)
+            {
+                const int x = gx + (int)((b * ppq) * pixelsPerTick - scrollX);
+                if (x < gx || x > gx + gw) continue;
+                const bool isBar = (b % 4 == 0);
+                g.setColour (isBar ? juce::Colour (0xFF2E3C52) : juce::Colour (0xFF1A2030));
+                g.fillRect (x, rulerBounds.getY(),
+                            1, isBar ? rulerBounds.getHeight()
+                                     : rulerBounds.getHeight() / 2);
+            }
         }
 
         // Bar numbers
@@ -529,11 +727,27 @@ private:
         {
             const int x = gx + (int)((bar * barLen) * pixelsPerTick - scrollX);
             if (x < gx || x > gx + gw) continue;
-            g.setColour (juce::Colour (0xFF6A7A90));
+            g.setColour (juce::Colour (0xFF7080A0));
             g.drawText (juce::String (bar + 1),
                         x + 3, rulerBounds.getY(),
-                        40, rulerBounds.getHeight(),
+                        48, rulerBounds.getHeight(),
                         juce::Justification::centredLeft, false);
+        }
+
+        // Loop L / R labels
+        if (loopStart >= 0 && loopEnd > loopStart)
+        {
+            const float lx = tickToX (loopStart);
+            const float rx = tickToX (loopEnd);
+            g.setFont (juce::Font (9.f, juce::Font::bold));
+            g.setColour (juce::Colour::fromFloatRGBA (0.25f, 0.95f, 0.95f, 0.95f));
+            g.drawText ("L", (int)lx + 2, rulerBounds.getY(),
+                        14, rulerBounds.getHeight(), juce::Justification::centredLeft);
+            g.drawText ("R", (int)rx - 16, rulerBounds.getY(),
+                        14, rulerBounds.getHeight(), juce::Justification::centredRight);
+            // Bracket lines
+            g.drawVerticalLine ((int)lx, (float)rulerBounds.getY(), (float)rulerBounds.getBottom());
+            g.drawVerticalLine ((int)rx, (float)rulerBounds.getY(), (float)rulerBounds.getBottom());
         }
     }
 
@@ -541,104 +755,155 @@ private:
     {
         const int n = engine.getNumTracks();
         for (int i = 0; i < n; ++i)
+        {
+            const int rowTop = trackTopY (i);
+            if (rowTop + trackH < clipGridBounds.getY()) continue;  // above view
+            if (rowTop > clipGridBounds.getBottom()) break;          // below view
             paintOneTrack (g, i);
+        }
+    }
+
+    void paintLoopOverlay (juce::Graphics& g) const
+    {
+        if (loopStart < 0 || loopEnd <= loopStart) return;
+        const float lx = tickToX (loopStart);
+        const float rx = tickToX (loopEnd);
+        // Tinted band across all track rows
+        g.setColour (juce::Colour::fromFloatRGBA (0.2f, 0.8f, 0.8f, 0.06f));
+        g.fillRect (lx, (float)clipGridBounds.getY(),
+                    rx - lx, (float)clipGridBounds.getHeight());
+        // Side lines
+        g.setColour (juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 0.45f));
+        g.drawVerticalLine ((int)lx,
+                            (float)clipGridBounds.getY(),
+                            (float)clipGridBounds.getBottom());
+        g.drawVerticalLine ((int)rx,
+                            (float)clipGridBounds.getY(),
+                            (float)clipGridBounds.getBottom());
     }
 
     void paintOneTrack (juce::Graphics& g, int i) const
     {
-        if (clipGridBounds.isEmpty()) return;
-
         const auto info  = engine.getTrackInfo (i);
         const bool isSel = (i == selectedTrack);
         const bool muted = ! info.enabled;
 
         const juce::Rectangle<int> rowR (
             clipGridBounds.getX(),
-            clipGridBounds.getY() + i * trackH,
+            trackTopY (i),
             clipGridBounds.getWidth(),
             trackH);
 
-        // Row background
-        g.setColour (isSel ? juce::Colour (0xFF0E1624)
-                           : juce::Colour (0xFF090912));
+        // Clip to grid area
+        g.saveState();
+        g.reduceClipRegion (clipGridBounds);
+
+        // Row background — alternating shades, selected highlight
+        g.setColour (isSel ? juce::Colour (0xFF0F1828)
+                           : (i % 2 == 0 ? juce::Colour (0xFF09090F)
+                                         : juce::Colour (0xFF0B0B14)));
         g.fillRect (rowR);
 
-        // Row separator
-        g.setColour (juce::Colour (0xFF181E28));
+        // Separator
+        g.setColour (juce::Colour (0xFF16202E));
         g.fillRect (rowR.getX(), rowR.getBottom() - 1, rowR.getWidth(), 1);
 
-        // Vertical grid lines (bars)
+        // Vertical grid lines
+        paintGridLines (g, rowR);
+
+        // Clip
+        paintClip (g, i, info, isSel, muted);
+
+        g.restoreState();
+    }
+
+    void paintGridLines (juce::Graphics& g, const juce::Rectangle<int>& rowR) const
+    {
+        const int64_t ppq    = MidiClip::kPPQ;
+        const int64_t barLen = ppq * 4;
+        const int64_t total  = totalVisibleTicks();
+        const bool showBeats = (ppq * pixelsPerTick) >= 4.0;
+
+        const int64_t firstBeat = (int64_t)(scrollX / (pixelsPerTick * ppq));
+        const int64_t lastBeat  = firstBeat + (int64_t)(rowR.getWidth() / (pixelsPerTick * ppq)) + 2;
+
+        for (int64_t b = firstBeat; b <= lastBeat && b * ppq <= total; ++b)
         {
-            const int64_t ppq    = MidiClip::kPPQ;
-            const int64_t barLen = ppq * 4;
-            const int64_t total  = totalVisibleTicks();
-            const int64_t firstBeat = (int64_t)(scrollX / (pixelsPerTick * ppq));
-            const int64_t lastBeat  = firstBeat + (int64_t)(rowR.getWidth() / (pixelsPerTick * ppq)) + 2;
-
-            for (int64_t beat = firstBeat; beat <= lastBeat && beat * ppq <= total; ++beat)
-            {
-                const int gx = clipGridBounds.getX() + (int)((beat * ppq) * pixelsPerTick - scrollX);
-                if (gx < rowR.getX() || gx > rowR.getRight()) continue;
-                const bool isBar = (beat % 4 == 0);
-                g.setColour (isBar ? juce::Colour (0xFF161E2C) : juce::Colour (0xFF101620));
-                g.fillRect (gx, rowR.getY(), 1, rowR.getHeight() - 1);
-            }
+            const int x = clipGridBounds.getX() + (int)((b * ppq) * pixelsPerTick - scrollX);
+            if (x < rowR.getX() || x > rowR.getRight()) continue;
+            const bool isBar = (b % 4 == 0);
+            if (!showBeats && !isBar) continue;
+            g.setColour (isBar ? juce::Colour (0xFF141C2A) : juce::Colour (0xFF0E1420));
+            g.fillRect (x, rowR.getY(), 1, rowR.getHeight() - 1);
         }
+    }
 
-        // ── Clip rectangle ───────────────────────────────────────────────────
-        auto clipR = clipRectForTrack (i);
-        if (! rowR.intersects (clipR)) return;
+    void paintClip (juce::Graphics& g, int i,
+                    const SequencerTrackInfo& info,
+                    bool isSel, bool muted) const
+    {
+        const auto clipR = clipRectForTrack (i);
+        if (! clipGridBounds.intersects (clipR)) return;
 
-        const juce::Colour clipBase = muted
-            ? info.colour.withSaturation (0.1f).withBrightness (0.25f)
+        const juce::Colour base = muted
+            ? info.colour.withSaturation (0.08f).withBrightness (0.22f)
             : info.colour;
 
-        // Clip background fill (gradient feel)
+        // Fill gradient
         {
             juce::ColourGradient grad (
-                clipBase.withAlpha (0.35f), (float)clipR.getX(), (float)clipR.getY(),
-                clipBase.withAlpha (0.18f), (float)clipR.getX(), (float)clipR.getBottom(), false);
+                base.withAlpha (0.38f), (float)clipR.getX(), (float)clipR.getY(),
+                base.withAlpha (0.18f), (float)clipR.getX(), (float)clipR.getBottom(),
+                false);
             g.setGradientFill (grad);
-            g.fillRoundedRectangle (clipR.toFloat().reduced (1.f, 2.f), 4.f);
+            g.fillRoundedRectangle (clipR.toFloat().reduced (1.f, 1.f), 4.f);
         }
 
-        // Selection glow border
+        // Border — brighter when selected
         if (isSel)
         {
-            g.setColour (clipBase.brighter (0.6f).withAlpha (0.9f));
-            g.drawRoundedRectangle (clipR.toFloat().reduced (1.f, 2.f), 4.f, 1.5f);
+            g.setColour (base.brighter (0.7f).withAlpha (0.95f));
+            g.drawRoundedRectangle (clipR.toFloat().reduced (1.f, 1.f), 4.f, 1.5f);
         }
         else
         {
-            g.setColour (clipBase.withAlpha (muted ? 0.3f : 0.65f));
-            g.drawRoundedRectangle (clipR.toFloat().reduced (1.f, 2.f), 4.f, 1.f);
+            g.setColour (base.withAlpha (muted ? 0.28f : 0.6f));
+            g.drawRoundedRectangle (clipR.toFloat().reduced (1.f, 1.f), 4.f, 1.f);
         }
 
-        // Mute overlay hatching
+        // Mute hatch
         if (muted)
         {
-            g.setColour (juce::Colour::fromFloatRGBA (0.f, 0.f, 0.f, 0.35f));
-            g.fillRoundedRectangle (clipR.toFloat().reduced (1.f, 2.f), 4.f);
+            g.setColour (juce::Colours::black.withAlpha (0.38f));
+            g.fillRoundedRectangle (clipR.toFloat().reduced (1.f, 1.f), 4.f);
         }
 
-        // Clip header bar (coloured strip along top)
-        const juce::Rectangle<float> headerBar (
-            clipR.toFloat().reduced (1.f, 2.f).withHeight (juce::jmin (6.f, (float)trackH * 0.12f)));
-        g.setColour (clipBase.withAlpha (muted ? 0.3f : 0.8f));
-        g.fillRoundedRectangle (headerBar, 2.f);
-
-        // Track name inside clip header
+        // Colour header strip along top
+        const float headerH = juce::jmin (7.f, (float)trackH * 0.13f);
+        g.setColour (base.withAlpha (muted ? 0.28f : 0.82f));
         {
-            g.setFont (juce::Font (juce::jmin (10.f, (float)trackH * 0.2f), juce::Font::bold));
-            g.setColour (muted ? juce::Colour (0xFF445566)
-                               : juce::Colours::white.withAlpha (0.85f));
+            juce::Path hdr;
+            hdr.addRoundedRectangle (clipR.getX() + 1.f, clipR.getY() + 1.f,
+                                     clipR.getWidth() - 2.f, headerH,
+                                     3.f, 3.f, true, true, false, false);
+            g.fillPath (hdr);
+        }
+
+        // Track name
+        if (trackH >= 20)
+        {
+            g.setFont (juce::Font (juce::jmin (11.f, (float)trackH * 0.22f), juce::Font::bold));
+            g.setColour (muted ? juce::Colour (0xFF3A4A5A)
+                               : juce::Colours::white.withAlpha (0.88f));
             g.drawText (info.name,
-                        clipR.getX() + 6, clipR.getY(),
-                        juce::jmax (0, clipR.getWidth() - 12), (int)(trackH * 0.38f),
+                        clipR.getX() + 5, clipR.getY() + (int)headerH,
+                        juce::jmax (0, clipR.getWidth() - 24),
+                        juce::jmax (0, (int)(trackH * 0.38f)),
                         juce::Justification::centredLeft, true);
         }
 
-        // Track type badge (SL / CH / SF)
+        // Track type badge
+        if (clipR.getWidth() > 32 && trackH >= 20)
         {
             juce::String badge;
             switch (info.type)
@@ -648,82 +913,75 @@ private:
                 case TrackType::SfPlayer:       badge = "SF"; break;
             }
             g.setFont (juce::Font (8.f));
-            g.setColour (clipBase.withAlpha (0.55f));
+            g.setColour (base.withAlpha (0.55f));
             g.drawText (badge,
-                        clipR.getRight() - 20, clipR.getY() + 2,
-                        18, 12,
+                        clipR.getRight() - 22, clipR.getY() + 2,
+                        20, 12,
                         juce::Justification::centredRight, false);
         }
 
-        // Resize handle on right edge
+        // Resize handle
         {
             const juce::Rectangle<float> handleR (
-                clipR.toFloat().reduced(1.f, 2.f).withLeft(clipR.getRight() - 7.f));
-            g.setColour (clipBase.withAlpha (0.45f));
+                clipR.toFloat().reduced (1.f, 1.f)
+                    .withLeft ((float)(clipR.getRight() - 8)));
+            g.setColour (base.withAlpha (0.4f));
             g.fillRoundedRectangle (handleR, 2.f);
-            // Grip dots
-            g.setColour (clipBase.brighter(0.5f).withAlpha(0.5f));
+            g.setColour (base.brighter (0.5f).withAlpha (0.45f));
+            const float cx = handleR.getCentreX();
             for (int dot = 0; dot < 3; ++dot)
             {
-                const float dy = clipR.getY() + clipR.getHeight() * 0.25f + dot * clipR.getHeight() * 0.25f;
-                g.fillEllipse (clipR.getRight() - 5.f, dy - 1.f, 2.f, 2.f);
+                const float dy = handleR.getY() + handleR.getHeight() * (0.25f + dot * 0.25f);
+                g.fillEllipse (cx - 1.f, dy - 1.f, 2.f, 2.f);
             }
         }
 
-        // ── Mini piano-roll note preview ─────────────────────────────────────
-        paintNotePreview (g, i, clipR, clipBase, muted);
+        // Mini note preview
+        paintNotePreview (g, i, clipR, base, muted);
     }
 
     void paintNotePreview (juce::Graphics& g, int trackIdx,
                            juce::Rectangle<int> clipR,
-                           juce::Colour clipBase, bool muted) const
+                           juce::Colour base, bool muted) const
     {
         const MidiClip* clip = engine.getClip (trackIdx);
         if (! clip) return;
-
         const int64_t clipLen = clip->getLengthTicks();
         if (clipLen <= 0) return;
 
-        // Note preview area (below header strip, above bottom padding)
         const int headerH  = (int)(trackH * 0.38f);
         const int previewY = clipR.getY() + headerH;
         const int previewH = clipR.getHeight() - headerH - 3;
         if (previewH < 4) return;
 
-        // Clip to the clip rectangle
         g.saveState();
-        g.reduceClipRegion (clipR.withTrimmedTop(headerH).withTrimmedBottom(2));
+        g.reduceClipRegion (clipR.withTrimmedTop (headerH).withTrimmedBottom (2));
 
         {
             const juce::ScopedReadLock sl (clip->getLock());
             const auto& notes = clip->getNotes();
+            if (notes.isEmpty()) { g.restoreState(); return; }
 
-            // Find pitch range for this clip
             int loNote = 127, hiNote = 0;
             for (const auto& n : notes)
             {
                 loNote = juce::jmin (loNote, n.note);
                 hiNote = juce::jmax (hiNote, n.note);
             }
-            if (notes.isEmpty()) { g.restoreState(); return; }
-
             const int range = juce::jmax (12, hiNote - loNote + 2);
 
             for (const auto& n : notes)
             {
                 if (n.startTick >= clipLen) continue;
-
                 const float nx = clipR.getX()
                     + (float)(n.startTick) / (float)clipLen * clipR.getWidth();
                 const float nw = juce::jmax (1.5f,
                     (float)(n.durationTick) / (float)clipLen * clipR.getWidth() - 0.5f);
-
                 const float pitch = (float)(n.note - loNote) / (float)range;
                 const float ny = (float)previewY + (1.f - pitch) * (float)(previewH - 3);
                 const float nh = juce::jmax (1.5f, (float)previewH / (float)range);
-
-                const float velAlpha = muted ? 0.25f : (0.4f + 0.5f * n.velocity / 127.f);
-                g.setColour (clipBase.brighter (0.2f).withAlpha (velAlpha));
+                const float va = muted ? 0.22f : (0.4f + 0.5f * n.velocity / 127.f);
+                g.setColour (base.brighter (0.2f).withAlpha (va));
                 g.fillRoundedRectangle (nx, ny, nw, nh, 0.5f);
             }
         }
@@ -734,24 +992,24 @@ private:
     void paintPlayhead (juce::Graphics& g) const
     {
         if (clipGridBounds.isEmpty()) return;
-
         const int64_t tick  = engine.getPlayheadTick();
         const int64_t total = totalVisibleTicks();
         if (tick < 0 || tick > total) return;
 
-        const int x = clipGridBounds.getX() + (int)(tick * pixelsPerTick - scrollX);
+        const int x = (int)tickToX (tick);
         if (x < clipGridBounds.getX() || x > clipGridBounds.getRight()) return;
 
-        // Orange line through tracks
-        g.setColour (juce::Colour::fromFloatRGBA (0.9f, 0.5f, 0.15f, 0.8f));
-        g.fillRect (x, rulerBounds.getY(), 1, rulerBounds.getHeight() + clipGridBounds.getHeight());
+        // Thin line through tracks
+        g.setColour (juce::Colour::fromFloatRGBA (0.95f, 0.52f, 0.12f, 0.82f));
+        g.fillRect (x, rulerBounds.getY(),
+                    1, rulerBounds.getHeight() + clipGridBounds.getHeight());
 
-        // Triangle in ruler
+        // Triangle caret in ruler
         juce::Path tri;
-        tri.addTriangle ((float)x, (float)rulerBounds.getBottom(),
-                         (float)x - 5.f, (float)rulerBounds.getY() + 4.f,
-                         (float)x + 5.f, (float)rulerBounds.getY() + 4.f);
-        g.setColour (juce::Colour::fromFloatRGBA (0.9f, 0.5f, 0.15f, 0.95f));
+        tri.addTriangle ((float)x,       (float)rulerBounds.getBottom(),
+                         (float)x - 6.f, (float)rulerBounds.getY() + 5.f,
+                         (float)x + 6.f, (float)rulerBounds.getY() + 5.f);
+        g.setColour (juce::Colour::fromFloatRGBA (0.95f, 0.52f, 0.12f, 0.97f));
         g.fillPath (tri);
     }
 
