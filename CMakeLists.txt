@@ -6,29 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 
+# --- chowdsp_utils (SVF EQ filters — used by VoicePool per-slice EQ) ---
 include(FetchContent)
-
-
-# --- Tracktion Engine (Source Download Only) ---
-# Populates the source tree without evaluating Tracktion's own root CMake tree.
-# This completely bypasses its internal JUCE copies, benchmarks, and tests.
-cmake_policy(SET CMP0169 OLD)
 FetchContent_Declare(
-    tracktion_engine
-    GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine
-    GIT_TAG        master
-    GIT_SUBMODULES ""
+    chowdsp_utils
+    GIT_REPOSITORY https://github.com/Chowdhury-DSP/chowdsp_utils
+    GIT_TAG        v2.3.0
+    GIT_SHALLOW    TRUE
 )
-FetchContent_GetProperties(tracktion_engine)
-if(NOT tracktion_engine_POPULATED)
-    FetchContent_Populate(tracktion_engine)
-endif()
+set(CHOWDSP_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(chowdsp_utils)
 
-juce_add_modules("${tracktion_engine_SOURCE_DIR}/modules/tracktion_engine")
-juce_add_modules("${tracktion_engine_SOURCE_DIR}/modules/tracktion_graph")
-
-set(TRACKTION_ENGINE_MODULES_DIR "${tracktion_engine_SOURCE_DIR}/modules")
-message(STATUS "Tracktion Engine fetched and modules registered cleanly via juce_add_module")
 
 # --- Ableton Link (tempo sync across apps on LAN/WiFi) ---
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/link/include/ableton/Link.hpp")
@@ -37,10 +25,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/link/include/ableton/Link.hpp")
 else()
     set(DYSEKT_HAS_LINK FALSE)
     message(STATUS "Ableton Link SDK NOT found — Link sync disabled.")
-    message(STATUS "  To enable: git submodule add https://github.com/Ableton/link link")
+    message(STATUS "  To enable: git submodule add https://github.com/Ableton/link.git link")
 endif()
 
-# --- sfizz (SFZ/SF2 engine) ---
+# --- sfizz (SFZ/SF2 engine — SoundFontLoader slice-render + SfzPlayer live SFZ playback) ---
 if(TRUE)
     set(SFIZZ_CLIENTS    OFF CACHE BOOL "" FORCE)
     set(SFIZZ_SHARED     OFF CACHE BOOL "" FORCE)
@@ -49,6 +37,8 @@ if(TRUE)
     set(SFIZZ_VST        OFF CACHE BOOL "" FORCE)
     set(SFIZZ_BENCHMARKS OFF CACHE BOOL "" FORCE)
     set(SFIZZ_TESTS      OFF CACHE BOOL "" FORCE)
+    # Disable sfizz_render CLI tool — it pulls in cxxopts which collides
+    # with vcpkg's pre-registered cxxopts alias target on Windows CI.
     set(SFIZZ_RENDER     OFF CACHE BOOL "" FORCE)
     add_subdirectory(sfizz EXCLUDE_FROM_ALL)
     set(DYSEKT_HAS_SFIZZ TRUE)
@@ -58,7 +48,7 @@ else()
     message(STATUS "sfizz NOT found at ./sfizz — SF2/SFZ slice-render support disabled.")
 endif()
 
-# --- FluidSynth (SF2 live-playback engine) ---
+# --- FluidSynth (SF2 live-playback engine — used by SfzPlayer) ---
 find_package(FluidSynth CONFIG QUIET)
 
 if(FluidSynth_FOUND)
@@ -86,6 +76,9 @@ else()
     endif()
 endif()
 
+# Resolve the sfizz C API include directory.
+# sfizz.h (C API) lives at sfizz/src/sfizz.h in the sfizz source tree.
+# The sfizz::sfizz CMake target only exposes C++ headers, so we add it manually.
 if(DYSEKT_HAS_SFIZZ)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src/sfizz.h")
         set(SFIZZ_C_API_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/sfizz/src")
@@ -98,9 +91,7 @@ if(DYSEKT_HAS_SFIZZ)
     message(STATUS "sfizz C API include: ${SFIZZ_C_API_INCLUDE}")
 endif()
 
-# =============================================================================
-#  VST3 Plugin target
-# =============================================================================
+# Define the target
 juce_add_plugin(Dysekt
     COMPANY_NAME "DunSoft"
     PLUGIN_MANUFACTURER_CODE Dnst
@@ -113,6 +104,7 @@ juce_add_plugin(Dysekt
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
 )
 
+# FIXED: Use source-charset ONLY to fix character reading without breaking Nuendo compatibility
 if (MSVC)
     target_compile_options(Dysekt PRIVATE /source-charset:utf-8)
 endif()
@@ -137,8 +129,6 @@ target_sources(Dysekt PRIVATE
     src/audio/LazyChopEngine.cpp
     src/audio/SoundFontLoader.cpp
     src/audio/SfzPlayer.cpp
-    src/sequencer/MidiClip.cpp
-    src/sequencer/SequencerEngine.cpp
     src/params/ParamLayout.cpp
     src/ui/DysektLookAndFeel.cpp
     src/ui/HeaderBar.cpp
@@ -162,7 +152,7 @@ target_sources(Dysekt PRIVATE
     src/ui/SfzModulePanel.cpp
     src/ui/WaveformOverview.cpp
     src/ui/ArchiveIntegration.cpp
-    src/ui/GlobalEqPanel.cpp
+    src/ui/GlobalEqPanel.cpp   
 )
 
 target_include_directories(Dysekt PRIVATE
@@ -170,6 +160,7 @@ target_include_directories(Dysekt PRIVATE
     $<$<BOOL:${DYSEKT_HAS_LINK}>:${CMAKE_CURRENT_SOURCE_DIR}/link/include>
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
+    # sfizz C API header (sfizz.h) — needed by SoundFontLoader.cpp and SfzPlayer.cpp
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
 )
 
@@ -187,18 +178,23 @@ target_link_libraries(Dysekt
         juce::juce_audio_utils
         juce::juce_dsp
         DysektFonts
+        # sfizz — slice-render pipeline (SoundFontLoader) + live SFZ playback (SfzPlayer)
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
+        # FluidSynth — live SF2 playback (SfzPlayer)
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
+        chowdsp::chowdsp_filters
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
 )
 
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
 #  DYSEKT Standalone App
-# =============================================================================
+#  Same engine + UI as the plugin, plus piano roll, pattern manager,
+#  and audio device selection.
+# ─────────────────────────────────────────────────────────────────────────────
 juce_add_gui_app(DysektStandalone
     PRODUCT_NAME "DYSEKT"
 )
@@ -217,8 +213,6 @@ target_sources(DysektStandalone PRIVATE
     src/audio/LazyChopEngine.cpp
     src/audio/SoundFontLoader.cpp
     src/audio/SfzPlayer.cpp
-    src/sequencer/MidiClip.cpp
-    src/sequencer/SequencerEngine.cpp
     src/params/ParamLayout.cpp
     src/ui/DysektLookAndFeel.cpp
     src/ui/HeaderBar.cpp
@@ -253,7 +247,6 @@ target_include_directories(DysektStandalone PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
-    ${TRACKTION_ENGINE_MODULES_DIR}
 )
 
 target_compile_definitions(DysektStandalone PUBLIC
@@ -264,7 +257,6 @@ target_compile_definitions(DysektStandalone PUBLIC
     DYSEKT_HAS_SFIZZ=$<BOOL:${DYSEKT_HAS_SFIZZ}>
     DYSEKT_HAS_FLUIDSYNTH=$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>
     DYSEKT_STANDALONE=1
-    TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=0
 )
 
 target_link_libraries(DysektStandalone
@@ -276,8 +268,7 @@ target_link_libraries(DysektStandalone
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
-        tracktion_engine
-        tracktion_graph
+        chowdsp::chowdsp_filters
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

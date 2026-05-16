@@ -43,18 +43,6 @@ public:
     // Called when user double-clicks a clip row
     std::function<void(int trackIndex)> onClipDoubleClicked;
 
-    // Wired by PluginEditor — called when user picks a preset from the strip footer
-    std::function<void(const Sf2PresetInfo&)> onAddSfTrackRequested;
-
-    // Wired by PluginEditor — called when user clicks × on an SF track row
-    std::function<void(int trackIndex)> onRemoveSfTrack;
-
-    /** Feed the full preset list from the loaded SF2 into the strip footer picker. */
-    void setStripAvailablePresets (const std::vector<Sf2PresetInfo>& presets)
-    {
-        trackStrip.setAvailablePresets (presets);
-    }
-
     //==========================================================================
     ArrangeView (SequencerEngine& seq, AbletonLink* link = nullptr)
         : engine (seq),
@@ -66,17 +54,6 @@ public:
 
         // Keep strip selection in sync
         trackStrip.onTrackSelected = [this] (int idx) { selectedTrack = idx; };
-
-        // Forward SF picker callbacks to owner (PluginEditor)
-        trackStrip.onAddSfTrackRequested = [this] (const Sf2PresetInfo& p)
-        {
-            if (onAddSfTrackRequested) onAddSfTrackRequested (p);
-        };
-
-        trackStrip.onRemoveSfTrack = [this] (int idx)
-        {
-            if (onRemoveSfTrack) onRemoveSfTrack (idx);
-        };
 
         startTimerHz (30);
     }

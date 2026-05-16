@@ -48,16 +48,14 @@ void SliceWaveformLcd::repaintLcd()
  else
  {
  const int ver = processor.getUiSliceSnapshotVersion();
- const int curSel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
 
- // Rebuild when snapshot version changes OR when the selected slice changes.
- // Selection changes do not increment the snapshot version, so without the
- // second check R would stay at whatever position it had for the previous slice.
- if (ver != lastEnvSnapVer || curSel != lastBuiltSliceIndex)
+ // Also detect changes to the global APVTS ADSR knobs — turning a knob
+ // does not dirty the slice snapshot (it only updates the APVTS param),
+ // so we must check the raw param values directly here.
+ if (ver != lastEnvSnapVer)
  {
      buildEnvelopeNodes();
      lastEnvSnapVer = ver;
-     lastBuiltSliceIndex = curSel;
  }
  }
  }
@@ -142,10 +140,10 @@ void SliceWaveformLcd::buildEnvelopeNodes()
  // if the field is locked, use the slice's own stored value;
  // otherwise use the global APVTS knob value.  This ensures the nodes
  // track the ADSR knobs even when the field is not locked.
- float attackMs  = 0.0f;
- float decayMs   = 0.0f;
+ float attackMs  = 10.0f;
+ float decayMs   = 100.0f;
  float sustainPc = 100.0f;
- float releaseMs = 0.0f;
+ float releaseMs = 100.0f;
 
  auto apvtsMs  = [&] (const juce::String& id) -> float {
      auto* p = processor.apvts.getRawParameterValue (id);
@@ -184,13 +182,8 @@ void SliceWaveformLcd::buildEnvelopeNodes()
     const float releaseNorm = std::sqrt (juce::jmin (releaseMs / kViewMs, 1.0f));
 
     // Place A and R first, then fit D in the remaining span.
-    // R node: when releaseMs is effectively zero (default/unset), place R at
-    // kMax (end of slice). Mapping 0ms -> kMin puts R at the left edge, which
-    // is wrong visually -- "no release" should look like "plays to the end".
-    const float ax_raw = kMin + attackNorm * (kMax - kMin);
-    const float rx_raw = (releaseMs < 0.5f)
-                         ? kMax
-                         : juce::jlimit (kMin, kMax, kMax - releaseNorm * (kMax - kMin));
+    const float ax_raw = kMin + attackNorm  * (kMax - kMin);
+    const float rx_raw = kMin + releaseNorm * (kMax - kMin);
 
     env.ax = juce::jlimit (kMin, kMax - 2.0f * kGap, ax_raw);
     env.rx = juce::jlimit (env.ax + 2.0f * kGap, kMax, rx_raw);
@@ -234,11 +227,10 @@ void SliceWaveformLcd::commitNodes()
 
     const float kViewMs = juce::jmax (1.0f, getSliceDurMs());
 
-    // A: position within full [kMin..kMax] span (left=short, right=long)
+    // A: position within full [kMin..kMax] span
     const float aRatio = (env.ax - kMin) / juce::jmax (0.001f, kMax - kMin);
-    // R: counts from the RIGHT — rx==kMax means 0ms release (plays to end).
-    // Inverse of: rx_raw = kMax - releaseNorm * (kMax - kMin)
-    const float rRatio = (kMax - env.rx) / juce::jmax (0.001f, kMax - kMin);
+    // R: position within full [kMin..kMax] span (same direction as A — right = longer)
+    const float rRatio = (env.rx - kMin) / juce::jmax (0.001f, kMax - kMin);
     // D: position within [ax+kGap .. rx-kGap] span
     const float dSpan  = env.rx - env.ax - 2.0f * kGap;
     const float dRatio = (env.dx - (env.ax + kGap)) / juce::jmax (0.001f, dSpan);

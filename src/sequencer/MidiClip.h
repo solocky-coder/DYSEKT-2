@@ -2,46 +2,32 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
 
-// Forward-declare te::MidiList so this header compiles without pulling in
-// the full tracktion_engine headers.  The implementation (MidiClip.cpp)
-// includes tracktion_engine where the full type is needed.
-namespace tracktion_engine { class MidiList; }
-namespace te = tracktion_engine;
-
 //==============================================================================
-//  MidiNote  —  a single note event.  Unchanged from original.
+//  MidiNote  —  a single note event inside a MidiClip.
+//
+//  All timing is stored in **ticks** (PPQ-based).  The SequencerEngine owns
+//  the PPQ resolution (kPPQ = 960) and converts ticks ↔ samples at runtime.
 //==============================================================================
 struct MidiNote
 {
-    int     note         = 60;
-    int     velocity     = 100;
-    int64_t startTick    = 0;
-    int64_t durationTick = 480;
+    int   note      = 60;     // MIDI note number (0-127)
+    int   velocity  = 100;    // note-on velocity  (1-127)
+    int64_t startTick = 0;    // note-on position  (ticks from clip start)
+    int64_t durationTick = 480; // note length in ticks (default = 1 beat @ 960 PPQ)
 
     int64_t endTick() const noexcept { return startTick + durationTick; }
+
     bool operator< (const MidiNote& o) const noexcept { return startTick < o.startTick; }
 };
 
 //==============================================================================
-//  MidiClip
+//  MidiClip  —  an ordered collection of MidiNotes with a fixed length.
 //
-//  Public API is identical to the original hand-rolled version.  Every note
-//  operation is mirrored into an attached te::MidiList so Tracktion Engine
-//  can render the sequence natively through its edit graph.
-//
-//  The juce::Array<MidiNote> shadow copy is kept in sync on every write and
-//  is the sole source for the audio-thread read path — getLock() + getNotes()
-//  work exactly as before.
-//
-//  Thread-safety contract (unchanged):
-//    • All edits happen on the message thread (addNote, removeNote, …).
-//    • Audio thread reads via ScopedReadLock on getLock().
-//    • te::MidiList writes are always performed under the same write-lock.
-//
-//  Tick ↔ seconds mapping:
-//    The MidiList stores beat positions in seconds at a reference tempo of
-//    120 BPM.  Actual playback tempo is governed by the te::TempoSequence on
-//    the edit — the storage positions are just relative timestamps.
+//  - Notes are kept sorted by startTick at all times.
+//  - lengthTicks defines the loop/clip boundary; notes beyond it are ignored
+//    during playback but preserved for editing.
+//  - Thread safety: all editing happens on the message thread; the audio
+//    thread only reads via a lock-free snapshot (see SequencerEngine).
 //==============================================================================
 class MidiClip
 {
@@ -51,83 +37,173 @@ public:
     //==========================================================================
     MidiClip() = default;
 
-    MidiClip (MidiClip&& other) noexcept;
-    MidiClip& operator= (MidiClip&& other) noexcept;
+    /** Move constructor — creates a fresh lock and steals the note data.
+        Required because juce::ReadWriteLock is non-copyable and non-movable. */
+    MidiClip (MidiClip&& other) noexcept
+    {
+        const juce::ScopedWriteLock sl (other.lock);
+        lengthTicks       = other.lengthTicks;
+        notes             = std::move (other.notes);
+        other.lengthTicks = kPPQ * 4 * 4;
+    }
+
+    MidiClip& operator= (MidiClip&& other) noexcept
+    {
+        if (this != &other)
+        {
+            const juce::ScopedWriteLock wl (lock);
+            const juce::ScopedWriteLock rl (other.lock);
+            lengthTicks       = other.lengthTicks;
+            notes             = std::move (other.notes);
+            other.lengthTicks = kPPQ * 4 * 4;
+        }
+        return *this;
+    }
 
     JUCE_DECLARE_NON_COPYABLE (MidiClip)
 
-    //==========================================================================
-    //  Clip length
-    //==========================================================================
-    int64_t getLengthTicks() const noexcept { return lengthTicks; }
-    double  getLengthBeats() const noexcept { return (double) lengthTicks / (double) kPPQ; }
+    /** Replace all notes atomically (call from message thread). */
+    void setNotes (juce::Array<MidiNote> newNotes)
+    {
+        newNotes.sort();
+        const juce::ScopedWriteLock sl (lock);
+        notes = std::move (newNotes);
+    }
 
-    void setLengthTicks (int64_t t);
-    void setLengthBeats (double beats) { setLengthTicks ((int64_t)(beats * kPPQ)); }
-
-    //==========================================================================
-    //  Bulk replace  (message thread)
-    //==========================================================================
-    void setNotes (juce::Array<MidiNote> newNotes);
-
-    /** Read-only access for the audio thread (hold getLock() while iterating). */
     const juce::Array<MidiNote>& getNotes() const noexcept { return notes; }
 
-    //==========================================================================
-    //  Editing helpers  (message thread only)
-    //==========================================================================
-    int  addNote        (MidiNote n);
-    void removeNote     (int index);
-    void moveNote       (int index, int64_t newStartTick, int newNote = -1);
-    void resizeNote     (int index, int64_t newDurationTick);
-    void setNoteVelocity(int index, int velocity);
-    void clear();
+    /** Clip length in ticks. Defaults to 4 bars (4 * 4 beats * kPPQ). */
+    int64_t getLengthTicks() const noexcept { return lengthTicks; }
+    void    setLengthTicks (int64_t t)      { lengthTicks = juce::jmax ((int64_t)kPPQ, t); }
 
-    /** Returns index of note at (tick, noteNum), or -1. */
-    int hitTest (int64_t tick, int noteNum) const;
+    /** Convenience: length in beats (quarter notes). */
+    double getLengthBeats() const noexcept { return (double)lengthTicks / (double)kPPQ; }
+    void   setLengthBeats (double beats)   { setLengthTicks ((int64_t)(beats * kPPQ)); }
 
     //==========================================================================
-    //  Tracktion integration
+    //  Editing helpers (message thread only)
     //==========================================================================
 
-    /** Attach a te::MidiList owned by a Tracktion clip.  Must be called once
-     *  after the edit + clip are created.  The list is immediately populated
-     *  from the current note set and kept in sync on every subsequent edit. */
-    void attachMidiList (te::MidiList* list);
+    int addNote (MidiNote n)
+    {
+        n.startTick    = juce::jmax ((int64_t)0, n.startTick);
+        n.durationTick = juce::jmax ((int64_t)1, n.durationTick);
+        const juce::ScopedWriteLock sl (lock);
+        int idx = notes.addSorted (comparator, n);
+        return idx;
+    }
 
-    te::MidiList* getMidiList() const noexcept { return midiList; }
+    void removeNote (int index)
+    {
+        const juce::ScopedWriteLock sl (lock);
+        if (juce::isPositiveAndBelow (index, notes.size()))
+            notes.remove (index);
+    }
+
+    void moveNote (int index, int64_t newStartTick, int newNote = -1)
+    {
+        const juce::ScopedWriteLock sl (lock);
+        if (! juce::isPositiveAndBelow (index, notes.size())) return;
+        notes.getReference (index).startTick = juce::jmax ((int64_t)0, newStartTick);
+        if (newNote >= 0 && newNote <= 127)
+            notes.getReference (index).note = newNote;
+        notes.sort();
+    }
+
+    void resizeNote (int index, int64_t newDurationTick)
+    {
+        const juce::ScopedWriteLock sl (lock);
+        if (! juce::isPositiveAndBelow (index, notes.size())) return;
+        notes.getReference (index).durationTick = juce::jmax ((int64_t)1, newDurationTick);
+    }
+
+    void setNoteVelocity (int index, int velocity)
+    {
+        const juce::ScopedWriteLock sl (lock);
+        if (! juce::isPositiveAndBelow (index, notes.size())) return;
+        notes.getReference (index).velocity = juce::jlimit (1, 127, velocity);
+    }
+
+    void clear()
+    {
+        const juce::ScopedWriteLock sl (lock);
+        notes.clear();
+    }
+
+    /** Returns index of note hit at (tick, noteNum), or -1. */
+    int hitTest (int64_t tick, int noteNum) const
+    {
+        const juce::ScopedReadLock sl (lock);
+        for (int i = 0; i < notes.size(); ++i)
+        {
+            const auto& n = notes.getReference (i);
+            if (n.note == noteNum && tick >= n.startTick && tick < n.endTick())
+                return i;
+        }
+        return -1;
+    }
 
     //==========================================================================
-    //  Serialisation  (identical binary format to original)
+    //  Serialisation
     //==========================================================================
-    void writeToStream (juce::MemoryOutputStream& s) const;
-    bool readFromStream (juce::MemoryInputStream& s);
 
+    void writeToStream (juce::MemoryOutputStream& s) const
+    {
+        const juce::ScopedReadLock sl (lock);
+        s.writeInt64 (lengthTicks);
+        s.writeInt (notes.size());
+        for (const auto& n : notes)
+        {
+            s.writeInt   (n.note);
+            s.writeInt   (n.velocity);
+            s.writeInt64 (n.startTick);
+            s.writeInt64 (n.durationTick);
+        }
+    }
+
+    bool readFromStream (juce::MemoryInputStream& s)
+    {
+        const int64_t len = s.readInt64();
+        if (len <= 0) return false;
+        const int count = s.readInt();
+        if (count < 0 || count > 100000) return false;
+
+        juce::Array<MidiNote> loaded;
+        loaded.ensureStorageAllocated (count);
+        for (int i = 0; i < count; ++i)
+        {
+            MidiNote n;
+            n.note         = s.readInt();
+            n.velocity     = s.readInt();
+            n.startTick    = s.readInt64();
+            n.durationTick = s.readInt64();
+            if (n.note < 0 || n.note > 127) return false;
+            loaded.add (n);
+        }
+        loaded.sort();
+
+        const juce::ScopedWriteLock sl (lock);
+        lengthTicks = len;
+        notes = std::move (loaded);
+        return true;
+    }
+
+    //==========================================================================
+    //  Lock (readers: audio thread snapshot; writers: message thread editing)
     //==========================================================================
     const juce::ReadWriteLock& getLock() const noexcept { return lock; }
 
 private:
-    //==========================================================================
-    int64_t               lengthTicks = kPPQ * 4 * 4;
+    int64_t               lengthTicks = kPPQ * 4 * 4;  // 4 bars default
     juce::Array<MidiNote> notes;
     mutable juce::ReadWriteLock lock;
-    te::MidiList*         midiList = nullptr;   // non-owning; owned by te::MidiClip
 
     struct Comparator
     {
         static int compareElements (const MidiNote& a, const MidiNote& b) noexcept
         {
-            return (a.startTick < b.startTick) ? -1 : (a.startTick > b.startTick) ? 1 : 0;
+            return (a.startTick < b.startTick) ? -1
+                 : (a.startTick > b.startTick) ?  1 : 0;
         }
     } comparator;
-
-    //==========================================================================
-    static double ticksToBeats (int64_t ticks) noexcept
-    {
-        return (double) ticks / (double) kPPQ;
-    }
-
-    void addNoteToList      (const MidiNote& n);
-    void removeNoteFromList (const MidiNote& n);
-    void rebuildMidiList();
 };
