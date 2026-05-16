@@ -26,7 +26,7 @@ FetchContent_Declare(
     tracktion_engine
     GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
     GIT_TAG        develop
-    GIT_SUBMODULES_RECURSE FALSE
+    GIT_SUBMODULES ""
 )
 set(TRACKTION_JUCE_MODULES_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules" CACHE PATH "" FORCE)
