@@ -18,7 +18,7 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force JUCE -ErrorAction SilentlyContinue
-          git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
+          git clone --depth 1 --branch 8.0.7 https://github.com/juce-framework/JUCE.git JUCE
 
       - name: Fetch bungee
         shell: pwsh
