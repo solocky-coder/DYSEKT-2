@@ -25,7 +25,7 @@ FetchContent_MakeAvailable(chowdsp_utils)
 FetchContent_Declare(
     tracktion_engine
     GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
-    GIT_TAG        develop
+    GIT_TAG        master
     GIT_SUBMODULES ""
 )
 set(TRACKTION_JUCE_MODULES_DIR
