@@ -1,8 +1,9 @@
-#include "MidiClip.h"
-
 // Full tracktion_engine header needed here for te::MidiList method calls.
-// Only this .cpp pays the include cost — not every TU that includes MidiClip.h.
+// Must come before MidiClip.h so tracktion_engine initialises JUCE module
+// flags before juce_audio_basics / juce_core (pulled in via MidiClip.h) set them.
 #include <tracktion_engine/tracktion_engine.h>
+
+#include "MidiClip.h"
 
 //==============================================================================
 MidiClip::MidiClip (MidiClip&& other) noexcept

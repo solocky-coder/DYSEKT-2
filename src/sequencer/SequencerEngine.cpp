@@ -1,7 +1,9 @@
-#include "SequencerEngine.h"
-
 // Full tracktion include lives here only — not in any header.
+// Must come before SequencerEngine.h so tracktion_engine initialises JUCE
+// module flags before juce_graphics (pulled in via SequencerEngine.h) sets them.
 #include <tracktion_engine/tracktion_engine.h>
+
+#include "SequencerEngine.h"
 
 #include <atomic>
 #include <algorithm>
