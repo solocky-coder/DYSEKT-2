@@ -20,9 +20,10 @@ FetchContent_MakeAvailable(chowdsp_utils)
 # --- tracktion_engine (sequencer backbone — SequencerEngine.cpp, MidiClip.cpp) ---
 FetchContent_Declare(
     tracktion_engine
-    GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
-    GIT_TAG        develop
-    GIT_SHALLOW    TRUE
+    GIT_REPOSITORY  https://github.com/Tracktion/tracktion_engine.git
+    GIT_TAG         develop
+    GIT_SHALLOW     TRUE
+    GIT_SUBMODULES  ""          # prevent SSH-clone of tracktion's bundled JUCE submodule
 )
 set(TRACKTION_ENABLE_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(TRACKTION_ENABLE_EXAMPLES   OFF CACHE BOOL "" FORCE)
