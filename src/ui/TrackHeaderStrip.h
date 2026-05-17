@@ -14,8 +14,6 @@ class TrackHeaderStrip : public juce::Component,
                          private juce::Timer
 {
 public:
-    static constexpr int kTrackH = 36;
-
     explicit TrackHeaderStrip (SequencerEngine& seq)
         : engine (seq)
     {
@@ -23,6 +21,15 @@ public:
     }
 
     ~TrackHeaderStrip() override { stopTimer(); }
+
+    /** Called by ArrangeView whenever its trackH changes so rows stay perfectly in sync. */
+    void setTrackHeight (int h)
+    {
+        trackH = juce::jmax (18, h);
+        repaint();
+    }
+
+    int getTrackHeight() const noexcept { return trackH; }
 
     int  getSelectedTrack() const noexcept { return selectedTrack; }
     void setSelectedTrack (int i) { selectedTrack = i; repaint(); }
@@ -33,7 +40,7 @@ public:
     //==========================================================================
     int getRequiredHeight() const
     {
-        return engine.getNumTracks() * kTrackH;
+        return engine.getNumTracks() * trackH;
     }
 
     //==========================================================================
@@ -57,27 +64,31 @@ public:
             g.setColour (info.colour);
             g.fillRect (rowR.withTrimmedRight (rowR.getWidth() - 4).toFloat());
 
-            // Mute indicator
-            const auto muteR = rowR.withTrimmedLeft (rowR.getWidth() - 28)
-                                   .reduced (4, 8);
+            // Mute button — scales with row height
+            const int muteW  = juce::jlimit (20, 28, trackH - 8);
+            const int muteH  = juce::jlimit (12, 18, trackH - 8);
+            const auto muteR = rowR.withTrimmedLeft (rowR.getWidth() - muteW - 4)
+                                   .withSizeKeepingCentre (muteW, muteH);
             g.setColour (info.enabled
                 ? juce::Colour (0xFF2A8060)
                 : juce::Colour (0xFF602020));
             g.fillRoundedRectangle (muteR.toFloat(), 3.f);
             g.setColour (juce::Colours::white.withAlpha (0.7f));
-            g.setFont (juce::Font (8.f, juce::Font::bold));
+            const float muteFontSz = juce::jlimit (7.f, 11.f, (float)trackH * 0.22f);
+            g.setFont (juce::Font (muteFontSz, juce::Font::bold));
             g.drawText (info.enabled ? "M" : "m", muteR,
                         juce::Justification::centred, false);
 
-            // Track name
-            g.setFont (juce::Font (10.f, juce::Font::bold));
+            // Track name — centred vertically in full row height
+            const float nameFontSz = juce::jlimit (11.f, 15.f, (float)trackH * 0.30f);
+            g.setFont (juce::Font (nameFontSz, juce::Font::bold));
             g.setColour (sel ? info.colour : juce::Colour (0xFFCCD0D8));
             g.drawText (info.name,
                         rowR.getX() + 6, rowR.getY(),
-                        rowR.getWidth() - 34, kTrackH,
+                        rowR.getWidth() - muteW - 12, trackH,
                         juce::Justification::centredLeft, true);
 
-            // Track type badge
+            // Track type badge — bottom-left quarter of row
             juce::String badge;
             switch (info.type)
             {
@@ -85,12 +96,16 @@ public:
                 case TrackType::ChromaticSlice: badge = "CH";  break;
                 case TrackType::SfPlayer:       badge = "SF";  break;
             }
-            g.setFont (juce::Font (8.f));
-            g.setColour (info.colour.withAlpha (0.7f));
-            g.drawText (badge,
-                        rowR.getX() + 6, rowR.getY() + kTrackH / 2,
-                        20, kTrackH / 2,
-                        juce::Justification::centredLeft, false);
+            if (trackH >= 32)
+            {
+                const float badgeFontSz = juce::jlimit (8.f, 11.f, (float)trackH * 0.18f);
+                g.setFont (juce::Font (badgeFontSz));
+                g.setColour (info.colour.withAlpha (0.6f));
+                g.drawText (badge,
+                            rowR.getX() + 6, rowR.getCentreY(),
+                            24, trackH / 2,
+                            juce::Justification::centredLeft, false);
+            }
 
             // Separator
             g.setColour (juce::Colour (0xFF1C2028));
@@ -100,12 +115,15 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        const int i = e.y / kTrackH;
+        const int i = e.y / trackH;
         if (! juce::isPositiveAndBelow (i, engine.getNumTracks())) return;
 
         // Check mute button hit
         const auto rowR  = getRowBounds (i);
-        const auto muteR = rowR.withTrimmedLeft (rowR.getWidth() - 28).reduced (4, 8);
+        const int muteW  = juce::jlimit (20, 28, trackH - 8);
+        const int muteH  = juce::jlimit (12, 18, trackH - 8);
+        const auto muteR = rowR.withTrimmedLeft (rowR.getWidth() - muteW - 4)
+                               .withSizeKeepingCentre (muteW, muteH);
 
         if (muteR.contains (e.getPosition()))
         {
@@ -125,10 +143,11 @@ public:
 private:
     SequencerEngine& engine;
     int selectedTrack = 0;
+    int trackH        = 54;   // default matches ArrangeView::kDefaultTrackH; updated via setTrackHeight()
 
     juce::Rectangle<int> getRowBounds (int i) const
     {
-        return { 0, i * kTrackH, getWidth(), kTrackH };
+        return { 0, i * trackH, getWidth(), trackH };
     }
 
     void timerCallback() override { repaint(); }

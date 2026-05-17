@@ -121,6 +121,7 @@ public:
         auto leftCol = r.removeFromLeft (kStripW);
         leftCol.removeFromTop (kRulerH);
         trackStrip.setBounds (leftCol);
+        trackStrip.setTrackHeight (trackH);
 
         gridArea      = r;
         rulerBounds   = gridArea.removeFromTop (kRulerH);
@@ -407,12 +408,14 @@ public:
         if (k.getKeyCode() == '+' || k.getKeyCode() == '=')
         {
             trackH = juce::jlimit (kMinTrackH, kMaxTrackH, trackH + 6);
+            trackStrip.setTrackHeight (trackH);
             updateScrollRanges(); trackStrip.repaint(); repaint();
             return true;
         }
         if (k.getKeyCode() == '-')
         {
             trackH = juce::jlimit (kMinTrackH, kMaxTrackH, trackH - 6);
+            trackStrip.setTrackHeight (trackH);
             updateScrollRanges(); trackStrip.repaint(); repaint();
             return true;
         }
