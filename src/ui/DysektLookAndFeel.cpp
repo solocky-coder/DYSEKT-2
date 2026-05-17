@@ -1,7 +1,7 @@
 #include "DysektLookAndFeel.h"
 #include "BinaryData.h"
 
-static ThemeData globalTheme = ThemeData::darkTheme();
+static ThemeData globalTheme = ThemeData::opendawTheme();
 
 ThemeData& getTheme() { return globalTheme; }
 void setTheme (const ThemeData& t) { globalTheme = t; }
@@ -80,10 +80,10 @@ void DysektLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b
 
     // ── NO glow halo — crisp borders only ────────────────────────────────────
 
-    // ── Flat fill (near-zero gradient — just enough for depth perception) ────
-    auto fillCol = isDown        ? baseBg.brighter (0.28f)
-                 : isHighlighted ? baseBg.brighter (0.12f)
-                 : toggled       ? baseBg.interpolatedWith (getTheme().accent, 0.14f)
+    // ── Flat fill — minimal gradient, OpenDAW-style ───────────────────────────
+    auto fillCol = isDown        ? baseBg.brighter (0.20f)
+                 : isHighlighted ? baseBg.brighter (0.10f)
+                 : toggled       ? baseBg.interpolatedWith (getTheme().accent, 0.18f)
                                  : baseBg;
 
     if (getTheme().name == "serum")
@@ -99,27 +99,16 @@ void DysektLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b
     }
     else
     {
-        juce::ColourGradient grad (fillCol.brighter (0.03f), bounds.getX(), bounds.getY(),
-                                   fillCol.darker   (0.03f), bounds.getX(), bounds.getBottom(),
-                                   false);
-        g.setGradientFill (grad);
+        g.setColour (fillCol);
     }
     g.fillRoundedRectangle (bounds, r);
 
-    // ── Crisp 1px border — full accent on active, separator otherwise ─────────
-    auto borderCol = toggled      ? getTheme().accent
-                   : isHighlighted ? getTheme().separator.brighter (0.55f)
-                                   : getTheme().separator;
-    g.setColour (borderCol.withAlpha (toggled ? 1.0f : 0.90f));
+    // ── Border — accent on active, subtle otherwise ───────────────────────────
+    auto borderCol = toggled      ? getTheme().accent.withAlpha (0.70f)
+                   : isHighlighted ? getTheme().separator.brighter (0.30f)
+                                   : getTheme().separator.withAlpha (0.60f);
+    g.setColour (borderCol);
     g.drawRoundedRectangle (bounds, r, 1.0f);
-
-    // ── Accent top-edge for toggled state — 1px, full opacity ────────────────
-    if (toggled)
-    {
-        auto topLine = bounds.removeFromTop (1.0f);
-        g.setColour (getTheme().accent);
-        g.fillRoundedRectangle (topLine.reduced (r * 0.5f, 0), 0.5f);
-    }
 }
 
 void DysektLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button,
@@ -129,7 +118,9 @@ void DysektLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& but
                                        ? juce::TextButton::textColourOnId
                                        : juce::TextButton::textColourOffId);
     if (textCol.isTransparent())
-        textCol = button.getToggleState() ? getTheme().accent : getTheme().foreground;
+        textCol = button.getToggleState()
+                ? getTheme().accent
+                : getTheme().foreground.withAlpha (0.85f);
 
     g.setColour (textCol);
 
@@ -171,8 +162,8 @@ void DysektLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, i
     g.setColour (getTheme().separator.withAlpha (1.0f));
     g.drawRoundedRectangle (bounds.reduced (0.5f), r, 1.0f);
 
-    // Top accent line — 1px, thin but visible
-    g.setColour (getTheme().accent.withAlpha (0.45f));
+    // Top accent line — 1px, subtle
+    g.setColour (getTheme().accent.withAlpha (0.22f));
     g.fillRect (bounds.reduced (r, 0).removeFromTop (1.0f));
 }
 

@@ -17,14 +17,10 @@ public:
         auto makeBtn = [this](juce::TextButton& b, const juce::String& label)
         {
             b.setButtonText (label);
-            b.setColour (juce::TextButton::buttonColourId,
-                         juce::Colour (0xFF1C2028));
-            b.setColour (juce::TextButton::buttonOnColourId,
-                         juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 1.0f));
-            b.setColour (juce::TextButton::textColourOffId,
-                         juce::Colour (0xFFCCD0D8));
-            b.setColour (juce::TextButton::textColourOnId,
-                         juce::Colour (0xFF000000));
+            b.setColour (juce::TextButton::buttonColourId,  getTheme().button);
+            b.setColour (juce::TextButton::buttonOnColourId, getTheme().accent);
+            b.setColour (juce::TextButton::textColourOffId,  getTheme().foreground);
+            b.setColour (juce::TextButton::textColourOnId,   getTheme().background);
             addAndMakeVisible (b);
         };
 
@@ -51,18 +47,15 @@ public:
         // BPM label + drag
         bpmLabel.setText ("120.0 BPM", juce::dontSendNotification);
         bpmLabel.setFont (DysektLookAndFeel::makeMonoFont (13.f, true));
-        bpmLabel.setColour (juce::Label::textColourId,
-                            juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 1.0f));
+        bpmLabel.setColour (juce::Label::textColourId, getTheme().accent);
         bpmLabel.setJustificationType (juce::Justification::centred);
         bpmLabel.setEditable (true, true, false);
         bpmLabel.onEditorShow = [this]
         {
             if (auto* ed = bpmLabel.getCurrentTextEditor())
             {
-                ed->setColour (juce::TextEditor::backgroundColourId,
-                               juce::Colour (0xFF1C2028));
-                ed->setColour (juce::TextEditor::textColourId,
-                               juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 1.0f));
+                ed->setColour (juce::TextEditor::backgroundColourId, getTheme().button);
+                ed->setColour (juce::TextEditor::textColourId,       getTheme().accent);
                 ed->setInputRestrictions (6, "0123456789.");
             }
         };
@@ -83,14 +76,14 @@ public:
         snapCombo.addItem ("1/32",  6);
         snapCombo.addItem ("Free",  7);
         snapCombo.setSelectedId (4, juce::dontSendNotification); // default 1/8
-        snapCombo.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xFF1C2028));
-        snapCombo.setColour (juce::ComboBox::textColourId,       juce::Colour (0xFFCCD0D8));
-        snapCombo.setColour (juce::ComboBox::outlineColourId,    juce::Colour (0xFF2A3040));
+        snapCombo.setColour (juce::ComboBox::backgroundColourId, getTheme().button);
+        snapCombo.setColour (juce::ComboBox::textColourId,       getTheme().foreground);
+        snapCombo.setColour (juce::ComboBox::outlineColourId,    getTheme().separator);
         addAndMakeVisible (snapCombo);
 
         // Playhead time display
         posLabel.setFont (DysektLookAndFeel::makeMonoFont (11.f));
-        posLabel.setColour (juce::Label::textColourId, juce::Colour (0xFF8090A0));
+        posLabel.setColour (juce::Label::textColourId, getTheme().foreground.withAlpha (0.55f));
         posLabel.setJustificationType (juce::Justification::centredLeft);
         addAndMakeVisible (posLabel);
 
@@ -98,10 +91,10 @@ public:
         if (linkPtr != nullptr)
         {
             linkBtn.setButtonText ("LINK");
-            linkBtn.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xFF1C2028));
-            linkBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromFloatRGBA (0.9f, 0.6f, 0.1f, 1.0f));
-            linkBtn.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xFFCCD0D8));
-            linkBtn.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xFF000000));
+            linkBtn.setColour (juce::TextButton::buttonColourId,   getTheme().button);
+            linkBtn.setColour (juce::TextButton::buttonOnColourId, getTheme().accent.withAlpha (0.85f));
+            linkBtn.setColour (juce::TextButton::textColourOffId,  getTheme().foreground);
+            linkBtn.setColour (juce::TextButton::textColourOnId,   getTheme().background);
             linkBtn.setClickingTogglesState (true);
             linkBtn.onStateChange = [this]
             {
@@ -165,8 +158,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (juce::Colour (0xFF0E0E13));
-        g.setColour (juce::Colour (0xFF1C2028));
+        g.fillAll (getTheme().darkBar);
+        g.setColour (getTheme().separator);
         g.fillRect (getLocalBounds().removeFromBottom (1));
     }
 
@@ -184,8 +177,8 @@ private:
         // Update play button colour
         const bool isPlaying = engine.isPlaying();
         playBtn.setColour (juce::TextButton::buttonColourId,
-                           isPlaying ? juce::Colour::fromFloatRGBA (0.25f, 0.85f, 0.85f, 0.3f)
-                                     : juce::Colour (0xFF1C2028));
+                           isPlaying ? getTheme().accent.withAlpha (0.25f)
+                                     : getTheme().button);
 
         // Update BPM display (only when not editing)
         if (! bpmLabel.isBeingEdited())

@@ -455,6 +455,46 @@ struct ThemeData
         return t;
     }
 
+    // ── OPENDAW ───────────────────────────────────────────────────────────────
+    // Neutral dark-gray chassis · Teal/cyan accent · Professional, flat, minimal
+    // Inspired by OpenDAW: muted backgrounds, readable text, no glow, clean grid
+    static ThemeData opendawTheme()
+    {
+        ThemeData t;
+        t.name             = "opendaw";
+        t.background       = juce::Colour (0xFF1A1D21);   // dark neutral gray chassis
+        t.waveformBg       = juce::Colour (0xFF1E2228);   // slightly lighter panel
+        t.darkBar          = juce::Colour (0xFF161920);   // header / bar strip
+        t.foreground       = juce::Colour (0xFFCDD5DC);   // cool off-white — readable
+        t.header           = juce::Colour (0xFF13161C);   // top bar
+        t.waveform         = juce::Colour (0xFF2CC4A8);   // teal waveform (OpenDAW)
+        t.selectionOverlay = juce::Colour (0xFF1A3A34);   // muted teal selection
+        t.lockActive       = juce::Colour (0xFF2CC4A8);   // teal active
+        t.lockInactive     = juce::Colour (0xFF2A3040);   // dim steel inactive
+        t.gridLine         = juce::Colour (0xFF252A32);   // visible but subtle grid
+        t.accent           = juce::Colour (0xFF2CC4A8);   // #2cc4a8 — OpenDAW teal
+        t.button           = juce::Colour (0xFF252B34);   // elevated panel button
+        t.buttonHover      = juce::Colour (0xFF2E3640);   // hover lift
+        t.separator        = juce::Colour (0xFF2A3040);   // steel divider
+        t.slicePalette[0 ] = juce::Colour (0xFFFF2DA0);
+        t.slicePalette[1 ] = juce::Colour (0xFF00FFC8);
+        t.slicePalette[2 ] = juce::Colour (0xFFFF7020);
+        t.slicePalette[3 ] = juce::Colour (0xFF2CC4A8);
+        t.slicePalette[4 ] = juce::Colour (0xFFFFE040);
+        t.slicePalette[5 ] = juce::Colour (0xFF8855FF);
+        t.slicePalette[6 ] = juce::Colour (0xFF00FFCC);
+        t.slicePalette[7 ] = juce::Colour (0xFFFF2040);
+        t.slicePalette[8 ] = juce::Colour (0xFF40FF50);
+        t.slicePalette[9 ] = juce::Colour (0xFFFF40B0);
+        t.slicePalette[10] = juce::Colour (0xFF20A8FF);
+        t.slicePalette[11] = juce::Colour (0xFFFFBB00);
+        t.slicePalette[12] = juce::Colour (0xFFFF5070);
+        t.slicePalette[13] = juce::Colour (0xFF50D8FF);
+        t.slicePalette[14] = juce::Colour (0xFFC8FF00);
+        t.slicePalette[15] = juce::Colour (0xFFAA80FF);
+        return t;
+    }
+
     static juce::Colour parseHex (const juce::String& hex)
     {
         return juce::Colour ((juce::uint32) (0xFF000000 | hex.getHexValue32()));
@@ -468,6 +508,7 @@ struct ThemeData
         if (text.contains("name: cr8"))      return cr8Theme();
         if (text.contains("name: dysekt"))   return dysektTheme();
         if (text.contains("name: serum"))    return serumTheme();
+        if (text.contains("name: opendaw"))  return opendawTheme();
 
         for (auto line : juce::StringArray::fromLines (text))
         {
