@@ -5,7 +5,7 @@
 // Forward-declare tracktion type to avoid pulling the full header into every TU.
 // tracktion_engine uses:  namespace tracktion { inline namespace engine { ... } }
 // so tracktion::MidiList and tracktion::engine::MidiList are the same thing.
-namespace tracktion { namespace engine { class MidiList; } }
+namespace tracktion { inline namespace engine { class MidiList; } }
 namespace te = tracktion;
 
 //==============================================================================
