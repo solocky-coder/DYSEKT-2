@@ -74,13 +74,13 @@ public:
                 : juce::Colour (0xFF602020));
             g.fillRoundedRectangle (muteR.toFloat(), 3.f);
             g.setColour (juce::Colours::white.withAlpha (0.7f));
-            const float muteFontSz = juce::jlimit (14.0f, 22.0f, (float)trackH * 0.22f);
+            const float muteFontSz = juce::jlimit (10.5f, 16.5f, (float)trackH * 0.22f);
             g.setFont (juce::Font (muteFontSz, juce::Font::bold));
             g.drawText (info.enabled ? "M" : "m", muteR,
                         juce::Justification::centred, false);
 
             // Track name — centred vertically in full row height
-            const float nameFontSz = juce::jlimit (22.0f, 30.0f, (float)trackH * 0.30f);
+            const float nameFontSz = juce::jlimit (16.5f, 22.5f, (float)trackH * 0.30f);
             g.setFont (juce::Font (nameFontSz, juce::Font::bold));
             g.setColour (sel ? info.colour : juce::Colour (0xFFCCD0D8));
             g.drawText (info.name,
@@ -98,7 +98,7 @@ public:
             }
             if (trackH >= 32)
             {
-                const float badgeFontSz = juce::jlimit (16.0f, 22.0f, (float)trackH * 0.18f);
+                const float badgeFontSz = juce::jlimit (12.0f, 16.5f, (float)trackH * 0.18f);
                 g.setFont (juce::Font (badgeFontSz));
                 g.setColour (info.colour.withAlpha (0.6f));
                 g.drawText (badge,

@@ -26,7 +26,7 @@ void FileBrowserPanel::ArchiveListModel::paintListBoxItem (int row, juce::Graphi
         g.fillAll();
     }
 
-    g.setFont (juce::Font (juce::FontOptions{}.withHeight (26.0f)));
+    g.setFont (juce::Font (juce::FontOptions{}.withHeight (19.5f)));
 
     // Folder icon placeholder
     if (R.isFolder)
@@ -49,14 +49,14 @@ void FileBrowserPanel::ArchiveListModel::paintListBoxItem (int row, juce::Graphi
             g.setColour (T.accent.withAlpha (0.18f));
             g.fillRoundedRectangle (badgeRect.toFloat(), 2.0f);
             g.setColour (T.accent.withAlpha (0.85f));
-            g.setFont (juce::Font (juce::FontOptions{}.withHeight (22.0f)));
+            g.setFont (juce::Font (juce::FontOptions{}.withHeight (16.5f)));
             g.drawText (R.format, badgeRect, juce::Justification::centred);
         }
 
         // Size
         if (R.sizeBytes > 0)
         {
-            g.setFont (juce::Font (juce::FontOptions{}.withHeight (22.0f)));
+            g.setFont (juce::Font (juce::FontOptions{}.withHeight (16.5f)));
             g.setColour (T.foreground.withAlpha (0.4f));
             juce::String sizeStr;
             if (R.sizeBytes >= 1024 * 1024)
@@ -214,7 +214,7 @@ FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
     addChildComponent (volumeSlider);
 
     // ── File name label ───────────────────────────────────────────────────────
-    fileNameLabel.setFont (juce::Font (juce::FontOptions{}.withHeight (26.0f)));
+    fileNameLabel.setFont (juce::Font (juce::FontOptions{}.withHeight (19.5f)));
     fileNameLabel.setColour (juce::Label::textColourId, getTheme().accent);
     fileNameLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0x00000000));
     fileNameLabel.setMinimumHorizontalScale (0.5f);
@@ -474,7 +474,7 @@ void FileBrowserPanel::paint (juce::Graphics& g)
         if (archiveViewActive && archiveListTitle.isNotEmpty())
         {
             g.setColour (T.accent.withAlpha (0.6f));
-            g.setFont (juce::Font (juce::FontOptions{}.withHeight (24.0f)));
+            g.setFont (juce::Font (juce::FontOptions{}.withHeight (18.0f)));
             g.drawText (archiveListTitle, archRect.reduced (4, 0).toNearestInt(),
                         juce::Justification::centredRight);
         }
