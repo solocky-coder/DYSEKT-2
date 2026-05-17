@@ -105,7 +105,7 @@ public:
     //==========================================================================
     void resized() override
     {
-        auto r = getLocalBounds();
+        auto r = getLocalBounds().reduced (4);
         transport.setBounds (r.removeFromTop (kTransportH));
 
         // Corner square between the two scrollbars
@@ -132,20 +132,56 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (juce::Colour (0xFF080810));
+        const auto& theme = getTheme();
+        const auto ac = theme.accent;
+        auto b = getLocalBounds();
+
+        // ── LCD-style frame — identical recipe to MixerPanel ─────────────────
+        {
+            juce::ColourGradient outerGrad (juce::Colour (0xFF131313), 0, 0,
+                                             juce::Colour (0xFF0E0E0E), 0, (float) b.getHeight(), false);
+            g.setGradientFill (outerGrad);
+            g.fillRoundedRectangle (b.toFloat(), 4.0f);
+
+            g.setColour (ac.withAlpha (0.65f));
+            g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.0f);
+
+            auto screen = b.reduced (4);
+            g.setColour (theme.darkBar.darker (0.55f));
+            g.fillRoundedRectangle (screen.toFloat(), 2.0f);
+
+            g.setColour (juce::Colours::black.withAlpha (0.18f));
+            for (int y = screen.getY(); y < screen.getBottom(); y += 2)
+                g.drawHorizontalLine (y, (float) screen.getX(), (float) screen.getRight());
+
+            juce::ColourGradient glow (ac.withAlpha (0.06f), 0, (float) screen.getY(),
+                                        juce::Colours::transparentBlack, 0, (float) (screen.getY() + 20), false);
+            g.setGradientFill (glow);
+            g.fillRoundedRectangle (screen.toFloat(), 2.0f);
+
+            g.setColour (ac.withAlpha (0.12f));
+            g.drawRoundedRectangle (screen.toFloat().expanded (0.5f), 2.0f, 1.0f);
+        }
+
+        // Clip all track content to the inner screen rect
+        g.saveState();
+        g.reduceClipRegion (b.reduced (4));
+
         paintRuler (g);
         paintTrackRows (g);
         paintLoopOverlay (g);
         paintPlayhead (g);
 
         // Corner fill between scrollbars
-        if (getWidth() > kStripW && getHeight() > kTransportH + kScrollH)
+        if (getWidth() > kStripW + 8 && getHeight() > kTransportH + kScrollH + 8)
         {
             g.setColour (juce::Colour (0xFF0A0A14));
-            g.fillRect (getWidth() - kScrollW,
-                        getHeight() - kScrollH,
+            g.fillRect (getWidth() - kScrollW - 4,
+                        getHeight() - kScrollH - 4,
                         kScrollW, kScrollH);
         }
+
+        g.restoreState();
     }
 
     //==========================================================================
