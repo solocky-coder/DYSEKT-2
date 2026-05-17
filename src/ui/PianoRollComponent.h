@@ -62,7 +62,7 @@ public:
     explicit PianoRollComponent (SequencerEngine& seq)
         : engine (seq)
     {
-        velocityLane.setClip (engine.getClip (0));
+        velocityLane.setClip (engine.getClip (0, 0));
         addAndMakeVisible (velocityLane);
 
         hScroll.setRangeLimits (0.0, 1.0);
@@ -92,10 +92,11 @@ public:
     }
 
     //==========================================================================
-    void setActiveTrack (int trackIndex)
+    void setActiveTrack (int trackIndex, int clipIndex = 0)
     {
         activeTrack = trackIndex;
-        velocityLane.setClip (engine.getClip (trackIndex));
+        activeClip  = clipIndex;
+        velocityLane.setClip (engine.getClip (trackIndex, clipIndex));
         velocityLane.setSelectedNote (-1);
         selectedNotes.clear();
         undoStack.clear();
@@ -176,7 +177,7 @@ public:
         // ── Grid interaction ─────────────────────────────────────────────────
         if (! gridBounds.contains (e.getPosition())) return;
 
-        MidiClip* clip = engine.getClip (activeTrack);
+        MidiClip* clip = engine.getClip (activeTrack, activeClip);
         if (clip == nullptr) return;
 
         const int64_t tick    = xToTick (e.x);
@@ -206,7 +207,7 @@ public:
             repaint(); return;
         }
 
-        MidiClip* clip = engine.getClip (activeTrack);
+        MidiClip* clip = engine.getClip (activeTrack, activeClip);
         if (clip == nullptr) return;
 
         const int64_t tick    = xToTick (e.x);
@@ -277,7 +278,7 @@ public:
     {
         loopDragMode = 0;
 
-        MidiClip* clip = engine.getClip (activeTrack);
+        MidiClip* clip = engine.getClip (activeTrack, activeClip);
 
         if (dragMode == DragMode::Move || dragMode == DragMode::Resize ||
             dragMode == DragMode::Draw)
@@ -298,7 +299,7 @@ public:
     {
         // Double-click a note → open properties
         if (! gridBounds.contains (e.getPosition())) return;
-        MidiClip* clip = engine.getClip (activeTrack);
+        MidiClip* clip = engine.getClip (activeTrack, activeClip);
         if (! clip) return;
         const int64_t tick    = xToTick (e.x);
         const int     noteNum = yToNote (e.y);
@@ -337,7 +338,7 @@ public:
     //==========================================================================
     bool keyPressed (const juce::KeyPress& k) override
     {
-        MidiClip* clip = engine.getClip (activeTrack);
+        MidiClip* clip = engine.getClip (activeTrack, activeClip);
 
         // Tool shortcuts
         if (k.getKeyCode() == 'S') { setActiveTool (Tool::Select); return true; }
@@ -431,7 +432,7 @@ public:
     //==========================================================================
     void mouseRightClick (const juce::MouseEvent& e)
     {
-        MidiClip* clip = engine.getClip (activeTrack);
+        MidiClip* clip = engine.getClip (activeTrack, activeClip);
         if (! clip) return;
 
         const int64_t tick    = xToTick (e.x);
@@ -486,6 +487,7 @@ private:
     //==========================================================================
     SequencerEngine& engine;
     int activeTrack = 0;
+    int activeClip  = 0;
 
     juce::Rectangle<int> toolbarBounds, rulerBounds, keysBounds, gridBounds;
     juce::ScrollBar hScroll { false }, vScroll { true };
@@ -1003,7 +1005,7 @@ private:
             case Tool::Glue:  setMouseCursor (juce::MouseCursor::NormalCursor);    break;
             case Tool::Select:
             {
-                MidiClip* clip = engine.getClip (activeTrack);
+                MidiClip* clip = engine.getClip (activeTrack, activeClip);
                 const int64_t tick = xToTick (e.x);
                 const int note = yToNote (e.y);
                 const int idx = hitTestAny (clip, tick, note);
@@ -1382,7 +1384,8 @@ private:
         g.fillRect (gridBounds);
 
         // Clip end boundary
-        const float clipEndX = tickToX (engine.getLengthTicks());
+        const auto clipInfo = engine.getClipInfo (activeTrack, activeClip);
+        const float clipEndX = tickToX (clipInfo.lengthTicks);
         if (clipEndX >= gridBounds.getX() && clipEndX <= gridBounds.getRight())
         {
             g.setColour (juce::Colour::fromFloatRGBA (0.8f, 0.3f, 0.1f, 0.5f));
@@ -1404,7 +1407,7 @@ private:
 
     void drawNotes (juce::Graphics& g)
     {
-        MidiClip* clip = engine.getClip (activeTrack);
+        MidiClip* clip = engine.getClip (activeTrack, activeClip);
         if (! clip) return;
 
         const auto trackInfo = engine.getTrackInfo (activeTrack);

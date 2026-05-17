@@ -40,7 +40,7 @@ public:
         // Wire track selection
         trackStrip.onTrackSelected = [this] (int idx)
         {
-            pianoRoll.setActiveTrack (idx);
+            pianoRoll.setActiveTrack (idx, 0);
         };
     }
 
@@ -68,11 +68,11 @@ public:
         pianoRoll.setActiveTool (t);
     }
 
-    /** Set active track from outside (e.g. from ArrangeView double-click). */
-    void setActiveTrackPublic (int trackIndex)
+    /** Set active track+clip from outside (e.g. from ArrangeView double-click). */
+    void setActiveTrackPublic (int trackIndex, int clipIndex = 0)
     {
         trackStrip.setSelectedTrack (trackIndex);
-        pianoRoll.setActiveTrack (trackIndex);
+        pianoRoll.setActiveTrack (trackIndex, clipIndex);
     }
 
     void visibilityChanged() override
