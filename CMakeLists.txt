@@ -152,7 +152,9 @@ target_sources(Dysekt PRIVATE
     src/ui/SfzModulePanel.cpp
     src/ui/WaveformOverview.cpp
     src/ui/ArchiveIntegration.cpp
-    src/ui/GlobalEqPanel.cpp   
+    src/ui/GlobalEqPanel.cpp
+    src/sequencer/SequencerEngine.cpp
+    src/sequencer/MidiClip.cpp
 )
 
 target_include_directories(Dysekt PRIVATE
@@ -237,6 +239,8 @@ target_sources(DysektStandalone PRIVATE
     src/ui/WaveformOverview.cpp
     src/ui/ArchiveIntegration.cpp
     src/ui/GlobalEqPanel.cpp
+    src/sequencer/SequencerEngine.cpp
+    src/sequencer/MidiClip.cpp
     src/standalone/Main.cpp
     src/standalone/MainWindow.cpp
 )
