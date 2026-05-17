@@ -2,6 +2,7 @@
 #include "MidiClip.h"
 #include "../audio/SfzPlayer.h"
 #include <juce_core/juce_core.h>
+#include <juce_graphics/juce_graphics.h>
 
 //==============================================================================
 //  ClipSlot  —  a MidiClip with a start position on the timeline.
