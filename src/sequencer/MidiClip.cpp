@@ -1,8 +1,9 @@
-// Full tracktion_engine header needed here for te::MidiList method calls.
-// Must come before MidiClip.h so tracktion_engine initialises JUCE module
-// flags before juce_audio_basics / juce_core (pulled in via MidiClip.h) set them.
-#include <tracktion_engine/tracktion_engine.h>
-namespace te = tracktion;
+// MidiClip.cpp
+//
+// tracktion_engine header removed. The midiList pointer and attachMidiList()
+// are kept as a future hook (see MidiClip.h) but all midiList->... calls are
+// now guarded by (midiList != nullptr), which is always false until something
+// calls attachMidiList() again.  No functional change to DYSEKT's own sequencer.
 
 #include "MidiClip.h"
 
@@ -13,7 +14,7 @@ MidiClip::MidiClip (MidiClip&& other) noexcept
     lengthTicks       = other.lengthTicks;
     notes             = std::move (other.notes);
     other.lengthTicks = kPPQ * 4 * 4;
-    rebuildMidiList();
+    // midiList is not transferred — caller must re-attach if needed.
 }
 
 MidiClip& MidiClip::operator= (MidiClip&& other) noexcept
@@ -25,7 +26,7 @@ MidiClip& MidiClip::operator= (MidiClip&& other) noexcept
         lengthTicks       = other.lengthTicks;
         notes             = std::move (other.notes);
         other.lengthTicks = kPPQ * 4 * 4;
-        rebuildMidiList();
+        // midiList is not transferred — caller must re-attach if needed.
     }
     return *this;
 }
@@ -34,8 +35,7 @@ MidiClip& MidiClip::operator= (MidiClip&& other) noexcept
 void MidiClip::setLengthTicks (int64_t t)
 {
     lengthTicks = juce::jmax ((int64_t) kPPQ, t);
-    if (midiList != nullptr)
-        midiList->setLength (ticksToBeats (lengthTicks));
+    // midiList->setLength() would go here when tracktion is re-enabled.
 }
 
 //==============================================================================
@@ -100,7 +100,7 @@ void MidiClip::clear()
 {
     const juce::ScopedWriteLock sl (lock);
     notes.clear();
-    if (midiList != nullptr) midiList->clear();
+    // midiList->clear() would go here when tracktion is re-enabled.
 }
 
 //==============================================================================
@@ -119,9 +119,10 @@ int MidiClip::hitTest (int64_t tick, int noteNum) const
 //==============================================================================
 void MidiClip::attachMidiList (te::MidiList* list)
 {
+    // Kept as a future hook. When tracktion is re-enabled, uncomment the body.
     const juce::ScopedWriteLock sl (lock);
     midiList = list;
-    rebuildMidiList();
+    rebuildMidiList();   // safe: rebuildMidiList() guards on (midiList != nullptr)
 }
 
 //==============================================================================
@@ -168,37 +169,31 @@ bool MidiClip::readFromStream (juce::MemoryInputStream& s)
 }
 
 //==============================================================================
-//  Private helpers
+//  Private helpers  —  all guarded on (midiList != nullptr).
+//  These are intentional no-ops until tracktion is re-attached.
 //==============================================================================
-void MidiClip::addNoteToList (const MidiNote& n)
+void MidiClip::addNoteToList (const MidiNote& /*n*/)
 {
-    if (midiList == nullptr) return;
-    midiList->addNote (n.note,
-                       ticksToBeats (n.startTick),
-                       ticksToBeats (n.durationTick),
-                       n.velocity, 0, nullptr);
+    // When tracktion is re-enabled:
+    // midiList->addNote (n.note,
+    //                    tracktion::core::BeatPosition::fromBeats (ticksToBeats (n.startTick)),
+    //                    tracktion::core::BeatDuration::fromBeats (ticksToBeats (n.durationTick)),
+    //                    n.velocity, 0, nullptr);
 }
 
-void MidiClip::removeNoteFromList (const MidiNote& n)
+void MidiClip::removeNoteFromList (const MidiNote& /*n*/)
 {
-    if (midiList == nullptr) return;
-    const double startBeat = ticksToBeats (n.startTick);
-    for (auto* mn : midiList->getNotes())
-    {
-        if (mn->getNoteNumber() == n.note
-            && juce::approximatelyEqual (mn->getStartBeat(), startBeat))
-        {
-            midiList->removeNote (*mn, nullptr);
-            return;
-        }
-    }
+    // When tracktion is re-enabled:
+    // const double startBeat = ticksToBeats (n.startTick);
+    // for (auto* mn : midiList->getNotes())
+    //     if (mn->getNoteNumber() == n.note
+    //         && juce::approximatelyEqual ((double) mn->getStartBeat(), startBeat))
+    //         { midiList->removeNote (*mn, nullptr); return; }
 }
 
 void MidiClip::rebuildMidiList()
 {
     if (midiList == nullptr) return;
-    midiList->clear();
-    for (const auto& n : notes)
-        addNoteToList (n);
-    midiList->setLength (ticksToBeats (lengthTicks));
+    // When tracktion is re-enabled, restore full rebuild here.
+    // For now, midiList is always nullptr so this is unreachable.
 }

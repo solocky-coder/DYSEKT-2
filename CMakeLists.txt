@@ -17,20 +17,13 @@ FetchContent_Declare(
 set(CHOWDSP_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(chowdsp_utils)
 
-# --- tracktion_engine (sequencer backbone — SequencerEngine.cpp, MidiClip.cpp) ---
-FetchContent_Declare(
-    tracktion_engine
-    GIT_REPOSITORY  https://github.com/Tracktion/tracktion_engine.git
-    GIT_TAG         develop
-    GIT_SHALLOW     TRUE
-    GIT_SUBMODULES  ""          # prevent SSH-clone of tracktion's bundled JUCE submodule
-)
-set(TRACKTION_ENABLE_UNIT_TESTS OFF CACHE BOOL "" FORCE)
-set(TRACKTION_ENABLE_EXAMPLES   OFF CACHE BOOL "" FORCE)
-# Point tracktion_engine at the JUCE we already fetched — prevents a double-add
-set(TRACKTION_JUCE_MODULE_PATH  "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules" CACHE PATH "" FORCE)
-FetchContent_MakeAvailable(tracktion_engine)
-
+# --- tracktion_engine REMOVED ---
+# tracktion_engine does not compile against JUCE 8.0.12
+# (tracktion_PluginWindowState.cpp references juce::Displays::Display::userBounds
+# which was removed in JUCE 7+). SequencerEngine.cpp now uses DYSEKT's own
+# tick scheduler exclusively. MidiClip.cpp keeps the te::MidiList* hook as a
+# forward-declared pointer but all midiList calls are no-ops until tracktion
+# is re-enabled against a compatible JUCE version.
 
 # --- Ableton Link (tempo sync across apps on LAN/WiFi) ---
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/link/include/ableton/Link.hpp")
@@ -105,7 +98,9 @@ if(DYSEKT_HAS_SFIZZ)
     message(STATUS "sfizz C API include: ${SFIZZ_C_API_INCLUDE}")
 endif()
 
-# Define the target
+# ─────────────────────────────────────────────────────────────────────────────
+#  DYSEKT VST3 Plugin
+# ─────────────────────────────────────────────────────────────────────────────
 juce_add_plugin(Dysekt
     COMPANY_NAME "DunSoft"
     PLUGIN_MANUFACTURER_CODE Dnst
@@ -118,7 +113,7 @@ juce_add_plugin(Dysekt
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
 )
 
-# FIXED: Use source-charset ONLY to fix character reading without breaking Nuendo compatibility
+# Use source-charset ONLY — do NOT add /execution-charset (breaks Nuendo/Cubase).
 if (MSVC)
     target_compile_options(Dysekt PRIVATE /source-charset:utf-8)
 endif()
@@ -176,7 +171,6 @@ target_include_directories(Dysekt PRIVATE
     $<$<BOOL:${DYSEKT_HAS_LINK}>:${CMAKE_CURRENT_SOURCE_DIR}/link/include>
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
-    # sfizz C API header (sfizz.h) — needed by SoundFontLoader.cpp and SfzPlayer.cpp
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
 )
 
@@ -194,10 +188,7 @@ target_link_libraries(Dysekt
         juce::juce_audio_utils
         juce::juce_dsp
         DysektFonts
-        tracktion::tracktion_engine
-        # sfizz — slice-render pipeline (SoundFontLoader) + live SFZ playback (SfzPlayer)
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
-        # FluidSynth — live SF2 playback (SfzPlayer)
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
         chowdsp::chowdsp_filters
@@ -284,7 +275,6 @@ target_link_libraries(DysektStandalone
         juce::juce_audio_devices
         juce::juce_dsp
         DysektFonts
-        tracktion::tracktion_engine
         $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:sfizz::sfizz>
         $<$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>:FluidSynth::libfluidsynth>
         $<$<PLATFORM_ID:Linux>:asound>
