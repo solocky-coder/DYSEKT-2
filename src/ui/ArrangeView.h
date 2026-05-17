@@ -202,7 +202,7 @@ public:
 
         if (e.mods.isRightButtonDown())
         {
-            showContextMenu (trackIdx, hitClip);
+            showContextMenu (trackIdx, hitClip, e);
             return;
         }
 
@@ -655,7 +655,7 @@ private:
     //==========================================================================
     //  Context menus
     //==========================================================================
-    void showContextMenu (int trackIdx, int clipIdx)
+    void showContextMenu (int trackIdx, int clipIdx, const juce::MouseEvent& e)
     {
         const auto info  = engine.getTrackInfo (trackIdx);
         const bool onClip = (clipIdx >= 0);
@@ -665,9 +665,11 @@ private:
         {
             m.addItem (1, "Open in piano roll");
             m.addSeparator();
+            m.addItem (8, "Repeat clip");
+            m.addItem (4, "Duplicate to next track");
+            m.addSeparator();
             m.addItem (2, info.enabled ? "Mute track" : "Unmute track");
             m.addItem (3, "Clear clip");
-            m.addItem (4, "Duplicate to next track");
             m.addItem (6, "Delete clip");
             m.addSeparator();
             m.addItem (5, "Set loop to clip length");
@@ -677,7 +679,7 @@ private:
             m.addItem (2, info.enabled ? "Mute track" : "Unmute track");
         }
 
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (juce::Rectangle<int> (e.getScreenX(), e.getScreenY(), 1, 1)),
             [this, trackIdx, clipIdx, info, onClip] (int result)
             {
                 switch (result)
@@ -710,6 +712,24 @@ private:
                         if (selectedTrack == trackIdx && selectedClip == clipIdx)
                             selectedClip = 0;
                         break;
+                    case 8:  // Repeat clip
+                    {
+                        MidiClip* src = engine.getClip (trackIdx, clipIdx);
+                        if (src)
+                        {
+                            const auto srcInfo = engine.getClipInfo (trackIdx, clipIdx);
+                            juce::Array<MidiNote> notes;
+                            { const juce::ScopedReadLock sl (src->getLock()); notes = src->getNotes(); }
+                            for (int rep = 1; rep <= 1; ++rep)
+                            {
+                                const int64_t start = srcInfo.startTick + srcInfo.lengthTicks * rep;
+                                const int newIdx = engine.addClip (trackIdx, start, srcInfo.lengthTicks);
+                                if (MidiClip* dst = engine.getClip (trackIdx, newIdx))
+                                    dst->setNotes (notes);
+                            }
+                        }
+                        break;
+                    }
                     default: break;
                 }
                 repaint(); trackStrip.repaint();
