@@ -63,14 +63,14 @@ public:
                            : isActive ? getTheme().foreground
                                       : getTheme().foreground.withAlpha (0.4f);
         g.setColour (textCol);
-        g.setFont (juce::Font (juce::FontOptions{}.withHeight (13.0f)));
+        g.setFont (juce::Font (juce::FontOptions{}.withHeight (26.0f)));
         g.drawText (text,
                     area.withLeft (area.getX() + dotZone)
                         .withRight (area.getRight() - 4),
                     juce::Justification::centredLeft);
     }
 
-    juce::Font getPopupMenuFont() override { return juce::Font (juce::FontOptions{}.withHeight (13.0f)); }
+    juce::Font getPopupMenuFont() override { return juce::Font (juce::FontOptions{}.withHeight (26.0f)); }
 
     void drawComboBox (juce::Graphics& g, int width, int height, bool,
                        int buttonX, int, int, int, juce::ComboBox& box) override
@@ -89,7 +89,7 @@ public:
 
     juce::Font getComboBoxFont (juce::ComboBox&) override
     {
-        return juce::Font (juce::FontOptions{}.withHeight (11.0f));
+        return juce::Font (juce::FontOptions{}.withHeight (22.0f));
     }
 
     void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
@@ -119,19 +119,19 @@ public:
 
         const auto textCol = isItemSelected ? textSelected : textNormal;
         g.setColour (textCol);
-        g.setFont (juce::Font (juce::FontOptions{}.withHeight (11.0f)));
+        g.setFont (juce::Font (juce::FontOptions{}.withHeight (26.0f)));
         g.drawText (filename, 2, 0, width - 4, height, juce::Justification::centredLeft, true);
 
         if (! fileSizeDescription.isEmpty())
         {
-            g.setFont (juce::Font (juce::FontOptions{}.withHeight (9.5f)));
+            g.setFont (juce::Font (juce::FontOptions{}.withHeight (22.0f)));
             g.setColour (textCol.withAlpha (0.6f));
             g.drawText (fileSizeDescription, width - 80, 0, 78, height,
                         juce::Justification::centredRight, true);
         }
     }
 
-    int smallRowHeight() const { return 18; }
+    int smallRowHeight() const { return 26; }
 };
 
 // ── Play/Stop icon button ─────────────────────────────────────
