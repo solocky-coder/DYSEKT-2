@@ -2,6 +2,7 @@
 // Must come before MidiClip.h so tracktion_engine initialises JUCE module
 // flags before juce_audio_basics / juce_core (pulled in via MidiClip.h) set them.
 #include <tracktion_engine/tracktion_engine.h>
+namespace te = tracktion;
 
 #include "MidiClip.h"
 

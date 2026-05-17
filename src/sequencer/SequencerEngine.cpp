@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace te = tracktion_engine;
+namespace te = tracktion;
 
 // Stream version tag
 static constexpr int kStreamVersion1 = 1;   // legacy single-clip
