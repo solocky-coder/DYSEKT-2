@@ -244,7 +244,7 @@ public:
             selectedClip  = newIdx;
             repaint(); return;
         }
-
+    }   // end mouseDown
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
