@@ -542,6 +542,15 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     closeBrowser();
     repaint();
 
+    // For SFZ files, fire immediately — the player is ready; one track per instrument.
+    // For SF2, the preset list may still be loading asynchronously; timerCallback fires
+    // onSfzFileLoaded once the list arrives.
+    if (f.getFileExtension().toLowerCase() == ".sfz")
+    {
+        if (onSfzFileLoaded)
+            onSfzFileLoaded (f, true);
+    }
+
     if (onFileLoaded)
         onFileLoaded (f);
 }
@@ -876,6 +885,10 @@ void SfzDropdownPanel::timerCallback()
         && processor.sfzPlayer.getLoadedFile().getFileExtension().toLowerCase() == ".sf2")
     {
         reloadZones (processor.sfzPlayer.getLoadedFile());
+
+        // Notify external listeners (e.g. PluginEditor) that SF2 presets are ready.
+        if (onSfzFileLoaded)
+            onSfzFileLoaded (processor.sfzPlayer.getLoadedFile(), false);
     }
 
     // Keep bank tree data in sync
@@ -1917,10 +1930,33 @@ void SfzDropdownPanel::reloadZones (const juce::File& f)
             reloadZones (processor.sfzPlayer.getLoadedFile());
             repaint();
         };
+
+        // Right-click on an SF2 preset row → pick MIDI channel → create sequencer track.
+        keysPanel.onRowRightClicked = [this] (int rowIndex, juce::Point<int> screenPos)
+        {
+            if (rowIndex < 0 || rowIndex >= (int) presetList.size()) return;
+            const auto& preset = presetList[(size_t) rowIndex];
+
+            juce::PopupMenu menu;
+            menu.addSectionHeader ("Assign MIDI Channel – " + preset.name);
+            for (int ch = 1; ch <= 16; ++ch)
+                menu.addItem (ch, "Channel " + juce::String (ch));
+
+            menu.showMenuAsync (juce::PopupMenu::Options()
+                                    .withTargetScreenArea (juce::Rectangle<int> (screenPos.x, screenPos.y, 1, 1)),
+                [this, rowIndex] (int result)
+                {
+                    if (result < 1 || result > 16) return;
+                    if (rowIndex >= (int) presetList.size()) return;
+                    if (onPresetChannelAssigned)
+                        onPresetChannelAssigned (presetList[(size_t) rowIndex], result);
+                });
+        };
     }
     else
     {
         keysPanel.onRowClicked = nullptr;
+        keysPanel.onRowRightClicked = nullptr;
     }
 
     if (! zones.empty() && isSfz)

@@ -42,6 +42,13 @@ public:
         {
             pianoRoll.setActiveTrack (idx, 0);
         };
+
+        // Bubble up SF track channel changes so PluginEditor can update the engine.
+        trackStrip.onSfTrackChannelChanged = [this] (int trackIndex, int ch1Based)
+        {
+            if (onSfTrackChannelChanged)
+                onSfTrackChannelChanged (trackIndex, ch1Based);
+        };
     }
 
     void resized() override
@@ -102,6 +109,27 @@ public:
         engine.rebuildSfTracks (presets, palette, paletteSize);
         trackStrip.repaint();
     }
+
+    /** Add or update an SF2 preset sequencer track on a specific MIDI channel (1-based). */
+    void addOrUpdateSfPresetTrack (const Sf2PresetInfo& preset, int midiChannel1Based,
+                                   juce::Colour colour)
+    {
+        engine.addOrUpdateSfTrackOnChannel (preset, midiChannel1Based - 1, colour);
+        trackStrip.repaint();
+    }
+
+    /** Add a single SFZ instrument track (auto-assigned to channel 16 / 0-based 15). */
+    void addSfzInstrumentTrack (const juce::String& name, juce::Colour colour)
+    {
+        engine.addSfzTrack (name, 15, colour);
+        trackStrip.repaint();
+    }
+
+    /** Forward track info query for use by PluginEditor. */
+    SequencerTrackInfo getTrackInfo (int i) const { return engine.getTrackInfo (i); }
+
+    /** Called when the MIDI channel of an existing SF track is changed from the strip UI. */
+    std::function<void(int trackIndex, int midiChannel1Based)> onSfTrackChannelChanged;
 
 private:
     SequencerEngine&   engine;

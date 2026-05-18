@@ -75,6 +75,10 @@ public:
         Use this in SF2 preset-list mode to switch presets on click. */
     std::function<void (int rowIndex)> onRowClicked;
 
+    /** Fired when the user RIGHT-clicks a zone row (any mode).
+        rowIndex is 0-based. Use in SF2 mode to assign a MIDI channel. */
+    std::function<void (int rowIndex, juce::Point<int> screenPos)> onRowRightClicked;
+
     /** Fired when vol/pan/tune change during a drag — lets SfzModulePanel
         forward the values to SfzPlayer for real-time preview. */
     std::function<void (int zoneIndex, float volDb, float pan, float tuneCents)> onZoneChanged;
@@ -129,6 +133,10 @@ private:
         /** Called when the user clicks a row (any mode, fires before audition).
             rowIndex is 0-based into rows[]. */
         std::function<void (int rowIndex)> onRowClicked;
+
+        /** Called when the user right-clicks a row (any mode).
+            rowIndex is 0-based; screenPos is in screen coordinates. */
+        std::function<void (int rowIndex, juce::Point<int> screenPos)> onRowRightClicked;
 
         /** When true, an [+ ZONE] button is drawn in the upper-left header corner.
             Clicking it fires onAddZoneRequested (forwarded from KeysPanel). */

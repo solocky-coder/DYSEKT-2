@@ -81,6 +81,16 @@ public:
     void rebuildSfTracks (const std::vector<Sf2PresetInfo>& presets,
                           const juce::Colour* palette, int paletteSize);
 
+    /** Add or update an SF2 track for a given preset on a specific MIDI channel (0-based).
+     *  If a track already exists for this preset, its channel is updated.
+     *  Also calls sfzPlayer->setPresetOnChannel() so audio follows immediately. */
+    void addOrUpdateSfTrackOnChannel (const Sf2PresetInfo& preset, int midiChannel0Based,
+                                      juce::Colour colour);
+
+    /** Add a single SFZ track (one channel covers the whole instrument).
+     *  If an SFZ track already exists (identified by name), it is replaced. */
+    void addSfzTrack (const juce::String& name, int midiChannel0Based, juce::Colour colour);
+
     //==========================================================================
     //  Clip management  (message thread)
     //==========================================================================

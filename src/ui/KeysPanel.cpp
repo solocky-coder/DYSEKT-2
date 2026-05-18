@@ -542,6 +542,14 @@ void KeysPanel::ZoneMatrixContent::mouseDown (const juce::MouseEvent& e)
     const int clickedRow = (e.y - kHeaderH) / kRowH;
     if (clickedRow < 0 || clickedRow >= (int) rows.size()) return;
 
+    // Right-click: fire the right-click callback (e.g. MIDI channel picker) and stop.
+    if (e.mods.isRightButtonDown())
+    {
+        if (onRowRightClicked)
+            onRowRightClicked (clickedRow, e.getScreenPosition());
+        return;
+    }
+
     selectedRow = clickedRow;
     repaint();
 
@@ -885,6 +893,13 @@ void KeysPanel::rebuildZoneMatrix()
     {
         if (onRowClicked)
             onRowClicked (rowIndex);
+    };
+
+    // Forward right-click events from the matrix up to the KeysPanel owner.
+    zoneMatrix.onRowRightClicked = [this] (int rowIndex, juce::Point<int> screenPos)
+    {
+        if (onRowRightClicked)
+            onRowRightClicked (rowIndex, screenPos);
     };
 }
 

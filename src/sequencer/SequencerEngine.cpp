@@ -319,6 +319,62 @@ void SequencerEngine::rebuildSfTracks (const std::vector<Sf2PresetInfo>& presets
     }
 }
 
+void SequencerEngine::addOrUpdateSfTrackOnChannel (const Sf2PresetInfo& preset,
+                                                    int midiChannel0Based,
+                                                    juce::Colour colour)
+{
+    const int ch = juce::jlimit (0, 15, midiChannel0Based);
+
+    {
+        const juce::ScopedWriteLock sl (impl->tracksLock);
+
+        // If a track already exists for this preset, just update its channel.
+        for (auto* t : impl->tracks)
+        {
+            if (t->type == TrackType::SfPlayer
+                && t->preset.bank   == preset.bank
+                && t->preset.preset == preset.preset)
+            {
+                t->midiChannel = ch;
+                // sfzPlayer call outside the lock below.
+                if (impl->sfzPlayer != nullptr)
+                    impl->sfzPlayer->setPresetOnChannel (ch, preset.bank, preset.preset);
+                return;
+            }
+        }
+
+        // New track for this preset on the chosen channel.
+        auto track = SequencerTrack::makeSfPlayer (preset, colour);
+        track.midiChannel = ch;
+        impl->tracks.add (new SequencerTrack (std::move (track)));
+    }
+
+    if (impl->sfzPlayer != nullptr)
+        impl->sfzPlayer->setPresetOnChannel (ch, preset.bank, preset.preset);
+}
+
+void SequencerEngine::addSfzTrack (const juce::String& name, int midiChannel0Based,
+                                    juce::Colour colour)
+{
+    const int ch = juce::jlimit (0, 15, midiChannel0Based);
+    const juce::ScopedWriteLock sl (impl->tracksLock);
+
+    // Remove any existing SfPlayer track with the same name (previous SFZ load).
+    for (int i = impl->tracks.size() - 1; i >= 0; --i)
+        if (impl->tracks[i]->type == TrackType::SfPlayer
+            && impl->tracks[i]->name == name)
+            impl->tracks.remove (i);
+
+    Sf2PresetInfo sfzPreset;
+    sfzPreset.name   = name;
+    sfzPreset.bank   = 0;
+    sfzPreset.preset = 0;
+
+    auto track = SequencerTrack::makeSfPlayer (sfzPreset, colour);
+    track.midiChannel = ch;
+    impl->tracks.add (new SequencerTrack (std::move (track)));
+}
+
 //==============================================================================
 //  Clip management
 //==============================================================================

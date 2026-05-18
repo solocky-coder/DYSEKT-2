@@ -58,6 +58,17 @@ public:
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;
 
+    /** Called when an SF2 file finishes loading (presets ready) or an SFZ file is loaded.
+        For SF2, this fires from timerCallback once the async preset list arrives.
+        For SFZ, this fires immediately from onFileChosen.
+        Use this to add a sequencer track for the loaded instrument. */
+    std::function<void (const juce::File& f, bool isSfz)> onSfzFileLoaded;
+
+    /** Called when the user right-clicks an SF2 preset row and picks a MIDI channel (1–16).
+        Preset is identified by its index in the preset list. channel is 1-based.
+        Use this to add/update a sequencer track for that preset on that channel. */
+    std::function<void (const Sf2PresetInfo& preset, int midiChannel1Based)> onPresetChannelAssigned;
+
     // ── Layout constants ──────────────────────────────────────────────────────
     static constexpr int kStripH  = 36;
     static constexpr int kAdsrH   = 34;   ///< height of the ADSR knob row

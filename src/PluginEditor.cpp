@@ -87,6 +87,40 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  {
      sfzPanelRestored = false;
  };
+
+ // SFZ loaded → add one sequencer track automatically (channel 15, 0-based).
+ // SF2 loaded → fires once preset list is ready; no tracks yet — user assigns
+ // per-preset channels by right-clicking preset rows in the key zone matrix.
+ sfzDropdown.onSfzFileLoaded = [this] (const juce::File& f, bool isSfz)
+ {
+     if (isSfz)
+     {
+         const juce::String name = f.getFileNameWithoutExtension();
+         pianoRollPanel.addSfzInstrumentTrack (name, juce::Colour (0xFF407060));
+     }
+     // For SF2: do nothing here — tracks appear via onPresetChannelAssigned.
+ };
+
+ // SF2 preset right-clicked → user assigned a MIDI channel → create track.
+ sfzDropdown.onPresetChannelAssigned = [this] (const Sf2PresetInfo& preset, int midiChannel1Based)
+ {
+     // Pick a colour based on the preset number (bank*128 + program).
+     static const juce::Colour kPalette[] = {
+         juce::Colour (0xFF4060A0), juce::Colour (0xFF60A040),
+         juce::Colour (0xFFA04060), juce::Colour (0xFF40A0A0),
+         juce::Colour (0xFFA0A040), juce::Colour (0xFF8060C0),
+     };
+     const int colIdx = (preset.bank * 128 + preset.preset) % 6;
+     pianoRollPanel.addOrUpdateSfPresetTrack (preset, midiChannel1Based, kPalette[colIdx]);
+ };
+
+ // Track-header right-click on an SF track → change MIDI channel.
+ pianoRollPanel.onSfTrackChannelChanged = [this] (int trackIndex, int midiChannel1Based)
+ {
+     const auto info = pianoRollPanel.getTrackInfo (trackIndex);
+     if (info.type == TrackType::SfPlayer)
+         pianoRollPanel.addOrUpdateSfPresetTrack (info.preset, midiChannel1Based, info.colour);
+ };
  shortcutsPanel.setVisible (false);
  addChildComponent (shortcutsPanel);
     addChildComponent (pianoRollPanel);

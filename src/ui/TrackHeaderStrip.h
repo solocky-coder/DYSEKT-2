@@ -36,6 +36,9 @@ public:
 
     std::function<void(int trackIndex)> onTrackSelected;
     std::function<void(int trackIndex, bool enabled)> onTrackMuted;
+    /** Called when user right-clicks an SfPlayer track header and picks a new MIDI channel.
+     *  channel is 1-based (1–16). */
+    std::function<void(int trackIndex, int midiChannel1Based)> onSfTrackChannelChanged;
 
     //==========================================================================
     int getRequiredHeight() const
@@ -105,6 +108,17 @@ public:
                             rowR.getX() + 6, rowR.getCentreY(),
                             24, trackH / 2,
                             juce::Justification::centredLeft, false);
+
+                // For SfPlayer tracks: show MIDI channel badge next to the type badge.
+                if (info.type == TrackType::SfPlayer)
+                {
+                    const juce::String chBadge = "CH" + juce::String (info.midiChannel + 1);
+                    g.setColour (info.colour.withAlpha (0.85f));
+                    g.drawText (chBadge,
+                                rowR.getX() + 32, rowR.getCentreY(),
+                                44, trackH / 2,
+                                juce::Justification::centredLeft, false);
+                }
             }
 
             // Separator
@@ -118,6 +132,34 @@ public:
         const int i = e.y / trackH;
         if (! juce::isPositiveAndBelow (i, engine.getNumTracks())) return;
 
+        const auto info = engine.getTrackInfo (i);
+
+        // Right-click on an SfPlayer track → channel reassignment popup.
+        if (e.mods.isRightButtonDown() && info.type == TrackType::SfPlayer)
+        {
+            juce::PopupMenu menu;
+            menu.addSectionHeader ("MIDI Channel – " + info.name);
+            for (int ch = 1; ch <= 16; ++ch)
+            {
+                const bool current = (ch == info.midiChannel + 1);
+                menu.addItem (ch, "Channel " + juce::String (ch),
+                              true,  // enabled
+                              current);
+            }
+            const int trackIdx = i;
+            menu.showMenuAsync (juce::PopupMenu::Options()
+                                    .withTargetComponent (this)
+                                    .withTargetScreenArea (juce::Rectangle<int> (
+                                        e.getScreenX(), e.getScreenY(), 1, 1)),
+                [this, trackIdx] (int result)
+                {
+                    if (result >= 1 && result <= 16)
+                        if (onSfTrackChannelChanged)
+                            onSfTrackChannelChanged (trackIdx, result);
+                });
+            return;
+        }
+
         // Check mute button hit
         const auto rowR  = getRowBounds (i);
         const int muteW  = juce::jlimit (20, 28, trackH - 8);
@@ -127,7 +169,6 @@ public:
 
         if (muteR.contains (e.getPosition()))
         {
-            const auto info = engine.getTrackInfo (i);
             engine.setTrackEnabled (i, ! info.enabled);
             if (onTrackMuted) onTrackMuted (i, ! info.enabled);
         }
