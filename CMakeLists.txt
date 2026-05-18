@@ -257,6 +257,7 @@ target_include_directories(DysektStandalone PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-stretch
     ${CMAKE_CURRENT_SOURCE_DIR}/signalsmith-linear
     $<$<BOOL:${DYSEKT_HAS_SFIZZ}>:${SFIZZ_C_API_INCLUDE}>
+    $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/asiosdk/common>
 )
 
 target_compile_definitions(DysektStandalone PUBLIC
@@ -267,6 +268,7 @@ target_compile_definitions(DysektStandalone PUBLIC
     DYSEKT_HAS_SFIZZ=$<BOOL:${DYSEKT_HAS_SFIZZ}>
     DYSEKT_HAS_FLUIDSYNTH=$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>
     DYSEKT_STANDALONE=1
+    $<$<PLATFORM_ID:Windows>:JUCE_ASIO=1>
 )
 
 target_link_libraries(DysektStandalone
