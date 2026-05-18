@@ -538,6 +538,7 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
 
     processor.sfzPlayer.loadFile (f);
     presetList = processor.sfzPlayer.getPresetList();
+    sf2TrackFiredForFile = {};   // reset so timerCallback fires for this file
     reloadZones (f);
     closeBrowser();
     repaint();
@@ -881,14 +882,31 @@ void SfzDropdownPanel::timerCallback()
 
     // If the SF2 preset list just arrived (async load completed), refresh the
     // zone matrix so the bank/preset rows appear without requiring user action.
-    if (presetsChanged && processor.sfzPlayer.isLoaded()
+    if (processor.sfzPlayer.isLoaded()
         && processor.sfzPlayer.getLoadedFile().getFileExtension().toLowerCase() == ".sf2")
     {
-        reloadZones (processor.sfzPlayer.getLoadedFile());
+        const juce::String currentPath = processor.sfzPlayer.getLoadedFile().getFullPathName();
+        const bool isNewFile = (currentPath != sf2TrackFiredForFile);
 
-        // Notify external listeners (e.g. PluginEditor) that SF2 presets are ready.
-        if (onSfzFileLoaded)
-            onSfzFileLoaded (processor.sfzPlayer.getLoadedFile(), false);
+        if (presetsChanged || (isNewFile && ! presetList.empty()))
+        {
+            reloadZones (processor.sfzPlayer.getLoadedFile());
+
+            // Fire onSfzFileLoaded once per file, when the preset list is non-empty.
+            if (! presetList.empty() && isNewFile)
+            {
+                sf2TrackFiredForFile = currentPath;
+                if (onSfzFileLoaded)
+                    onSfzFileLoaded (processor.sfzPlayer.getLoadedFile(), false);
+            }
+        }
+    }
+    else if (! processor.sfzPlayer.isLoaded())
+    {
+        // Reset the guard when the player is unloaded so a reload fires again.
+        if (presetsChanged)
+            reloadZones ({});
+        sf2TrackFiredForFile = {};
     }
 
     // Keep bank tree data in sync
@@ -1488,9 +1506,17 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
             juce::File file (f);
             processor.sfzPlayer.loadFile (file);
             presetList = processor.sfzPlayer.getPresetList();
+            sf2TrackFiredForFile = {};   // reset so timerCallback fires for this file
             reloadZones (file);
             closeBrowser();
             repaint();
+
+            // For SFZ: fire immediately. For SF2: timerCallback fires once presets arrive.
+            if (ext == ".sfz" && onSfzFileLoaded)
+                onSfzFileLoaded (file, true);
+
+            if (onFileLoaded)
+                onFileLoaded (file);
             return;
         }
     }

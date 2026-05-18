@@ -324,6 +324,7 @@ void SequencerEngine::addOrUpdateSfTrackOnChannel (const Sf2PresetInfo& preset,
                                                     juce::Colour colour)
 {
     const int ch = juce::jlimit (0, 15, midiChannel0Based);
+    bool needsPlayerUpdate = false;
 
     {
         const juce::ScopedWriteLock sl (impl->tracksLock);
@@ -336,20 +337,23 @@ void SequencerEngine::addOrUpdateSfTrackOnChannel (const Sf2PresetInfo& preset,
                 && t->preset.preset == preset.preset)
             {
                 t->midiChannel = ch;
-                // sfzPlayer call outside the lock below.
-                if (impl->sfzPlayer != nullptr)
-                    impl->sfzPlayer->setPresetOnChannel (ch, preset.bank, preset.preset);
-                return;
+                needsPlayerUpdate = true;
+                break;
             }
         }
 
-        // New track for this preset on the chosen channel.
-        auto track = SequencerTrack::makeSfPlayer (preset, colour);
-        track.midiChannel = ch;
-        impl->tracks.add (new SequencerTrack (std::move (track)));
+        if (! needsPlayerUpdate)
+        {
+            // New track for this preset on the chosen channel.
+            auto track = SequencerTrack::makeSfPlayer (preset, colour);
+            track.midiChannel = ch;
+            impl->tracks.add (new SequencerTrack (std::move (track)));
+            needsPlayerUpdate = true;
+        }
     }
 
-    if (impl->sfzPlayer != nullptr)
+    // Call sfzPlayer outside the lock to avoid potential deadlock.
+    if (needsPlayerUpdate && impl->sfzPlayer != nullptr)
         impl->sfzPlayer->setPresetOnChannel (ch, preset.bank, preset.preset);
 }
 

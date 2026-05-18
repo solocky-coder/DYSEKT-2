@@ -114,6 +114,10 @@ private:
     // ── Cached preset list ────────────────────────────────────────────────────
     std::vector<Sf2PresetInfo> presetList;
 
+    // Tracks the last SF2 file path for which onSfzFileLoaded was fired,
+    // so that timerCallback doesn't fire it multiple times for the same load.
+    juce::String sf2TrackFiredForFile;
+
     // ── Bank-tree popup (SF2 two-level picker) ────────────────────────────────
     // Displayed as a floating child of the top-level component so it renders
     // above keysPanel and receives mouse events correctly.
