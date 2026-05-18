@@ -263,14 +263,17 @@ private:
 
     void showAudioSettings()
     {
+        // minOutputChannels must be >= 1 so JUCE renders the audio-device /
+        // driver-type section (including the ASIO dropdown).  With min == 0
+        // JUCE considers audio optional and hides the whole device selector.
         auto* audioSettingsComp = new juce::AudioDeviceSelectorComponent (
             deviceManager,
-            0, 0,    // min/max input channels
-            0, 2,    // min/max output channels
-            false,   // show MIDI input selector  (handled in showMidiSettings)
+            0, 0,    // min/max input channels  (no recording needed)
+            1, 2,    // min/max output channels  — min=1 forces driver selector visible
+            false,   // show MIDI input selector  (handled separately in MIDI Settings)
             false,   // show MIDI output selector
             false,   // treat channels as stereo pairs
-            false);  // hideAdvancedOptionsWithButton — false = show driver type (ASIO etc.)
+            false);  // hideAdvancedOptionsWithButton — false = always show ASIO etc.
 
         audioSettingsComp->setSize (500, 450);
 
@@ -284,18 +287,100 @@ private:
         opts.launchAsync();
     }
 
+    // ---------------------------------------------------------------------------
+    //  Pure-MIDI settings panel
+    //
+    //  AudioDeviceSelectorComponent always bleeds in audio-device UI when it
+    //  shares the main deviceManager, even with 0/0 channel counts, because
+    //  JUCE renders the audio section whenever the manager has an active device.
+    //
+    //  Instead we build a small Component that hosts only the JUCE
+    //  MidiInputSelectorComponentListBox directly via its public API:
+    //  deviceManager.isMidiInputDeviceEnabled / setMidiInputDeviceEnabled.
+    // ---------------------------------------------------------------------------
+    class MidiOnlySettingsComponent : public juce::Component
+    {
+    public:
+        explicit MidiOnlySettingsComponent (juce::AudioDeviceManager& dm)
+            : deviceManager (dm)
+        {
+            setSize (480, 320);
+
+            // Title label
+            titleLabel.setText ("MIDI Input Devices", juce::dontSendNotification);
+            titleLabel.setFont (juce::Font (16.0f, juce::Font::bold));
+            titleLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+            addAndMakeVisible (titleLabel);
+
+            // One toggle per available MIDI input
+            refreshDeviceList();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colour (0xFF0D0D14));
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (16);
+            titleLabel.setBounds (area.removeFromTop (28));
+            area.removeFromTop (8);
+
+            for (auto* row : rows)
+                row->setBounds (area.removeFromTop (28));
+        }
+
+    private:
+        void refreshDeviceList()
+        {
+            rows.clear();
+            const auto devices = juce::MidiInput::getAvailableDevices();
+
+            if (devices.isEmpty())
+            {
+                auto* lbl = new juce::Label();
+                lbl->setText ("No MIDI input devices found.", juce::dontSendNotification);
+                lbl->setColour (juce::Label::textColourId, juce::Colours::grey);
+                addAndMakeVisible (lbl);
+                rows.add (lbl);
+            }
+            else
+            {
+                for (const auto& dev : devices)
+                {
+                    auto* btn = new juce::ToggleButton (dev.name);
+                    btn->setToggleState (
+                        deviceManager.isMidiInputDeviceEnabled (dev.identifier),
+                        juce::dontSendNotification);
+                    btn->setColour (juce::ToggleButton::textColourId, juce::Colours::white);
+
+                    const juce::String id = dev.identifier;
+                    btn->onClick = [this, id, btn]
+                    {
+                        deviceManager.setMidiInputDeviceEnabled (id, btn->getToggleState());
+                    };
+
+                    addAndMakeVisible (btn);
+                    rows.add (btn);
+                }
+            }
+
+            // Resize to fit content
+            const int h = 28 + 8 + (int) rows.size() * 28 + 16;
+            setSize (480, juce::jmax (120, h));
+        }
+
+        juce::AudioDeviceManager& deviceManager;
+        juce::Label               titleLabel;
+        juce::OwnedArray<juce::Component> rows;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiOnlySettingsComponent)
+    };
+
     void showMidiSettings()
     {
-        auto* midiSettingsComp = new juce::AudioDeviceSelectorComponent (
-            deviceManager,
-            0, 0,    // min/max input channels
-            0, 0,    // min/max output channels (no audio outputs shown)
-            true,    // show MIDI input selector
-            false,   // show MIDI output selector
-            false,   // treat channels as stereo pairs
-            false);  // hide advanced options
-
-        midiSettingsComp->setSize (500, 300);
+        auto* midiSettingsComp = new MidiOnlySettingsComponent (deviceManager);
 
         juce::DialogWindow::LaunchOptions opts;
         opts.content.setOwned (midiSettingsComp);
