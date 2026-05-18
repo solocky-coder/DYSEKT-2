@@ -753,7 +753,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
                 juce::String caption;
                 if (isMultiBank)
                     caption = processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension()
-                              + u8"  \u25B8 click to browse";
+                              + "  \u25B8 click to browse";
                 else
                     caption = processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension()
                               + "  B:" + juce::String (info.bank)
