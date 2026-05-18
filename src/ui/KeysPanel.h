@@ -37,6 +37,7 @@ public:
         float tuneCents { 0.0f };    ///< Fine tune in cents
         float releaseSec{ 0.664f };  ///< Release time in seconds
         bool  isSfz     { false };   ///< true = SFZ (editable), false = SF2 (read-only)
+        int   assignedMidiChannel { 0 };  ///< SF2 only: 1-16 = assigned channel, 0 = none
     };
 
     void setKeyzones      (std::vector<Keyzone> zones);

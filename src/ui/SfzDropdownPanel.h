@@ -22,6 +22,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <set>
+#include <map>
 #include "KeysPanel.h"
 #include "AddZoneOverlay.h"
 #include "SaveSfzOverlay.h"
@@ -113,6 +114,12 @@ private:
 
     // ── Cached preset list ────────────────────────────────────────────────────
     std::vector<Sf2PresetInfo> presetList;
+
+    // Maps preset list index → assigned MIDI channel (1-16).
+    // Populated when the user right-clicks a preset row and picks a channel.
+    // Cleared when a new SF2 file is loaded.  Used by reloadZones() to show
+    // the channel badge on each row.
+    std::map<int, int> presetChannelAssignments;
 
     // Tracks the last SF2 file path for which onSfzFileLoaded was fired,
     // so that timerCallback doesn't fire it multiple times for the same load.

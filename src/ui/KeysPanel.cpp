@@ -156,7 +156,8 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
         g.fillRect (0, 0, w, kHeaderH);
         g.setFont (DysektLookAndFeel::makeFont (7.5f, true));
         g.setColour (theme.foreground.withAlpha (0.30f));
-        g.drawText ("BANK / PRESET", 10, 0, w - 20, kHeaderH,
+        g.drawText ("BANK / PRESET  \xe2\x80\x94  right-click row to assign MIDI channel",
+                    10, 0, w - 20, kHeaderH,
                     juce::Justification::centredLeft, false);
         g.setColour (theme.separator.withAlpha (0.45f));
         g.drawHorizontalLine (kHeaderH - 1, 0.f, (float) w);
@@ -187,10 +188,35 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
             g.setColour (zc);
             g.fillRect (0, ry, kStripeW, kRowH);
 
-            // Name (full width)
+            // MIDI channel badge (right side) — only when a channel is assigned
+            const int assignedCh = r.zone.assignedMidiChannel;
+            int nameTrimRight = 16;
+            if (assignedCh >= 1 && assignedCh <= 16)
+            {
+                const juce::String chLabel    = "CH " + juce::String (assignedCh);
+                const juce::Font   badgeFont  = DysektLookAndFeel::makeFont (7.5f, true);
+                const int          badgeW     = 28;
+                const int          badgeH     = 13;
+                const int          badgeX     = w - badgeW - 6;
+                const int          badgeY     = ry + (kRowH - badgeH) / 2;
+
+                // Badge background
+                g.setColour (theme.accent.withAlpha (0.75f));
+                g.fillRoundedRectangle ((float) badgeX, (float) badgeY,
+                                        (float) badgeW, (float) badgeH, 3.0f);
+                // Badge text
+                g.setFont (badgeFont);
+                g.setColour (juce::Colours::white.withAlpha (0.92f));
+                g.drawText (chLabel, badgeX, badgeY, badgeW, badgeH,
+                            juce::Justification::centred, false);
+
+                nameTrimRight = badgeW + 10;
+            }
+
+            // Name
             g.setFont (fMain);
             g.setColour (sel ? theme.foreground : theme.foreground.withAlpha (0.82f));
-            g.drawText (r.zone.name, kStripeW + 6, ry, w - kStripeW - 16, kRowH,
+            g.drawText (r.zone.name, kStripeW + 6, ry, w - kStripeW - nameTrimRight, kRowH,
                         juce::Justification::centredLeft, true);
 
             // Row separator

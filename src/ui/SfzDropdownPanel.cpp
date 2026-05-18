@@ -539,6 +539,7 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     processor.sfzPlayer.loadFile (f);
     presetList = processor.sfzPlayer.getPresetList();
     sf2TrackFiredForFile = {};   // reset so timerCallback fires for this file
+    presetChannelAssignments.clear();
     reloadZones (f);
     closeBrowser();
     repaint();
@@ -1507,6 +1508,7 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
             processor.sfzPlayer.loadFile (file);
             presetList = processor.sfzPlayer.getPresetList();
             sf2TrackFiredForFile = {};   // reset so timerCallback fires for this file
+            presetChannelAssignments.clear();
             reloadZones (file);
             closeBrowser();
             repaint();
@@ -1920,6 +1922,10 @@ void SfzDropdownPanel::reloadZones (const juce::File& f)
                        ? juce::Colour (0xFF4FC3F7)   // accent blue for selected
                        : zoneColourDP (colIdx);
 
+            // Show the assigned MIDI channel badge if one has been set
+            auto it = presetChannelAssignments.find (i);
+            z.assignedMidiChannel = (it != presetChannelAssignments.end()) ? it->second : 0;
+
             zones.push_back (z);
             ++colIdx;
         }
@@ -1974,6 +1980,9 @@ void SfzDropdownPanel::reloadZones (const juce::File& f)
                 {
                     if (result < 1 || result > 16) return;
                     if (rowIndex >= (int) presetList.size()) return;
+                    // Record the assignment so the badge appears in the row.
+                    presetChannelAssignments[rowIndex] = result;
+                    reloadZones (processor.sfzPlayer.getLoadedFile());
                     if (onPresetChannelAssigned)
                         onPresetChannelAssigned (presetList[(size_t) rowIndex], result);
                 });
