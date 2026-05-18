@@ -208,52 +208,51 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
         return;
     }
     // ─────────────────────────────────────────────────────────────────────────
-        g.setColour (theme.darkBar.darker (0.25f));
-        g.fillRect (0, 0, w, kHeaderH);
+    g.setColour (theme.darkBar.darker (0.25f));
+    g.fillRect (0, 0, w, kHeaderH);
 
-        g.setColour (juce::Colours::white.withAlpha (0.02f));
-        g.fillRect (0, 0, kNameColW, kHeaderH);
+    g.setColour (juce::Colours::white.withAlpha (0.02f));
+    g.fillRect (0, 0, kNameColW, kHeaderH);
 
-        g.setFont (DysektLookAndFeel::makeFont (7.5f, true));
-        g.setColour (theme.foreground.withAlpha (0.30f));
+    g.setFont (DysektLookAndFeel::makeFont (7.5f, true));
+    g.setColour (theme.foreground.withAlpha (0.30f));
 
-        auto hdr = [&] (const char* txt, int x, int cw,
-                        juce::Justification j = juce::Justification::centred)
-        {
-            g.drawText (txt, x, 0, cw, kHeaderH, j, false);
-        };
+    auto hdr = [&] (const char* txt, int x, int cw,
+                    juce::Justification j = juce::Justification::centred)
+    {
+        g.drawText (txt, x, 0, cw, kHeaderH, j, false);
+    };
 
-        hdr ("SAMPLE",      kNameX,   kNameW,   juce::Justification::centredLeft);
-        hdr ("loKey",       kLoKeyX,  kLoKeyW);
-        hdr ("hiKey",       kHiKeyX,  kHiKeyW);
-        hdr ("root",        kRootX,   kRootW);
-        hdr ("pitch",       kPitchX,  kPitchW);
-        hdr ("pan",         kPanX,    kPanW);
-        hdr ("vol (dB)",    kVolX,    kVolW);
-        hdr ("release (s)", kRelX,    kRelW);
-        hdr ("LP",          kLpX,     kLpW);
+    hdr ("SAMPLE",      kNameX,   kNameW,   juce::Justification::centredLeft);
+    hdr ("loKey",       kLoKeyX,  kLoKeyW);
+    hdr ("hiKey",       kHiKeyX,  kHiKeyW);
+    hdr ("root",        kRootX,   kRootW);
+    hdr ("pitch",       kPitchX,  kPitchW);
+    hdr ("pan",         kPanX,    kPanW);
+    hdr ("vol (dB)",    kVolX,    kVolW);
+    hdr ("release (s)", kRelX,    kRelW);
+    hdr ("LP",          kLpX,     kLpW);
 
-        // SFZ: draw up-down drag hint on editable numeric columns
-        if (sfzEditable)
-        {
-            g.setFont (DysektLookAndFeel::makeFont (7.0f));
-            g.setColour (theme.accent.withAlpha (0.40f));
-            for (int cx : { kLoKeyX + kLoKeyW - 10,
-                            kHiKeyX + kHiKeyW - 10,
-                            kRootX  + kRootW  - 10,
-                            kPitchX + kPitchW - 10,
-                            kPanX   + kPanW   - 10,
-                            kVolX   + kVolW   - 10,
-                            kRelX   + kRelW   - 10 })
-                g.drawText (u8"\u2195", cx, 0, 10, kHeaderH, juce::Justification::centred, false);
-        }
-
-        g.setColour (theme.separator.withAlpha (0.45f));
-        g.drawHorizontalLine (kHeaderH - 1, 0.f, (float) w);
-
-        g.setColour (theme.separator.withAlpha (0.20f));
-        g.drawVerticalLine (kNameColW - 1, 0.f, (float) kHeaderH);
+    // SFZ: draw up-down drag hint on editable numeric columns
+    if (sfzEditable)
+    {
+        g.setFont (DysektLookAndFeel::makeFont (7.0f));
+        g.setColour (theme.accent.withAlpha (0.40f));
+        for (int cx : { kLoKeyX + kLoKeyW - 10,
+                        kHiKeyX + kHiKeyW - 10,
+                        kRootX  + kRootW  - 10,
+                        kPitchX + kPitchW - 10,
+                        kPanX   + kPanW   - 10,
+                        kVolX   + kVolW   - 10,
+                        kRelX   + kRelW   - 10 })
+            g.drawText (u8"\u2195", cx, 0, 10, kHeaderH, juce::Justification::centred, false);
     }
+
+    g.setColour (theme.separator.withAlpha (0.45f));
+    g.drawHorizontalLine (kHeaderH - 1, 0.f, (float) w);
+
+    g.setColour (theme.separator.withAlpha (0.20f));
+    g.drawVerticalLine (kNameColW - 1, 0.f, (float) kHeaderH);
 
     // ── [+ ZONE] add-zone button — drawn as a dedicated strip below the last row ──
     // When no zones exist it occupies the single placeholder row; when zones are
