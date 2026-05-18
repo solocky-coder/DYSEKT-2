@@ -132,7 +132,7 @@ private:
         void mouseWheelMove (const juce::MouseEvent&,
                              const juce::MouseWheelDetails&) override;
 
-    private:
+        // Public so openBankTree() in the outer class can reference them.
         static constexpr int kRowH     = 22;
         static constexpr int kMaxRows  = 10;
         static constexpr int kTreeW    = 220;
