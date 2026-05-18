@@ -148,8 +148,66 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
         return;
     }
 
-    // ── Column header ─────────────────────────────────────────────────────────
+    // ── SF2 preset-list mode: simplified full-width name list ─────────────────
+    if (sf2PresetListMode)
     {
+        // Column header
+        g.setColour (theme.darkBar.darker (0.25f));
+        g.fillRect (0, 0, w, kHeaderH);
+        g.setFont (DysektLookAndFeel::makeFont (7.5f, true));
+        g.setColour (theme.foreground.withAlpha (0.30f));
+        g.drawText ("BANK / PRESET", 10, 0, w - 20, kHeaderH,
+                    juce::Justification::centredLeft, false);
+        g.setColour (theme.separator.withAlpha (0.45f));
+        g.drawHorizontalLine (kHeaderH - 1, 0.f, (float) w);
+
+        constexpr int kStripeW = 4;
+        const juce::Font fMain = DysektLookAndFeel::makeFont (10.5f);
+
+        for (int i = 0; i < (int) rows.size(); ++i)
+        {
+            const auto& r  = rows[(size_t) i];
+            const int   ry = kHeaderH + i * kRowH;
+            const bool  sel = (i == selectedRow);
+            const juce::Colour zc = r.zone.colour;
+
+            // Row stripe
+            if (i % 2 == 1)
+            {
+                g.setColour (juce::Colour (0xFF000000).withAlpha (0.10f));
+                g.fillRect (0, ry, w, kRowH);
+            }
+            if (sel)
+            {
+                g.setColour (theme.accent.withAlpha (0.12f));
+                g.fillRect (kStripeW, ry, w - kStripeW, kRowH);
+            }
+
+            // Colour stripe
+            g.setColour (zc);
+            g.fillRect (0, ry, kStripeW, kRowH);
+
+            // Name (full width)
+            g.setFont (fMain);
+            g.setColour (sel ? theme.foreground : theme.foreground.withAlpha (0.82f));
+            g.drawText (r.zone.name, kStripeW + 6, ry, w - kStripeW - 16, kRowH,
+                        juce::Justification::centredLeft, true);
+
+            // Row separator
+            g.setColour (theme.separator.withAlpha (0.12f));
+            g.drawHorizontalLine (ry + kRowH - 1, 0.f, (float) w);
+        }
+
+        if (rows.empty())
+        {
+            g.setFont (DysektLookAndFeel::makeFont (9.0f));
+            g.setColour (theme.foreground.withAlpha (0.18f));
+            g.drawText ("No presets loaded", 0, kHeaderH, w, h - kHeaderH,
+                        juce::Justification::centred, false);
+        }
+        return;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
         g.setColour (theme.darkBar.darker (0.25f));
         g.fillRect (0, 0, w, kHeaderH);
 
@@ -488,6 +546,10 @@ void KeysPanel::ZoneMatrixContent::mouseDown (const juce::MouseEvent& e)
     selectedRow = clickedRow;
     repaint();
 
+    // Notify the owner that a row was clicked (used e.g. for SF2 preset selection).
+    if (onRowClicked)
+        onRowClicked (clickedRow);
+
     // ── SFZ edit mode: check if click lands on an editable column ─────────────
     if (sfzEditable)
     {
@@ -527,6 +589,9 @@ void KeysPanel::ZoneMatrixContent::mouseDown (const juce::MouseEvent& e)
     }
 
     // ── Audition: send note-on for this zone's loKey ──────────────────────────
+    // Suppressed in SF2 preset-list mode — row clicks switch presets, not notes.
+    if (sf2PresetListMode) return;
+
     dragCol = EditCol::None;
     dragRow = -1;
 
@@ -700,6 +765,20 @@ void KeysPanel::setSfzEditable (bool editable)
     };
 }
 
+void KeysPanel::setSf2PresetListMode (bool enabled)
+{
+    zoneMatrix.sf2PresetListMode = enabled;
+    // In preset-list mode the matrix height is determined purely by the number
+    // of preset rows, so rebuild immediately with the current keyzones.
+    rebuildZoneMatrix();
+}
+
+void KeysPanel::setSelectedPresetRow (int rowIndex)
+{
+    zoneMatrix.selectedRow = rowIndex;
+    zoneMatrix.repaint();
+}
+
 void KeysPanel::setAddZoneButtonVisible (bool visible)
 {
     zoneMatrix.addZoneBtnVisible = visible;
@@ -801,6 +880,13 @@ void KeysPanel::rebuildZoneMatrix()
                   ? zoneViewport.getWidth()
                   : juce::jmax (1, getWidth());
     zoneMatrix.rebuild (keyzones, 0, vpW, 0, kWhiteKeyW, kBlackKeyW, vpW);
+
+    // Forward row-click events from the matrix up to the KeysPanel owner.
+    zoneMatrix.onRowClicked = [this] (int rowIndex)
+    {
+        if (onRowClicked)
+            onRowClicked (rowIndex);
+    };
 }
 
 // =============================================================================

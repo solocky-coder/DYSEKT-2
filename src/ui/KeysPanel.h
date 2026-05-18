@@ -51,6 +51,14 @@ public:
     /** Pass true for SFZ files (columns are drag-editable), false for SF2. */
     void setSfzEditable (bool editable);
 
+    /** When true, the zone matrix renders as a bank/preset list (SF2 mode)
+        instead of the normal sample-zone grid. */
+    void setSf2PresetListMode (bool enabled);
+
+    /** Highlight the given row index in the zone matrix (used in SF2 preset-list
+        mode to mark the currently active preset without requiring a click). */
+    void setSelectedPresetRow (int rowIndex);
+
     /** Show or hide the [+ ZONE] button in the matrix header upper-left corner.
         When visible, clicking it fires onAddZoneRequested. */
     void setAddZoneButtonVisible (bool visible);
@@ -61,6 +69,11 @@ public:
     /** Fired when the user drag-edits a zone row (SFZ mode only).
         Connect this in SfzDropdownPanel to write the change back to the file. */
     std::function<void (int rowIndex, const Keyzone&)> onZoneEdited;
+
+    /** Fired when the user clicks a zone row (any mode).
+        rowIndex is 0-based into the current zone list.
+        Use this in SF2 preset-list mode to switch presets on click. */
+    std::function<void (int rowIndex)> onRowClicked;
 
     /** Fired when vol/pan/tune change during a drag — lets SfzModulePanel
         forward the values to SfzPlayer for real-time preview. */
@@ -105,9 +118,17 @@ private:
         /** When true, numeric columns are drag-editable (SFZ only). */
         bool sfzEditable = false;
 
+        /** When true, the matrix is displaying SF2 bank/preset rows (not sample zones).
+            This suppresses the numeric columns and shows only the preset name column. */
+        bool sf2PresetListMode = false;
+
         /** Called after a drag-edit commits a zone change.
             Row index and the updated Keyzone are passed. */
         std::function<void (int rowIndex, const Keyzone&)> onZoneEdited;
+
+        /** Called when the user clicks a row (any mode, fires before audition).
+            rowIndex is 0-based into rows[]. */
+        std::function<void (int rowIndex)> onRowClicked;
 
         /** When true, an [+ ZONE] button is drawn in the upper-left header corner.
             Clicking it fires onAddZoneRequested (forwarded from KeysPanel). */

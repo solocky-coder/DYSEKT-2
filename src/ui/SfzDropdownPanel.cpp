@@ -537,6 +537,7 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     }
 
     processor.sfzPlayer.loadFile (f);
+    presetList = processor.sfzPlayer.getPresetList();
     reloadZones (f);
     closeBrowser();
     repaint();
@@ -865,7 +866,17 @@ void SfzDropdownPanel::timerCallback()
     meterL = newL;
     meterR = newR;
 
-    presetList = processor.sfzPlayer.getPresetList();
+    const auto newPresets = processor.sfzPlayer.getPresetList();
+    const bool presetsChanged = (newPresets.size() != presetList.size());
+    presetList = newPresets;
+
+    // If the SF2 preset list just arrived (async load completed), refresh the
+    // zone matrix so the bank/preset rows appear without requiring user action.
+    if (presetsChanged && processor.sfzPlayer.isLoaded()
+        && processor.sfzPlayer.getLoadedFile().getFileExtension().toLowerCase() == ".sf2")
+    {
+        reloadZones (processor.sfzPlayer.getLoadedFile());
+    }
 
     // Keep bank tree data in sync
     if (isBankTreeOpen())
@@ -1463,6 +1474,7 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
         {
             juce::File file (f);
             processor.sfzPlayer.loadFile (file);
+            presetList = processor.sfzPlayer.getPresetList();
             reloadZones (file);
             closeBrowser();
             repaint();
@@ -1829,22 +1841,52 @@ void SfzDropdownPanel::reloadZones (const juce::File& f)
 
     std::vector<KeysPanel::Keyzone> zones;
     if (isSfz)
+    {
         zones = parseSfzZones (f);
+    }
     else if (ext == ".sf2")
     {
-        // Resolve bank/program from the currently selected preset so we only
-        // display zones belonging to that preset (not the entire SF2 file).
-        int bank = 0, program = 0;
-        const auto presets = processor.sfzPlayer.getPresetList();
-        const int  idx     = processor.sfzPlayer.getCurrentPresetIndex();
-        if (idx >= 0 && idx < (int) presets.size())
+        // For SF2 files, populate the zone matrix with one row per bank/preset
+        // entry so the user sees a browseable preset list (not raw sample zones).
+        const auto& presets = presetList;  // already populated by timerCallback
+        const int   curIdx  = processor.sfzPlayer.getCurrentPresetIndex();
+
+        int colIdx = 0;
+        int lastBank = -1;
+        for (int i = 0; i < (int) presets.size(); ++i)
         {
-            bank    = presets[(size_t) idx].bank;
-            program = presets[(size_t) idx].preset;
+            const auto& p = presets[(size_t) i];
+
+            KeysPanel::Keyzone z;
+            z.loKey     = 0;
+            z.hiKey     = 127;
+            z.rootPitch = -1;
+            z.loVel     = 0;
+            z.hiVel     = 127;
+            z.isLooped  = false;
+            z.isSfz     = false;   // read-only
+
+            // Build a display name: "Bank N  —  " prefix when bank changes
+            juce::String bankPrefix;
+            if (p.bank != lastBank)
+            {
+                bankPrefix = "Bank " + juce::String (p.bank) + "  \xe2\x80\x94  ";
+                lastBank = p.bank;
+            }
+            z.name = bankPrefix + juce::String (p.preset).paddedLeft ('0', 3)
+                     + "  " + p.name;
+
+            // Highlight the currently selected preset
+            z.colour = (i == curIdx)
+                       ? juce::Colour (0xFF4FC3F7)   // accent blue for selected
+                       : zoneColourDP (colIdx);
+
+            zones.push_back (z);
+            ++colIdx;
         }
-        zones = parseSf2Zones (f, bank, program);
     }
 
+    keysPanel.setSf2PresetListMode (ext == ".sf2");
     keysPanel.setSfzEditable (isSfz);
 
     // [+ ZONE] button visibility must be set BEFORE setKeyzones() so that
@@ -1860,7 +1902,28 @@ void SfzDropdownPanel::reloadZones (const juce::File& f)
 
     keysPanel.setKeyzones (zones);
 
-    if (! zones.empty())
+    // For SF2 preset-list mode: sync the visual selection highlight and wire
+    // row clicks to switch presets.
+    if (ext == ".sf2")
+    {
+        // Pre-select the currently active preset row so it's highlighted immediately.
+        keysPanel.setSelectedPresetRow (processor.sfzPlayer.getCurrentPresetIndex());
+
+        keysPanel.onRowClicked = [this] (int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= (int) presetList.size()) return;
+            processor.sfzPlayer.setPresetByIndex (rowIndex);
+            // Refresh the matrix so the highlight moves to the new selection.
+            reloadZones (processor.sfzPlayer.getLoadedFile());
+            repaint();
+        };
+    }
+    else
+    {
+        keysPanel.onRowClicked = nullptr;
+    }
+
+    if (! zones.empty() && isSfz)
         keysPanel.autoScrollToZones();
 
     // Wire the edit callback — only fires for SFZ (sfzEditable == true)
