@@ -130,6 +130,14 @@ public:
     //==========================================================================
     void setAbletonLink (AbletonLink* l) noexcept;
 
+    //==========================================================================
+    //  SfzPlayer integration  (multi-timbral channel assignment)
+    //==========================================================================
+    /** Store a pointer to the SfzPlayer so that rebuildSfTracks() and
+     *  addSfTrack() can call setPresetOnChannel() automatically.
+     *  Call once from PluginProcessor constructor, before any SF2 is loaded. */
+    void setSfzPlayer (class SfzPlayer* player) noexcept;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;

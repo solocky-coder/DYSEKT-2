@@ -21,6 +21,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <set>
 #include "KeysPanel.h"
 #include "AddZoneOverlay.h"
 #include "SaveSfzOverlay.h"
@@ -102,6 +103,38 @@ private:
     // ── Cached preset list ────────────────────────────────────────────────────
     std::vector<Sf2PresetInfo> presetList;
 
+    // ── Bank-tree state (SF2 only) ────────────────────────────────────────────
+    // For SF2 files the preset list is displayed as a two-level bank→preset
+    // tree inside the nameZone area (expands below the strip when open).
+    // bankTreeOpen: whether the tree popup is currently showing.
+    // expandedBanks: set of bank numbers that are currently expanded.
+    // treeRows: flattened render list rebuilt whenever presetList changes.
+    struct TreeRow
+    {
+        enum class Kind { Bank, Preset } kind;
+        int bank    { 0 };       // for Bank rows: the bank number
+        int listIdx { -1 };      // for Preset rows: index into presetList
+        int nestLevel { 0 };     // 0 = bank, 1 = preset
+    };
+    bool                 bankTreeOpen   { false };
+    std::set<int>        expandedBanks;
+    std::vector<TreeRow> treeRows;
+    int                  treeScrollTop  { 0 };   // first visible row index
+    int                  treeHoverRow   { -1 };
+
+    static constexpr int kTreeRowH    = 22;
+    static constexpr int kTreeMaxRows = 10;      // visible rows before scroll
+    static constexpr int kTreeW       = 220;
+
+    void rebuildTreeRows();
+    void openBankTree();
+    void closeBankTree();
+    juce::Rectangle<int> getBankTreeBounds() const;
+    void paintBankTree (juce::Graphics& g) const;
+    bool bankTreeMouseDown (juce::Point<int> pos);
+    void bankTreeMouseMove (juce::Point<int> pos);
+    void bankTreeScroll    (float delta);
+
     // ── Inline file browser ───────────────────────────────────────────────────
     SfzFileBrowser fileBrowser;
     bool           browserOpen      { false };
@@ -177,6 +210,7 @@ private:
     void mouseDrag        (const juce::MouseEvent&) override;
     void mouseUp          (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseMove        (const juce::MouseEvent&) override;
     void mouseWheelMove   (const juce::MouseEvent&,
                            const juce::MouseWheelDetails&) override;
 

@@ -199,6 +199,7 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     sequencer.setAbletonLink (&abletonLink);
+    sequencer.setSfzPlayer   (&sfzPlayer);
     sequencer.addMainTrack();
     const bool rateChanged = (std::abs (sampleRate - currentSampleRate) > 0.01);
 

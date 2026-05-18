@@ -6,6 +6,7 @@
 #include "../PluginProcessor.h"
 #include "../PluginEditor.h"
 #include <set>
+#include <map>
 
 // ── Layout constants (header strip) ──────────────────────────────────────────
 static constexpr int kPickerW      = 160;   // narrowed to fit ADSR knobs in strip
@@ -570,6 +571,10 @@ void SfzDropdownPanel::paint (juce::Graphics& g)
     drawHeaderStrip (g);
     drawAdsrStrip (g);
 
+    // Bank tree popup paints on top of everything else
+    if (bankTreeOpen)
+        paintBankTree (g);
+
     g.setColour (theme.accent.withAlpha (0.45f));
     g.fillRect (0, 0, w, 1);
 }
@@ -732,21 +737,33 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
                                           processor.sfzPlayer.getCurrentPresetIndex());
             const auto& info = presetList[(size_t) idx];
 
+            // Detect multi-bank SF2 to adjust label affordance
+            const bool isMultiBank = [&]() -> bool {
+                if (presetList.size() < 2) return false;
+                const int fb = presetList[0].bank;
+                for (auto& p : presetList) if (p.bank != fb) return true;
+                return false;
+            }();
+
             // Top mini-label
             {
                 auto topLine = lbl.removeFromTop (lbl.getHeight() / 2);
                 g.setFont (DysektLookAndFeel::makeFont (12.75f));
                 g.setColour (theme.foreground.withAlpha (0.38f));
-                const auto caption =
-                    processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension()
-                    + "  B:" + juce::String (info.bank)
-                    + " P:" + juce::String (info.preset);
+                juce::String caption;
+                if (isMultiBank)
+                    caption = processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension()
+                              + u8"  \u25B8 click to browse";
+                else
+                    caption = processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension()
+                              + "  B:" + juce::String (info.bank)
+                              + " P:" + juce::String (info.preset);
                 g.drawText (caption, topLine, juce::Justification::centred, true);
             }
 
             // Preset name
             g.setFont (DysektLookAndFeel::makeFont (16.5f));
-            g.setColour (theme.foreground);
+            g.setColour (bankTreeOpen ? theme.accent : theme.foreground);
             g.drawText (info.name, lbl, juce::Justification::centred, true);
         }
     }
@@ -854,11 +871,271 @@ void SfzDropdownPanel::timerCallback()
 
     presetList = processor.sfzPlayer.getPresetList();
 
+    // Keep bank tree in sync
+    if (bankTreeOpen)
+    {
+        if (! processor.sfzPlayer.isLoaded())
+            closeBankTree();
+        else
+            rebuildTreeRows();
+    }
+
     repaint();
 }
 
 // =============================================================================
-//  Preset navigation
+//  Bank-tree preset picker (SF2 two-level UI)
+// =============================================================================
+
+void SfzDropdownPanel::rebuildTreeRows()
+{
+    treeRows.clear();
+
+    // Group presets by bank number
+    std::map<int, std::vector<int>> bankMap;   // bank → list of indices into presetList
+    for (int i = 0; i < (int) presetList.size(); ++i)
+        bankMap[presetList[(size_t) i].bank].push_back (i);
+
+    for (auto& [bank, indices] : bankMap)
+    {
+        TreeRow bankRow;
+        bankRow.kind  = TreeRow::Kind::Bank;
+        bankRow.bank  = bank;
+        treeRows.push_back (bankRow);
+
+        if (expandedBanks.count (bank))
+        {
+            for (int idx : indices)
+            {
+                TreeRow prow;
+                prow.kind     = TreeRow::Kind::Preset;
+                prow.bank     = bank;
+                prow.listIdx  = idx;
+                prow.nestLevel = 1;
+                treeRows.push_back (prow);
+            }
+        }
+    }
+}
+
+juce::Rectangle<int> SfzDropdownPanel::getBankTreeBounds() const
+{
+    const int visRows = juce::jmin ((int) treeRows.size(), kTreeMaxRows);
+    const int treeH   = visRows * kTreeRowH + 2;
+    // Align left edge with the nameZone's left, drop below the strip
+    return { nameZone.getX(), kStripH, kTreeW, treeH };
+}
+
+void SfzDropdownPanel::openBankTree()
+{
+    if (bankTreeOpen) return;
+    bankTreeOpen  = true;
+    treeScrollTop = 0;
+    treeHoverRow  = -1;
+    rebuildTreeRows();
+    repaint();
+}
+
+void SfzDropdownPanel::closeBankTree()
+{
+    if (! bankTreeOpen) return;
+    bankTreeOpen = false;
+    treeHoverRow = -1;
+    repaint();
+}
+
+void SfzDropdownPanel::paintBankTree (juce::Graphics& g) const
+{
+    if (! bankTreeOpen || treeRows.empty()) return;
+
+    const auto& theme  = getTheme();
+    const auto  bounds = getBankTreeBounds();
+
+    // Shadow + panel background
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    g.fillRoundedRectangle (bounds.toFloat().translated (2.f, 2.f), 4.0f);
+
+    g.setColour (theme.darkBar.darker (0.55f));
+    g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
+    g.setColour (theme.accent.withAlpha (0.30f));
+    g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), 4.0f, 1.0f);
+
+    const int visRows = juce::jmin ((int) treeRows.size() - treeScrollTop, kTreeMaxRows);
+    for (int v = 0; v < visRows; ++v)
+    {
+        const int ri     = treeScrollTop + v;
+        const auto& row  = treeRows[(size_t) ri];
+        const auto  rBounds = juce::Rectangle<int> (
+            bounds.getX(), bounds.getY() + 1 + v * kTreeRowH,
+            bounds.getWidth(), kTreeRowH);
+
+        // Hover / selection highlight
+        const bool isHover    = (ri == treeHoverRow);
+        const bool isSelected = (row.kind == TreeRow::Kind::Preset
+                                 && row.listIdx == processor.sfzPlayer.getCurrentPresetIndex());
+
+        if (isSelected)
+        {
+            g.setColour (theme.accent.withAlpha (0.22f));
+            g.fillRoundedRectangle (rBounds.toFloat().reduced (1.f, 0.f), 3.0f);
+        }
+        else if (isHover)
+        {
+            g.setColour (theme.accent.withAlpha (0.10f));
+            g.fillRoundedRectangle (rBounds.toFloat().reduced (1.f, 0.f), 3.0f);
+        }
+
+        if (row.kind == TreeRow::Kind::Bank)
+        {
+            const bool expanded = expandedBanks.count (row.bank) > 0;
+            // Count presets in bank
+            int presetCount = 0;
+            for (auto& p : presetList)
+                if (p.bank == row.bank) ++presetCount;
+
+            // Expand arrow
+            g.setFont (DysektLookAndFeel::makeFont (13.0f));
+            g.setColour (theme.accent.withAlpha (0.70f));
+            g.drawText (expanded ? u8"\u25BC" : u8"\u25B6",
+                        rBounds.getX() + 6, rBounds.getY(), 14, kTreeRowH,
+                        juce::Justification::centredLeft, false);
+
+            // Bank label
+            g.setFont (DysektLookAndFeel::makeFont (14.25f, true));
+            g.setColour (theme.foreground.withAlpha (0.90f));
+            g.drawText ("Bank " + juce::String (row.bank),
+                        rBounds.getX() + 22, rBounds.getY(), rBounds.getWidth() - 50, kTreeRowH,
+                        juce::Justification::centredLeft, true);
+
+            // Preset count badge
+            {
+                const juce::String badge = juce::String (presetCount);
+                const int bW = 28;
+                const auto bR = juce::Rectangle<int> (
+                    rBounds.getRight() - bW - 5,
+                    rBounds.getCentreY() - 9, bW, 18);
+                g.setColour (theme.accent.withAlpha (0.14f));
+                g.fillRoundedRectangle (bR.toFloat(), 3.0f);
+                g.setFont (DysektLookAndFeel::makeFont (12.0f));
+                g.setColour (theme.accent.withAlpha (0.65f));
+                g.drawText (badge, bR, juce::Justification::centred, false);
+            }
+        }
+        else
+        {
+            // Preset row
+            const auto& info = presetList[(size_t) row.listIdx];
+
+            // Indent line
+            g.setColour (theme.accent.withAlpha (0.18f));
+            g.fillRect (rBounds.getX() + 18, rBounds.getY() + 2, 1, kTreeRowH - 4);
+
+            // Preset number badge
+            {
+                const juce::String pNum = juce::String (info.preset);
+                const int bW = 26;
+                const auto bR = juce::Rectangle<int> (
+                    rBounds.getX() + 22, rBounds.getCentreY() - 9, bW, 18);
+                g.setColour (theme.accent.withAlpha (0.10f));
+                g.fillRoundedRectangle (bR.toFloat(), 2.0f);
+                g.setFont (DysektLookAndFeel::makeFont (11.25f));
+                g.setColour (theme.accent.withAlpha (0.55f));
+                g.drawText (pNum, bR, juce::Justification::centred, false);
+            }
+
+            // Preset name
+            g.setFont (DysektLookAndFeel::makeFont (14.25f));
+            g.setColour (isSelected ? theme.accent : theme.foreground.withAlpha (0.82f));
+            g.drawText (info.name,
+                        rBounds.getX() + 52, rBounds.getY(),
+                        rBounds.getWidth() - 56, kTreeRowH,
+                        juce::Justification::centredLeft, true);
+        }
+
+        // Row separator
+        g.setColour (theme.accent.withAlpha (0.07f));
+        g.fillRect (rBounds.getX() + 4, rBounds.getBottom() - 1,
+                    rBounds.getWidth() - 8, 1);
+    }
+
+    // Scroll indicators
+    if (treeScrollTop > 0)
+    {
+        g.setColour (theme.foreground.withAlpha (0.35f));
+        g.setFont (DysektLookAndFeel::makeFont (11.0f));
+        g.drawText (u8"\u25B2", bounds.getRight() - 18, bounds.getY() + 2, 14, 14,
+                    juce::Justification::centred, false);
+    }
+    const int totalRows = (int) treeRows.size();
+    if (treeScrollTop + kTreeMaxRows < totalRows)
+    {
+        g.setColour (theme.foreground.withAlpha (0.35f));
+        g.setFont (DysektLookAndFeel::makeFont (11.0f));
+        g.drawText (u8"\u25BC", bounds.getRight() - 18, bounds.getBottom() - 16, 14, 14,
+                    juce::Justification::centred, false);
+    }
+}
+
+bool SfzDropdownPanel::bankTreeMouseDown (juce::Point<int> pos)
+{
+    if (! bankTreeOpen) return false;
+    const auto bounds = getBankTreeBounds();
+    if (! bounds.contains (pos)) { closeBankTree(); return false; }
+
+    const int v  = (pos.y - bounds.getY() - 1) / kTreeRowH;
+    const int ri = treeScrollTop + v;
+    if (ri < 0 || ri >= (int) treeRows.size()) return true;
+
+    auto& row = treeRows[(size_t) ri];
+    if (row.kind == TreeRow::Kind::Bank)
+    {
+        // Toggle expansion
+        if (expandedBanks.count (row.bank))
+            expandedBanks.erase (row.bank);
+        else
+            expandedBanks.insert (row.bank);
+        rebuildTreeRows();
+        treeScrollTop = juce::jmin (treeScrollTop,
+                                    juce::jmax (0, (int) treeRows.size() - kTreeMaxRows));
+        repaint();
+    }
+    else if (row.kind == TreeRow::Kind::Preset && row.listIdx >= 0)
+    {
+        processor.sfzPlayer.setPresetByIndex (row.listIdx);
+        if (processor.sfzPlayer.isLoaded())
+            reloadZones (processor.sfzPlayer.getLoadedFile());
+        closeBankTree();
+        repaint();
+    }
+    return true;
+}
+
+void SfzDropdownPanel::bankTreeMouseMove (juce::Point<int> pos)
+{
+    if (! bankTreeOpen) return;
+    const auto bounds = getBankTreeBounds();
+    if (! bounds.contains (pos)) { treeHoverRow = -1; repaint(); return; }
+    const int v  = (pos.y - bounds.getY() - 1) / kTreeRowH;
+    const int ri = treeScrollTop + v;
+    if (ri != treeHoverRow)
+    {
+        treeHoverRow = (ri >= 0 && ri < (int) treeRows.size()) ? ri : -1;
+        repaint();
+    }
+}
+
+void SfzDropdownPanel::bankTreeScroll (float delta)
+{
+    if (! bankTreeOpen) return;
+    const int step = delta > 0 ? -1 : 1;
+    treeScrollTop = juce::jlimit (0,
+        juce::jmax (0, (int) treeRows.size() - kTreeMaxRows),
+        treeScrollTop + step);
+    repaint();
+}
+
+// =============================================================================
+//  Preset navigation (original flat list — SF2 single-preset / SFZ)
 // =============================================================================
 
 void SfzDropdownPanel::selectPreset (int delta)
@@ -916,9 +1193,21 @@ void SfzDropdownPanel::showMidiLearnMenu (int fieldId, juce::Point<int> screenPo
 //  Mouse events
 // =============================================================================
 
+void SfzDropdownPanel::mouseMove (const juce::MouseEvent& e)
+{
+    bankTreeMouseMove (e.getPosition());
+}
+
 void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
 {
     const auto pos = e.getPosition();
+
+    // ── Bank tree popup — takes priority when open ────────────────────────────
+    if (bankTreeOpen)
+    {
+        bankTreeMouseDown (pos);
+        return;
+    }
 
     // ── Folder icon — toggle browser ─────────────────────────────────────────
     if (folderIconZone.contains (pos))
@@ -984,8 +1273,32 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     // ── Preset arrows ─────────────────────────────────────────────────────────
     if (! browserOpen)
     {
-        if (presetDecBtn.contains (pos)) { selectPreset (-1); return; }
-        if (presetIncBtn.contains (pos)) { selectPreset (+1); return; }
+        // Detect multi-bank SF2 — arrows open the bank tree instead of flat scrolling
+        const bool isMultiBank = [&]() -> bool {
+            if (presetList.empty()) return false;
+            const int fb = presetList[0].bank;
+            for (auto& p : presetList) if (p.bank != fb) return true;
+            return false;
+        }();
+
+        if (presetDecBtn.contains (pos))
+        {
+            if (isMultiBank) openBankTree();
+            else selectPreset (-1);
+            return;
+        }
+        if (presetIncBtn.contains (pos))
+        {
+            if (isMultiBank) openBankTree();
+            else selectPreset (+1);
+            return;
+        }
+        // Clicking the label area in multi-bank mode also opens the tree
+        if (presetLabel.contains (pos) && isMultiBank && processor.sfzPlayer.isLoaded())
+        {
+            openBankTree();
+            return;
+        }
     }
 
     // ── Knob drag start ───────────────────────────────────────────────────────
@@ -1069,8 +1382,25 @@ void SfzDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
 
     if (nameZone.contains (pos))
     {
-        if (w.deltaY > 0.05f)       selectPreset (+1);
-        else if (w.deltaY < -0.05f) selectPreset (-1);
+        // SF2 multi-bank: clicking the label area opens the bank tree
+        const bool isMultiBank = [&]() -> bool {
+            if (presetList.empty()) return false;
+            const int firstBank = presetList[0].bank;
+            for (auto& p : presetList)
+                if (p.bank != firstBank) return true;
+            return false;
+        }();
+
+        if (w.deltaY > 0.05f)
+        {
+            if (isMultiBank) bankTreeScroll (-1.f);
+            else selectPreset (+1);
+        }
+        else if (w.deltaY < -0.05f)
+        {
+            if (isMultiBank) bankTreeScroll (1.f);
+            else selectPreset (-1);
+        }
         return;
     }
 

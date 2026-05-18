@@ -4,6 +4,7 @@
 // MidiClip.cpp retains its tracktion hook (attachMidiList) for future use.
 
 #include "SequencerEngine.h"
+#include "../audio/SfzPlayer.h"
 
 #include <atomic>
 #include <algorithm>
@@ -41,6 +42,7 @@ struct SequencerEngine::Impl
     float                lastAppliedBpm = 0.f;
 
     AbletonLink* abletonLink = nullptr;
+    SfzPlayer*   sfzPlayer   = nullptr;   // optional; set via setSfzPlayer()
 
     //==========================================================================
     Impl()  = default;
@@ -53,7 +55,7 @@ struct SequencerEngine::Impl
         {
             case TrackType::MainSlice:      return 1;
             case TrackType::ChromaticSlice: return t.midiChannel + 1;
-            case TrackType::SfPlayer:       return 16;
+            case TrackType::SfPlayer:       return t.midiChannel + 1;  // per-track FluidSynth channel (0-based → 1-based MIDI)
         }
         return 1;
     }
@@ -269,7 +271,21 @@ void SequencerEngine::addSfTrack (const Sf2PresetInfo& preset, juce::Colour colo
         if (t->type == TrackType::SfPlayer
             && t->preset.bank   == preset.bank
             && t->preset.preset == preset.preset) return;
-    impl->tracks.add (new SequencerTrack (SequencerTrack::makeSfPlayer (preset, colour)));
+
+    // Assign the next available FluidSynth channel (0-15) to this track.
+    // Count existing SfPlayer tracks to determine the channel index.
+    int sfCh = 0;
+    for (auto* t : impl->tracks)
+        if (t->type == TrackType::SfPlayer)
+            sfCh = juce::jmax (sfCh, t->midiChannel + 1);
+    sfCh = juce::jmin (sfCh, 15);
+
+    auto track = SequencerTrack::makeSfPlayer (preset, colour);
+    track.midiChannel = sfCh;
+    impl->tracks.add (new SequencerTrack (std::move (track)));
+
+    if (impl->sfzPlayer != nullptr)
+        impl->sfzPlayer->setPresetOnChannel (sfCh, preset.bank, preset.preset);
 }
 
 void SequencerEngine::removeSfTrack (int trackIndex)
@@ -292,8 +308,14 @@ void SequencerEngine::rebuildSfTracks (const std::vector<Sf2PresetInfo>& presets
     {
         const juce::Colour col = paletteSize > 0
             ? palette[i % paletteSize] : juce::Colour (0xFF406080);
-        impl->tracks.add (new SequencerTrack (
-            SequencerTrack::makeSfPlayer (presets[i], col)));
+        auto track = SequencerTrack::makeSfPlayer (presets[i], col);
+        track.midiChannel = juce::jmin (i, 15);   // sequential FluidSynth channels
+        impl->tracks.add (new SequencerTrack (std::move (track)));
+
+        if (impl->sfzPlayer != nullptr)
+            impl->sfzPlayer->setPresetOnChannel (juce::jmin (i, 15),
+                                                  presets[i].bank,
+                                                  presets[i].preset);
     }
 }
 
@@ -399,6 +421,7 @@ void SequencerEngine::setTrackLengthTicks (int trackIndex, int64_t ticks)
 
 //==============================================================================
 void SequencerEngine::setAbletonLink (AbletonLink* l) noexcept { impl->abletonLink = l; }
+void SequencerEngine::setSfzPlayer   (SfzPlayer*   p) noexcept { impl->sfzPlayer   = p; }
 
 //==============================================================================
 void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, int numSamples, double sampleRate)
@@ -457,11 +480,6 @@ void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, int numSamples, d
         {
             auto& track = *impl->tracks[ti];
             if (! track.enabled) continue;
-
-            // Send program change at playback start for SF2 tracks.
-            if (track.type == TrackType::SfPlayer && impl->justStarted)
-                outMidi.addEvent (
-                    juce::MidiMessage::programChange (16, track.preset.preset), 0);
 
             for (int ci = 0; ci < track.clips.size(); ++ci)
             {
