@@ -37,7 +37,15 @@ public:
         setResizable (true, false);
 
         // ── Audio device setup ────────────────────────────────────────────
-        deviceManager.initialiseWithDefaultDevices (0, 2);
+        // Use initialise() (not initialiseWithDefaultDevices) so that ALL
+        // registered audio device types — including ASIO on Windows — are
+        // available in the AudioDeviceSelectorComponent dropdown.
+        deviceManager.initialise (0,       // numInputChannelsNeeded
+                                  2,       // numOutputChannelsNeeded
+                                  nullptr, // savedState XML (none yet)
+                                  true,    // selectDefaultDeviceOnFailure
+                                  {},      // preferredDefaultDeviceName
+                                  nullptr);// preferredSetupOptions
         deviceManager.addChangeListener (this);
 
         // ── Plugin processor + editor ─────────────────────────────────────
@@ -51,11 +59,13 @@ public:
         deviceManager.addAudioCallback (&player);
 
         // ── MIDI input ────────────────────────────────────────────────────
-        const auto midiInputs = juce::MidiInput::getAvailableDevices();
-        for (const auto& input : midiInputs)
+        // Enable every available device and wire it to the player.
+        // Track IDs so the destructor and MIDI-settings panel can un-register safely.
+        for (const auto& input : juce::MidiInput::getAvailableDevices())
         {
             deviceManager.setMidiInputDeviceEnabled (input.identifier, true);
             deviceManager.addMidiInputDeviceCallback (input.identifier, &player);
+            registeredMidiInputIds.add (input.identifier);
         }
 
         // ── Set editor directly as window content ─────────────────────────
@@ -75,6 +85,13 @@ public:
     {
         setMenuBar (nullptr);
         deviceManager.removeAudioCallback (&player);
+
+        // Remove every MIDI callback BEFORE player is destroyed.
+        // Failing to do this causes a use-after-free: the device thread
+        // can fire a callback into the already-destroyed player.
+        for (const auto& id : registeredMidiInputIds)
+            deviceManager.removeMidiInputDeviceCallback (id, &player);
+
         deviceManager.removeChangeListener (this);
         player.setProcessor (nullptr);
     }
@@ -301,8 +318,10 @@ private:
     class MidiOnlySettingsComponent : public juce::Component
     {
     public:
-        explicit MidiOnlySettingsComponent (juce::AudioDeviceManager& dm)
-            : deviceManager (dm)
+        explicit MidiOnlySettingsComponent (juce::AudioDeviceManager& dm,
+                                             juce::AudioProcessorPlayer& pl,
+                                             juce::StringArray& registeredIds)
+            : deviceManager (dm), player (pl), registeredMidiInputIds (registeredIds)
         {
             setSize (480, 320);
 
@@ -358,7 +377,23 @@ private:
                     const juce::String id = dev.identifier;
                     btn->onClick = [this, id, btn]
                     {
-                        deviceManager.setMidiInputDeviceEnabled (id, btn->getToggleState());
+                        const bool enable = btn->getToggleState();
+                        if (enable)
+                        {
+                            deviceManager.setMidiInputDeviceEnabled (id, true);
+                            // Only add the callback if not already registered.
+                            if (! registeredMidiInputIds.contains (id))
+                            {
+                                deviceManager.addMidiInputDeviceCallback (id, &player);
+                                registeredMidiInputIds.add (id);
+                            }
+                        }
+                        else
+                        {
+                            deviceManager.removeMidiInputDeviceCallback (id, &player);
+                            registeredMidiInputIds.removeString (id);
+                            deviceManager.setMidiInputDeviceEnabled (id, false);
+                        }
                     };
 
                     addAndMakeVisible (btn);
@@ -371,8 +406,10 @@ private:
             setSize (480, juce::jmax (120, h));
         }
 
-        juce::AudioDeviceManager& deviceManager;
-        juce::Label               titleLabel;
+        juce::AudioDeviceManager&         deviceManager;
+        juce::AudioProcessorPlayer&       player;
+        juce::StringArray&                registeredMidiInputIds;
+        juce::Label                       titleLabel;
         juce::OwnedArray<juce::Component> rows;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiOnlySettingsComponent)
@@ -380,7 +417,7 @@ private:
 
     void showMidiSettings()
     {
-        auto* midiSettingsComp = new MidiOnlySettingsComponent (deviceManager);
+        auto* midiSettingsComp = new MidiOnlySettingsComponent (deviceManager, player, registeredMidiInputIds);
 
         juce::DialogWindow::LaunchOptions opts;
         opts.content.setOwned (midiSettingsComp);
@@ -409,6 +446,7 @@ private:
     //==========================================================================
     juce::AudioDeviceManager            deviceManager;
     juce::AudioProcessorPlayer          player;
+    juce::StringArray                   registeredMidiInputIds;  // tracks devices with active callbacks
 
     std::unique_ptr<DysektProcessor>    processor;
     std::unique_ptr<DysektEditor>       editor;
