@@ -126,6 +126,7 @@ public:
             case 5:  exportMidiClip();       break;
             case 6:  juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
             case 10: showAudioSettings();    break;
+            case 11: showMidiSettings();     break;
             case 20: showAbout();            break;
             default: break;
         }
@@ -266,16 +267,39 @@ private:
             deviceManager,
             0, 0,    // min/max input channels
             0, 2,    // min/max output channels
-            true,    // show MIDI input selector
+            false,   // show MIDI input selector  (handled in showMidiSettings)
             false,   // show MIDI output selector
             false,   // treat channels as stereo pairs
-            false);  // hide advanced options
+            false);  // hideAdvancedOptionsWithButton — false = show driver type (ASIO etc.)
 
         audioSettingsComp->setSize (500, 450);
 
         juce::DialogWindow::LaunchOptions opts;
         opts.content.setOwned (audioSettingsComp);
-        opts.dialogTitle             = "Audio / MIDI Settings";
+        opts.dialogTitle             = "Audio Settings";
+        opts.dialogBackgroundColour  = juce::Colour (0xFF0D0D14);
+        opts.escapeKeyTriggersCloseButton = true;
+        opts.useNativeTitleBar       = true;
+        opts.resizable               = false;
+        opts.launchAsync();
+    }
+
+    void showMidiSettings()
+    {
+        auto* midiSettingsComp = new juce::AudioDeviceSelectorComponent (
+            deviceManager,
+            0, 0,    // min/max input channels
+            0, 0,    // min/max output channels (no audio outputs shown)
+            true,    // show MIDI input selector
+            false,   // show MIDI output selector
+            false,   // treat channels as stereo pairs
+            false);  // hide advanced options
+
+        midiSettingsComp->setSize (500, 300);
+
+        juce::DialogWindow::LaunchOptions opts;
+        opts.content.setOwned (midiSettingsComp);
+        opts.dialogTitle             = "MIDI Settings";
         opts.dialogBackgroundColour  = juce::Colour (0xFF0D0D14);
         opts.escapeKeyTriggersCloseButton = true;
         opts.useNativeTitleBar       = true;
