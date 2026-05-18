@@ -17,6 +17,10 @@
 
 SfzPlayer::SfzPlayer()
 {
+    // Initialise all channel slots to "no pending change"
+    for (auto& slot : pendingChannelAssignment)
+        slot.store (-1, std::memory_order_relaxed);
+
 #if DYSEKT_HAS_FLUIDSYNTH
     // Prevent FluidSynth from spawning its own audio driver thread.
     // We only use it as an offline render engine inside processBlock.
@@ -185,7 +189,8 @@ void SfzPlayer::setPan (float p)
         // CC10 pan: 0 = hard L, 64 = centre, 127 = hard R
         const int cc10 = juce::jlimit (0, 127,
             juce::roundToInt ((p + 1.0f) * 0.5f * 127.0f));
-        fluid_synth_cc (synth, 0, 10, cc10);
+        for (int ch = 0; ch < 16; ++ch)
+            fluid_synth_cc (synth, ch, 10, cc10);
     }
 #endif
 #if DYSEKT_HAS_SFIZZ
@@ -203,7 +208,8 @@ void SfzPlayer::setFineTune (float cents)
     fineTune.store (juce::jlimit (-100.0f, 100.0f, cents), std::memory_order_relaxed);
 #if DYSEKT_HAS_FLUIDSYNTH
     if (synth != nullptr && !isSfzFile)
-        fluid_synth_set_gen (synth, 0, GEN_FINETUNE, cents);
+        for (int ch = 0; ch < 16; ++ch)
+            fluid_synth_set_gen (synth, ch, GEN_FINETUNE, cents);
 #endif
     // sfizz fine-tune is applied via pitch-bend offset on next note — no direct API
 }
@@ -280,6 +286,24 @@ void SfzPlayer::setPresetByIndex (int idx)
 {
     presetIndex.store (idx, std::memory_order_relaxed);
     programChangePending.store (true, std::memory_order_release);
+}
+
+void SfzPlayer::setPresetOnChannel (int channel, int bank, int preset)
+{
+    if (channel < 0 || channel > 15) return;
+    // Pack bank + preset into a single int. Bank fits in upper 16 bits (max 16383),
+    // preset in lower 16 bits (max 127 for GM, up to 16383 for extended SF2).
+    const int packed = (juce::jlimit (0, 0x7FFF, bank) << 16)
+                     |  juce::jlimit (0, 0xFFFF, preset);
+    pendingChannelAssignment[channel].store (packed, std::memory_order_relaxed);
+    anyChannelDirty.store (true, std::memory_order_release);
+}
+
+void SfzPlayer::clearChannelPresets()
+{
+    for (auto& slot : pendingChannelAssignment)
+        slot.store (-1, std::memory_order_relaxed);
+    anyChannelDirty.store (false, std::memory_order_relaxed);
 }
 
 juce::File SfzPlayer::getLoadedFile() const
@@ -486,55 +510,57 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     if (synth == nullptr)
         return;
 
-    // Apply any pending program-change first.
+    // Apply any pending preset assignments — multi-timbral first, then single-preset legacy.
+    if (anyChannelDirty.load (std::memory_order_acquire))
+        applyPendingChannelChanges();
+
     if (programChangePending.load (std::memory_order_acquire))
         applyProgramChange();
 
     // ── Forward MIDI to FluidSynth ────────────────────────────────────────────
-    constexpr int kFluidCh = 0;
+    // Multi-timbral mode: route each message to its own FluidSynth channel (0-based).
+    // No channel filtering — every channel passes through so each sequencer track
+    // fires on the channel its preset was assigned to via setPresetOnChannel().
 
     for (const auto meta : midiIn)
     {
-        const auto msg = meta.getMessage();
-        const int  ch  = msg.getChannel();   // 1-16
-
-        if (filterCh != 0 && ch != filterCh)
-            continue;
+        const auto msg     = meta.getMessage();
+        const int  fluidCh = msg.getChannel() - 1;   // MIDI 1-16 → FluidSynth 0-15
 
         if (msg.isNoteOn())
         {
             const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
-            fluid_synth_noteon (synth, kFluidCh, note, msg.getVelocity());
+            fluid_synth_noteon (synth, fluidCh, note, msg.getVelocity());
         }
         else if (msg.isNoteOff())
         {
             const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
-            fluid_synth_noteoff (synth, kFluidCh, note);
+            fluid_synth_noteoff (synth, fluidCh, note);
         }
         else if (msg.isController())
         {
-            fluid_synth_cc (synth, kFluidCh,
+            fluid_synth_cc (synth, fluidCh,
                             msg.getControllerNumber(),
                             msg.getControllerValue());
         }
         else if (msg.isPitchWheel())
         {
-            fluid_synth_pitch_bend (synth, kFluidCh, msg.getPitchWheelValue());
+            fluid_synth_pitch_bend (synth, fluidCh, msg.getPitchWheelValue());
         }
         else if (msg.isChannelPressure())
         {
-            fluid_synth_channel_pressure (synth, kFluidCh,
+            fluid_synth_channel_pressure (synth, fluidCh,
                                           msg.getChannelPressureValue());
         }
         else if (msg.isAftertouch())
         {
-            fluid_synth_key_pressure (synth, kFluidCh,
+            fluid_synth_key_pressure (synth, fluidCh,
                                       msg.getNoteNumber(),
                                       msg.getAfterTouchValue());
         }
         else if (msg.isProgramChange())
         {
-            fluid_synth_program_change (synth, kFluidCh,
+            fluid_synth_program_change (synth, fluidCh,
                                         msg.getProgramChangeNumber());
         }
         else if (msg.isSysEx())
@@ -546,7 +572,9 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
-            fluid_synth_all_notes_off (synth, kFluidCh);
+            // All-notes-off/all-sound-off on a specific channel, or globally
+            // if the message is on channel 0 (shouldn't happen, but guard).
+            fluid_synth_all_notes_off (synth, fluidCh);
         }
     }
 
@@ -628,6 +656,9 @@ void SfzPlayer::applyPendingLoad()
     delete freshPresets.exchange (new std::vector<Sf2PresetInfo>(),
                                   std::memory_order_acq_rel);
 
+    // Clear any stale per-channel preset assignments from a previous load.
+    clearChannelPresets();
+
     if (owner->shouldUnload)
         return;
 
@@ -701,10 +732,43 @@ void SfzPlayer::applyPendingLoad()
 
     presetIndex.store (0, std::memory_order_relaxed);
     postPresetList();
-    applyProgramChange();
+
+    // Assign first preset (bank 0, preset 0) to channel 0 as default.
+    // The sequencer will call setPresetOnChannel() to populate other channels.
+    applyPendingChannelChanges();  // all slots are -1 at this point; no-op but clears dirty flag
+    setPresetByIndex (0);          // triggers applyProgramChange() on next process() tick
 
 #else
     juce::ignoreUnused (owner);
+#endif
+}
+
+void SfzPlayer::applyPendingChannelChanges()
+{
+    anyChannelDirty.store (false, std::memory_order_relaxed);
+
+#if DYSEKT_HAS_FLUIDSYNTH
+    if (synth == nullptr || sfontId == FLUID_FAILED)
+        return;
+
+    const int offset = fluid_synth_get_bank_offset (synth, sfontId);
+
+    for (int ch = 0; ch < 16; ++ch)
+    {
+        const int packed = pendingChannelAssignment[ch].exchange (
+                               -1, std::memory_order_acq_rel);
+
+        if (packed == -1)
+            continue;   // nothing pending on this channel
+
+        const int bank   = (packed >> 16) & 0x7FFF;
+        const int preset = packed & 0xFFFF;
+
+        fluid_synth_program_select (synth, ch,
+                                    static_cast<unsigned int> (sfontId),
+                                    static_cast<unsigned int> (offset + bank),
+                                    static_cast<unsigned int> (preset));
+    }
 #endif
 }
 

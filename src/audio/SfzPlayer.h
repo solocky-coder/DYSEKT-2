@@ -68,8 +68,18 @@ public:
     void setReverb      (float level);        ///< 0..1 wet level
     void setChorus      (float level);        ///< 0..1 wet level
 
-    /** Select a preset by its index in the list returned by getPresetList(). */
+    /** Select a preset by its index in the list returned by getPresetList().
+     *  Single-preset mode: assigns the chosen preset to FluidSynth channel 0.
+     *  For multi-timbral use, prefer setPresetOnChannel() instead. */
     void setPresetByIndex (int idx);
+
+    /** Multi-timbral SF2: assign a specific bank/preset to a FluidSynth channel (0-15).
+     *  Each sequencer track calls this with its own channel so FluidSynth plays
+     *  multiple programs simultaneously.  No-op for SFZ files. */
+    void setPresetOnChannel (int channel, int bank, int preset);
+
+    /** Clear all pending channel-preset assignments (e.g. on SF2 unload). */
+    void clearChannelPresets();
 
     float      getVolume()      const noexcept { return volume.load(); }
     int        getTranspose()   const noexcept { return transpose.load(); }
@@ -188,6 +198,13 @@ private:
     /** Set when presetIndex changes; audio thread picks it up in process(). */
     std::atomic<bool>  programChangePending { false };
 
+    // ── Multi-timbral channel assignments (SF2 only) ──────────────────────────
+    // pendingChannelAssignment[ch] holds a packed (bank << 16) | preset value,
+    // or -1 if no change is pending on that channel.
+    // Written from the UI thread via setPresetOnChannel(); read+cleared on audio thread.
+    std::atomic<int>  pendingChannelAssignment[16];  // initialised to -1 in ctor
+    std::atomic<bool> anyChannelDirty { false };
+
     // ── Scratch buffer for FluidSynth interleaved → planar conversion ─────────
     std::vector<float> scratchL, scratchR;
 
@@ -214,8 +231,9 @@ private:
     void updateReverbParams();  ///< maps atomics → juce::dsp::Reverb::Parameters
 
     // ── Private helpers ───────────────────────────────────────────────────────
-    void applyPendingLoad();      ///< called at top of process()
-    void applyProgramChange();    ///< called at top of process() when flag set
+    void applyPendingLoad();             ///< called at top of process()
+    void applyProgramChange();           ///< single-preset legacy (channel 0); called when programChangePending
+    void applyPendingChannelChanges();   ///< multi-timbral; called when anyChannelDirty
 
     /** Send current ADSR atomics to sfizz via OSC messages (audio thread only). */
     void sendAdsrToSfizz();
