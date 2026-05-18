@@ -103,37 +103,57 @@ private:
     // ── Cached preset list ────────────────────────────────────────────────────
     std::vector<Sf2PresetInfo> presetList;
 
-    // ── Bank-tree state (SF2 only) ────────────────────────────────────────────
-    // For SF2 files the preset list is displayed as a two-level bank→preset
-    // tree inside the nameZone area (expands below the strip when open).
-    // bankTreeOpen: whether the tree popup is currently showing.
-    // expandedBanks: set of bank numbers that are currently expanded.
-    // treeRows: flattened render list rebuilt whenever presetList changes.
+    // ── Bank-tree popup (SF2 two-level picker) ────────────────────────────────
+    // Displayed as a floating child of the top-level component so it renders
+    // above keysPanel and receives mouse events correctly.
     struct TreeRow
     {
         enum class Kind { Bank, Preset } kind;
-        int bank    { 0 };       // for Bank rows: the bank number
-        int listIdx { -1 };      // for Preset rows: index into presetList
-        int nestLevel { 0 };     // 0 = bank, 1 = preset
+        int bank     { 0 };
+        int listIdx  { -1 };
+        int nestLevel{ 0 };
     };
-    bool                 bankTreeOpen   { false };
-    std::set<int>        expandedBanks;
-    std::vector<TreeRow> treeRows;
-    int                  treeScrollTop  { 0 };   // first visible row index
-    int                  treeHoverRow   { -1 };
 
-    static constexpr int kTreeRowH    = 22;
-    static constexpr int kTreeMaxRows = 10;      // visible rows before scroll
-    static constexpr int kTreeW       = 220;
+    class BankTreePopup : public juce::Component
+    {
+    public:
+        // Called when the user picks a preset (listIdx into presetList).
+        std::function<void(int)>  onPresetPicked;
+        // Called when the popup wants to dismiss itself.
+        std::function<void()>     onDismiss;
 
-    void rebuildTreeRows();
+        // Feed fresh data before showing.
+        void setData (const std::vector<Sf2PresetInfo>& presets,
+                      int currentPresetIndex);
+
+        void paint   (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+        void mouseMove (const juce::MouseEvent&) override;
+        void mouseWheelMove (const juce::MouseEvent&,
+                             const juce::MouseWheelDetails&) override;
+
+    private:
+        static constexpr int kRowH     = 22;
+        static constexpr int kMaxRows  = 10;
+        static constexpr int kTreeW    = 220;
+
+        std::vector<Sf2PresetInfo> presetList;
+        int                        currentIdx { 0 };
+
+        std::set<int>        expandedBanks;
+        std::vector<TreeRow> treeRows;
+        int                  scrollTop  { 0 };
+        int                  hoverRow   { -1 };
+
+        void rebuildRows();
+        void handleRowClick (int ri);
+    };
+
+    std::unique_ptr<BankTreePopup> bankTreePopup;
+
     void openBankTree();
     void closeBankTree();
-    juce::Rectangle<int> getBankTreeBounds() const;
-    void paintBankTree (juce::Graphics& g) const;
-    bool bankTreeMouseDown (juce::Point<int> pos);
-    void bankTreeMouseMove (juce::Point<int> pos);
-    void bankTreeScroll    (float delta);
+    bool isBankTreeOpen() const { return bankTreePopup != nullptr; }
 
     // ── Inline file browser ───────────────────────────────────────────────────
     SfzFileBrowser fileBrowser;

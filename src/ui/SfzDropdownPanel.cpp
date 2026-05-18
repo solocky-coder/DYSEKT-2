@@ -571,10 +571,6 @@ void SfzDropdownPanel::paint (juce::Graphics& g)
     drawHeaderStrip (g);
     drawAdsrStrip (g);
 
-    // Bank tree popup paints on top of everything else
-    if (bankTreeOpen)
-        paintBankTree (g);
-
     g.setColour (theme.accent.withAlpha (0.45f));
     g.fillRect (0, 0, w, 1);
 }
@@ -763,7 +759,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
 
             // Preset name
             g.setFont (DysektLookAndFeel::makeFont (16.5f));
-            g.setColour (bankTreeOpen ? theme.accent : theme.foreground);
+            g.setColour (isBankTreeOpen() ? theme.accent : theme.foreground);
             g.drawText (info.name, lbl, juce::Justification::centred, true);
         }
     }
@@ -871,108 +867,88 @@ void SfzDropdownPanel::timerCallback()
 
     presetList = processor.sfzPlayer.getPresetList();
 
-    // Keep bank tree in sync
-    if (bankTreeOpen)
+    // Keep bank tree data in sync
+    if (isBankTreeOpen())
     {
         if (! processor.sfzPlayer.isLoaded())
             closeBankTree();
-        else
-            rebuildTreeRows();
+        else if (bankTreePopup)
+            bankTreePopup->setData (presetList, processor.sfzPlayer.getCurrentPresetIndex());
     }
 
     repaint();
 }
 
 // =============================================================================
-//  Bank-tree preset picker (SF2 two-level UI)
+//  BankTreePopup — floating SF2 bank/preset picker
 // =============================================================================
 
-void SfzDropdownPanel::rebuildTreeRows()
+void SfzDropdownPanel::BankTreePopup::setData (const std::vector<Sf2PresetInfo>& presets,
+                                                int currentPresetIndex)
+{
+    presetList = presets;
+    currentIdx = currentPresetIndex;
+    rebuildRows();
+    repaint();
+}
+
+void SfzDropdownPanel::BankTreePopup::rebuildRows()
 {
     treeRows.clear();
-
-    // Group presets by bank number
-    std::map<int, std::vector<int>> bankMap;   // bank → list of indices into presetList
+    std::map<int, std::vector<int>> bankMap;
     for (int i = 0; i < (int) presetList.size(); ++i)
         bankMap[presetList[(size_t) i].bank].push_back (i);
 
     for (auto& [bank, indices] : bankMap)
     {
-        TreeRow bankRow;
-        bankRow.kind  = TreeRow::Kind::Bank;
-        bankRow.bank  = bank;
-        treeRows.push_back (bankRow);
+        TreeRow br;
+        br.kind = TreeRow::Kind::Bank;
+        br.bank = bank;
+        treeRows.push_back (br);
 
         if (expandedBanks.count (bank))
         {
             for (int idx : indices)
             {
-                TreeRow prow;
-                prow.kind     = TreeRow::Kind::Preset;
-                prow.bank     = bank;
-                prow.listIdx  = idx;
-                prow.nestLevel = 1;
-                treeRows.push_back (prow);
+                TreeRow pr;
+                pr.kind      = TreeRow::Kind::Preset;
+                pr.bank      = bank;
+                pr.listIdx   = idx;
+                pr.nestLevel = 1;
+                treeRows.push_back (pr);
             }
         }
     }
 }
 
-juce::Rectangle<int> SfzDropdownPanel::getBankTreeBounds() const
+void SfzDropdownPanel::BankTreePopup::paint (juce::Graphics& g)
 {
-    const int visRows = juce::jmin ((int) treeRows.size(), kTreeMaxRows);
-    const int treeH   = visRows * kTreeRowH + 2;
-    // Align left edge with the nameZone's left, drop below the strip
-    return { nameZone.getX(), kStripH, kTreeW, treeH };
-}
-
-void SfzDropdownPanel::openBankTree()
-{
-    if (bankTreeOpen) return;
-    bankTreeOpen  = true;
-    treeScrollTop = 0;
-    treeHoverRow  = -1;
-    rebuildTreeRows();
-    repaint();
-}
-
-void SfzDropdownPanel::closeBankTree()
-{
-    if (! bankTreeOpen) return;
-    bankTreeOpen = false;
-    treeHoverRow = -1;
-    repaint();
-}
-
-void SfzDropdownPanel::paintBankTree (juce::Graphics& g) const
-{
-    if (! bankTreeOpen || treeRows.empty()) return;
+    if (treeRows.empty()) return;
 
     const auto& theme  = getTheme();
-    const auto  bounds = getBankTreeBounds();
+    const auto  bounds = getLocalBounds();
 
-    // Shadow + panel background
+    // Shadow
     g.setColour (juce::Colours::black.withAlpha (0.35f));
     g.fillRoundedRectangle (bounds.toFloat().translated (2.f, 2.f), 4.0f);
 
+    // Panel background
     g.setColour (theme.darkBar.darker (0.55f));
     g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
     g.setColour (theme.accent.withAlpha (0.30f));
     g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), 4.0f, 1.0f);
 
-    const int visRows = juce::jmin ((int) treeRows.size() - treeScrollTop, kTreeMaxRows);
+    const int visRows = juce::jmin ((int) treeRows.size() - scrollTop, kMaxRows);
     for (int v = 0; v < visRows; ++v)
     {
-        const int ri     = treeScrollTop + v;
+        const int ri     = scrollTop + v;
         const auto& row  = treeRows[(size_t) ri];
         const auto  rBounds = juce::Rectangle<int> (
-            bounds.getX(), bounds.getY() + 1 + v * kTreeRowH,
-            bounds.getWidth(), kTreeRowH);
+            0, 1 + v * kRowH, bounds.getWidth(), kRowH);
 
-        // Hover / selection highlight
-        const bool isHover    = (ri == treeHoverRow);
+        const bool isHover    = (ri == hoverRow);
         const bool isSelected = (row.kind == TreeRow::Kind::Preset
-                                 && row.listIdx == processor.sfzPlayer.getCurrentPresetIndex());
+                                 && row.listIdx == currentIdx);
 
         if (isSelected)
         {
@@ -988,86 +964,70 @@ void SfzDropdownPanel::paintBankTree (juce::Graphics& g) const
         if (row.kind == TreeRow::Kind::Bank)
         {
             const bool expanded = expandedBanks.count (row.bank) > 0;
-            // Count presets in bank
             int presetCount = 0;
             for (auto& p : presetList)
                 if (p.bank == row.bank) ++presetCount;
 
-            // Expand arrow
             g.setFont (DysektLookAndFeel::makeFont (13.0f));
             g.setColour (theme.accent.withAlpha (0.70f));
             g.drawText (expanded ? u8"\u25BC" : u8"\u25B6",
-                        rBounds.getX() + 6, rBounds.getY(), 14, kTreeRowH,
+                        rBounds.getX() + 6, rBounds.getY(), 14, kRowH,
                         juce::Justification::centredLeft, false);
 
-            // Bank label
             g.setFont (DysektLookAndFeel::makeFont (14.25f, true));
             g.setColour (theme.foreground.withAlpha (0.90f));
             g.drawText ("Bank " + juce::String (row.bank),
-                        rBounds.getX() + 22, rBounds.getY(), rBounds.getWidth() - 50, kTreeRowH,
+                        rBounds.getX() + 22, rBounds.getY(), rBounds.getWidth() - 50, kRowH,
                         juce::Justification::centredLeft, true);
 
-            // Preset count badge
-            {
-                const juce::String badge = juce::String (presetCount);
-                const int bW = 28;
-                const auto bR = juce::Rectangle<int> (
-                    rBounds.getRight() - bW - 5,
-                    rBounds.getCentreY() - 9, bW, 18);
-                g.setColour (theme.accent.withAlpha (0.14f));
-                g.fillRoundedRectangle (bR.toFloat(), 3.0f);
-                g.setFont (DysektLookAndFeel::makeFont (12.0f));
-                g.setColour (theme.accent.withAlpha (0.65f));
-                g.drawText (badge, bR, juce::Justification::centred, false);
-            }
+            const juce::String badge = juce::String (presetCount);
+            const int bW = 28;
+            const auto bR = juce::Rectangle<int> (
+                rBounds.getRight() - bW - 5, rBounds.getCentreY() - 9, bW, 18);
+            g.setColour (theme.accent.withAlpha (0.14f));
+            g.fillRoundedRectangle (bR.toFloat(), 3.0f);
+            g.setFont (DysektLookAndFeel::makeFont (12.0f));
+            g.setColour (theme.accent.withAlpha (0.65f));
+            g.drawText (badge, bR, juce::Justification::centred, false);
         }
         else
         {
-            // Preset row
             const auto& info = presetList[(size_t) row.listIdx];
 
-            // Indent line
             g.setColour (theme.accent.withAlpha (0.18f));
-            g.fillRect (rBounds.getX() + 18, rBounds.getY() + 2, 1, kTreeRowH - 4);
+            g.fillRect (rBounds.getX() + 18, rBounds.getY() + 2, 1, kRowH - 4);
 
-            // Preset number badge
-            {
-                const juce::String pNum = juce::String (info.preset);
-                const int bW = 26;
-                const auto bR = juce::Rectangle<int> (
-                    rBounds.getX() + 22, rBounds.getCentreY() - 9, bW, 18);
-                g.setColour (theme.accent.withAlpha (0.10f));
-                g.fillRoundedRectangle (bR.toFloat(), 2.0f);
-                g.setFont (DysektLookAndFeel::makeFont (11.25f));
-                g.setColour (theme.accent.withAlpha (0.55f));
-                g.drawText (pNum, bR, juce::Justification::centred, false);
-            }
+            const int bW = 26;
+            const auto bR = juce::Rectangle<int> (
+                rBounds.getX() + 22, rBounds.getCentreY() - 9, bW, 18);
+            g.setColour (theme.accent.withAlpha (0.10f));
+            g.fillRoundedRectangle (bR.toFloat(), 2.0f);
+            g.setFont (DysektLookAndFeel::makeFont (11.25f));
+            g.setColour (theme.accent.withAlpha (0.55f));
+            g.drawText (juce::String (info.preset), bR, juce::Justification::centred, false);
 
-            // Preset name
             g.setFont (DysektLookAndFeel::makeFont (14.25f));
             g.setColour (isSelected ? theme.accent : theme.foreground.withAlpha (0.82f));
             g.drawText (info.name,
                         rBounds.getX() + 52, rBounds.getY(),
-                        rBounds.getWidth() - 56, kTreeRowH,
+                        rBounds.getWidth() - 56, kRowH,
                         juce::Justification::centredLeft, true);
         }
 
-        // Row separator
         g.setColour (theme.accent.withAlpha (0.07f));
         g.fillRect (rBounds.getX() + 4, rBounds.getBottom() - 1,
                     rBounds.getWidth() - 8, 1);
     }
 
     // Scroll indicators
-    if (treeScrollTop > 0)
+    if (scrollTop > 0)
     {
         g.setColour (theme.foreground.withAlpha (0.35f));
         g.setFont (DysektLookAndFeel::makeFont (11.0f));
         g.drawText (u8"\u25B2", bounds.getRight() - 18, bounds.getY() + 2, 14, 14,
                     juce::Justification::centred, false);
     }
-    const int totalRows = (int) treeRows.size();
-    if (treeScrollTop + kTreeMaxRows < totalRows)
+    if (scrollTop + kMaxRows < (int) treeRows.size())
     {
         g.setColour (theme.foreground.withAlpha (0.35f));
         g.setFont (DysektLookAndFeel::makeFont (11.0f));
@@ -1076,61 +1036,115 @@ void SfzDropdownPanel::paintBankTree (juce::Graphics& g) const
     }
 }
 
-bool SfzDropdownPanel::bankTreeMouseDown (juce::Point<int> pos)
+void SfzDropdownPanel::BankTreePopup::handleRowClick (int ri)
 {
-    if (! bankTreeOpen) return false;
-    const auto bounds = getBankTreeBounds();
-    if (! bounds.contains (pos)) { closeBankTree(); return false; }
-
-    const int v  = (pos.y - bounds.getY() - 1) / kTreeRowH;
-    const int ri = treeScrollTop + v;
-    if (ri < 0 || ri >= (int) treeRows.size()) return true;
-
+    if (ri < 0 || ri >= (int) treeRows.size()) return;
     auto& row = treeRows[(size_t) ri];
+
     if (row.kind == TreeRow::Kind::Bank)
     {
-        // Toggle expansion
         if (expandedBanks.count (row.bank))
             expandedBanks.erase (row.bank);
         else
             expandedBanks.insert (row.bank);
-        rebuildTreeRows();
-        treeScrollTop = juce::jmin (treeScrollTop,
-                                    juce::jmax (0, (int) treeRows.size() - kTreeMaxRows));
+        rebuildRows();
+        scrollTop = juce::jmin (scrollTop,
+                                juce::jmax (0, (int) treeRows.size() - kMaxRows));
         repaint();
     }
     else if (row.kind == TreeRow::Kind::Preset && row.listIdx >= 0)
     {
-        processor.sfzPlayer.setPresetByIndex (row.listIdx);
+        if (onPresetPicked)
+            onPresetPicked (row.listIdx);
+    }
+}
+
+void SfzDropdownPanel::BankTreePopup::mouseDown (const juce::MouseEvent& e)
+{
+    const int v  = (e.getPosition().y - 1) / kRowH;
+    const int ri = scrollTop + v;
+
+    if (! getLocalBounds().contains (e.getPosition()))
+    {
+        if (onDismiss) onDismiss();
+        return;
+    }
+    handleRowClick (ri);
+}
+
+void SfzDropdownPanel::BankTreePopup::mouseMove (const juce::MouseEvent& e)
+{
+    const int v  = (e.getPosition().y - 1) / kRowH;
+    const int ri = scrollTop + v;
+    const int newHover = (ri >= 0 && ri < (int) treeRows.size()) ? ri : -1;
+    if (newHover != hoverRow)
+    {
+        hoverRow = newHover;
+        repaint();
+    }
+}
+
+void SfzDropdownPanel::BankTreePopup::mouseWheelMove (const juce::MouseEvent&,
+                                                        const juce::MouseWheelDetails& w)
+{
+    const int step = w.deltaY > 0 ? -1 : 1;
+    scrollTop = juce::jlimit (0,
+        juce::jmax (0, (int) treeRows.size() - kMaxRows),
+        scrollTop + step);
+    repaint();
+}
+
+// =============================================================================
+//  openBankTree / closeBankTree — show/hide the popup overlay
+// =============================================================================
+
+void SfzDropdownPanel::openBankTree()
+{
+    if (isBankTreeOpen()) return;
+
+    auto popup = std::make_unique<BankTreePopup>();
+    popup->setData (presetList, processor.sfzPlayer.getCurrentPresetIndex());
+
+    popup->onPresetPicked = [this] (int idx)
+    {
+        processor.sfzPlayer.setPresetByIndex (idx);
         if (processor.sfzPlayer.isLoaded())
             reloadZones (processor.sfzPlayer.getLoadedFile());
         closeBankTree();
         repaint();
-    }
-    return true;
-}
+    };
+    popup->onDismiss = [this] { closeBankTree(); };
 
-void SfzDropdownPanel::bankTreeMouseMove (juce::Point<int> pos)
-{
-    if (! bankTreeOpen) return;
-    const auto bounds = getBankTreeBounds();
-    if (! bounds.contains (pos)) { treeHoverRow = -1; repaint(); return; }
-    const int v  = (pos.y - bounds.getY() - 1) / kTreeRowH;
-    const int ri = treeScrollTop + v;
-    if (ri != treeHoverRow)
+    // Position the popup below the nameZone, converted to top-level coordinates.
+    if (auto* top = getTopLevelComponent())
     {
-        treeHoverRow = (ri >= 0 && ri < (int) treeRows.size()) ? ri : -1;
-        repaint();
+        const int visRows = juce::jmin ((int) presetList.size() > 0
+                                        ? (int) presetList.size() + 4   // rough upper bound
+                                        : 1,
+                                        BankTreePopup::kMaxRows);
+        const int popupH = visRows * BankTreePopup::kRowH + 2;
+        const int popupW = BankTreePopup::kTreeW;
+
+        // Convert nameZone bottom-left to top-level coordinates
+        const auto topLeft = top->getLocalPoint (this,
+            juce::Point<int> (nameZone.getX(), kStripH));
+
+        popup->setBounds (topLeft.x, topLeft.y, popupW, popupH);
+        popup->setAlwaysOnTop (true);
+        top->addAndMakeVisible (*popup);
+        popup->toFront (true);
     }
+
+    bankTreePopup = std::move (popup);
+    repaint();
 }
 
-void SfzDropdownPanel::bankTreeScroll (float delta)
+void SfzDropdownPanel::closeBankTree()
 {
-    if (! bankTreeOpen) return;
-    const int step = delta > 0 ? -1 : 1;
-    treeScrollTop = juce::jlimit (0,
-        juce::jmax (0, (int) treeRows.size() - kTreeMaxRows),
-        treeScrollTop + step);
+    if (! bankTreePopup) return;
+    if (auto* p = bankTreePopup->getParentComponent())
+        p->removeChildComponent (bankTreePopup.get());
+    bankTreePopup.reset();
     repaint();
 }
 
@@ -1193,21 +1207,14 @@ void SfzDropdownPanel::showMidiLearnMenu (int fieldId, juce::Point<int> screenPo
 //  Mouse events
 // =============================================================================
 
-void SfzDropdownPanel::mouseMove (const juce::MouseEvent& e)
+void SfzDropdownPanel::mouseMove (const juce::MouseEvent&)
 {
-    bankTreeMouseMove (e.getPosition());
+    repaint();   // refresh hover state on folder icon / arrow buttons
 }
 
 void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
 {
     const auto pos = e.getPosition();
-
-    // ── Bank tree popup — takes priority when open ────────────────────────────
-    if (bankTreeOpen)
-    {
-        bankTreeMouseDown (pos);
-        return;
-    }
 
     // ── Folder icon — toggle browser ─────────────────────────────────────────
     if (folderIconZone.contains (pos))
@@ -1393,12 +1400,12 @@ void SfzDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
 
         if (w.deltaY > 0.05f)
         {
-            if (isMultiBank) bankTreeScroll (-1.f);
+            if (isMultiBank) openBankTree();
             else selectPreset (+1);
         }
         else if (w.deltaY < -0.05f)
         {
-            if (isMultiBank) bankTreeScroll (1.f);
+            if (isMultiBank) openBankTree();
             else selectPreset (-1);
         }
         return;
