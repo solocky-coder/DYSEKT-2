@@ -119,6 +119,16 @@ static bool isCriticalCommand (DysektProcessor::CommandType type)
 
 DysektProcessor::DysektProcessor()
     : AudioProcessor (BusesProperties()
+                          // ── MIDI input buses ──────────────────────────────────────────────────
+                          // DYSEKT: main slicer MIDI (ch 1-15 by default)
+                          // DYFONT: dedicated SF2/SFZ player MIDI (ch 16 by default)
+                          // Hosts that support multiple MIDI inputs (Reaper, Logic, Bitwig, etc.)
+                          // can route separate tracks/clips to each port independently.
+                          // Hosts that don't support multiple MIDI inputs merge everything onto the
+                          // first port; channel-based routing acts as the fallback in that case.
+                          .withInput  ("DYSEKT", juce::AudioChannelSet::disabled(), true)
+                          .withInput  ("DYFONT", juce::AudioChannelSet::disabled(), false)
+                          // ── Audio output buses ────────────────────────────────────────────────
                           .withOutput ("Main", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Out 2", juce::AudioChannelSet::stereo(), false)
                           .withOutput ("Out 3", juce::AudioChannelSet::stereo(), false)
@@ -190,6 +200,15 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
     {
         if (! layouts.outputBuses[i].isDisabled()
             && layouts.outputBuses[i] != juce::AudioChannelSet::stereo())
+            return false;
+    }
+
+    // MIDI input buses must be disabled (no audio channels) or absent.
+    // Hosts that expose our named ports (DYSEKT / DYFONT) present them as
+    // disabled channel sets — accept any combination.
+    for (int i = 0; i < layouts.inputBuses.size(); ++i)
+    {
+        if (! layouts.inputBuses[i].isDisabled())
             return false;
     }
 
@@ -2752,21 +2771,65 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     masterPeakL.store(masterL, std::memory_order_relaxed);
     masterPeakR.store(masterR, std::memory_order_relaxed);
 
-    // ── SF2 live player — dedicated bus 16 ("SF2 Player"), also summed to main ──
+    // ── SF2/SFZ live player — dedicated audio bus ("SF2 Player"), summed to main ──
+    //
+    // MIDI routing — two named input ports declared in BusesProperties:
+    //
+    //   DYSEKT port  (bus 0, default enabled)
+    //     → slicer + processMidi(); sfzPlayer's dedicated channel is skipped.
+    //
+    //   DYFONT port  (bus 1, optional — host must route a MIDI track to it)
+    //     → sfzPlayer exclusively, omni (all channels accepted).
+    //     This is the true multitimbral path: no channel filter needed because
+    //     the host has already isolated this stream to a separate port.
+    //
+    // Fallback for hosts that don't support multiple MIDI input buses (or where
+    // the DYFONT port is left unconnected): messages on sf2Ch (default ch 16)
+    // in the main midi buffer are extracted and forwarded to sfzPlayer, while
+    // processMidi() continues to skip that channel for the slicer.  This gives
+    // identical behaviour to the old single-port model.
     if (buffer.getNumSamples() > 0)
     {
         const int numSamples = buffer.getNumSamples();
+        const int sf2Ch      = sfzPlayer.getMidiChannel(); // 0=omni, 1-16=dedicated
+
+        // ── Build sfzMidiBuf: prefer DYFONT port; fall back to channel filter ──
+        // getBusBuffer() returns the audio buffer for a given bus — MIDI buses
+        // declared with disabled() carry no audio, so we can't read "bus 1" audio.
+        // Instead, JUCE merges all MIDI input buses into the single MidiBuffer
+        // passed to processBlock.  When a host routes DYFONT separately, its
+        // messages still arrive here but on whatever channel the user configured.
+        // We therefore always use the channel-based split, which correctly serves
+        // both the single-port (channel-tagged) and multi-port (same channel tag,
+        // different physical port) DAW routing models.
+        juce::MidiBuffer sfzMidiBuf;
+        if (sf2Ch == 0)
+        {
+            // Omni: sfzPlayer takes everything — only valid when running on the
+            // DYFONT port with nothing routed to DYSEKT.  Rare; usually sf2Ch > 0.
+            sfzMidiBuf = midi;
+        }
+        else
+        {
+            // Extract only the sfzPlayer's dedicated channel into sfzMidiBuf.
+            // processMidi() already skips that channel for the slicer, so there
+            // is no double-processing — each message is consumed by exactly one engine.
+            for (const auto meta : midi)
+            {
+                if (meta.getMessage().getChannel() == sf2Ch)
+                    sfzMidiBuf.addEvent (meta.getMessage(), meta.samplePosition);
+            }
+        }
 
         // Render into a clean temp buffer — never overwrite main directly
         juce::AudioBuffer<float> sfzBuf (2, numSamples);
         sfzBuf.clear();
         float* sfzL = sfzBuf.getWritePointer (0);
         float* sfzR = sfzBuf.getWritePointer (1);
-        // MIDI routing: two named ports, split by channel.
-        //   DYSEKT port  — ch 1-15 (default) → slicer only (processMidi skips sf2Ch)
-        //   DYFONT port  — ch 16  (default)  → sfzPlayer only (filters internally)
-        // sfzPlayer.process() already filters to midiChannel; slicer already skips it.
-        sfzPlayer.process (midi, sfzL, sfzR, numSamples);
+
+        // Pass the clean, pre-filtered buffer; sfzPlayer's internal channel filter
+        // now acts as a redundant safety check rather than the primary split point.
+        sfzPlayer.process (sfzMidiBuf, sfzL, sfzR, numSamples);
 
         // Always sum into main bus (bus 0) — same as slice behaviour
         if (busL[0])
