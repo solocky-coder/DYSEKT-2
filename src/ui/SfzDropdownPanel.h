@@ -59,10 +59,10 @@ public:
     std::function<void (const juce::File&)> onFileLoaded;
 
     /** Called after a new SF2/SFZ file has been loaded (alias used by some editor versions). */
-    std::function<void (const juce::File&)> onSfzFileLoaded;
+    std::function<void()> onSfzFileLoaded;
 
     /** Called when the user assigns a MIDI channel to the current preset via the grid. */
-    std::function<void (int channel)> onPresetChannelAssigned;
+    std::function<void()> onPresetChannelAssigned;
 
     /** Reload zone display for the given file — public so PluginEditor can call it directly. */
     void reloadZones (const juce::File& f);
