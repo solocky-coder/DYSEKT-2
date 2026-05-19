@@ -58,11 +58,13 @@ public:
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;
 
-    /** Called after a new SF2/SFZ file has been loaded (alias used by some editor versions). */
-    std::function<void()> onSfzFileLoaded;
+    /** Fired after a file loads with the file and whether it is SFZ (true) or SF2 (false).
+        Only used in standalone builds to auto-create sequencer tracks. */
+    std::function<void (const juce::File&, bool isSfz)> onSfzFileLoaded;
 
-    /** Called when the user assigns a MIDI channel to the current preset via the grid. */
-    std::function<void()> onPresetChannelAssigned;
+    /** Fired when the user right-clicks a preset cell and assigns a MIDI channel.
+        Only used in standalone builds to create/update piano-roll tracks. */
+    std::function<void (const Sf2PresetInfo&, int midiChannel1Based)> onPresetChannelAssigned;
 
     /** Reload zone display for the given file — public so PluginEditor can call it directly. */
     void reloadZones (const juce::File& f);

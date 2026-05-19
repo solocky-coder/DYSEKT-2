@@ -389,8 +389,14 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     programGrid.onChannelChanged = [this] (int ch)
     {
         processor.sfzPlayer.setMidiChannel (ch);
-        if (onPresetChannelAssigned)
-            onPresetChannelAssigned();
+
+        // Fire the standalone sequencer callback with the active preset info
+        if (onPresetChannelAssigned && ! presetList.empty())
+        {
+            const int idx = juce::jlimit (0, (int) presetList.size() - 1,
+                                          processor.sfzPlayer.getCurrentPresetIndex());
+            onPresetChannelAssigned (presetList[(size_t) idx], ch);
+        }
     };
     addChildComponent (programGrid);
 
@@ -596,11 +602,12 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
 
     if (onFileLoaded)
         onFileLoaded (f);
-    if (onSfzFileLoaded)
-        onSfzFileLoaded();
 
-    if (onFileLoaded)
-        onFileLoaded (f);
+    {
+        const bool isSfz = f.getFileExtension().toLowerCase() == ".sfz";
+        if (onSfzFileLoaded)
+            onSfzFileLoaded (f, isSfz);
+    }
 }
 
 // =============================================================================
@@ -1072,7 +1079,14 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
                             }
                             else if (result > 200 && result <= 216)
                             {
-                                processor.sfzPlayer.setMidiChannel (result - 200);
+                                const int ch = result - 200;
+                                processor.sfzPlayer.setMidiChannel (ch);
+                                if (onPresetChannelAssigned && ! presetList.empty())
+                                {
+                                    const int idx = juce::jlimit (0, (int) presetList.size() - 1,
+                                                                  processor.sfzPlayer.getCurrentPresetIndex());
+                                    onPresetChannelAssigned (presetList[(size_t) idx], ch);
+                                }
                             }
                             else if (result == 300)
                             {
