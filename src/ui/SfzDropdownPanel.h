@@ -58,6 +58,15 @@ public:
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;
 
+    /** Called after a new SF2/SFZ file has been loaded (alias used by some editor versions). */
+    std::function<void (const juce::File&)> onSfzFileLoaded;
+
+    /** Called when the user assigns a MIDI channel to the current preset via the grid. */
+    std::function<void (int channel)> onPresetChannelAssigned;
+
+    /** Reload zone display for the given file — public so PluginEditor can call it directly. */
+    void reloadZones (const juce::File& f);
+
     // ── Layout constants ──────────────────────────────────────────────────────
     static constexpr int kStripH  = 36;
     static constexpr int kAdsrH   = 34;   ///< height of the ADSR knob row
@@ -140,7 +149,6 @@ private:
     static std::vector<KeysPanel::Keyzone> parseSf2Zones (const juce::File& f,
                                                             int targetBank   = 0,
                                                             int targetPreset = 0);
-    void reloadZones (const juce::File& f);
     void writeSfzZoneChange (const juce::File& f, int rowIndex,
                               const KeysPanel::Keyzone& updated);
 

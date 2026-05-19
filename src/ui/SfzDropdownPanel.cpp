@@ -389,6 +389,8 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     programGrid.onChannelChanged = [this] (int ch)
     {
         processor.sfzPlayer.setMidiChannel (ch);
+        if (onPresetChannelAssigned)
+            onPresetChannelAssigned (ch);
     };
     addChildComponent (programGrid);
 
@@ -591,6 +593,11 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     closeBrowser();
     closeProgramGrid();
     repaint();
+
+    if (onFileLoaded)
+        onFileLoaded (f);
+    if (onSfzFileLoaded)
+        onSfzFileLoaded (f);
 
     if (onFileLoaded)
         onFileLoaded (f);
