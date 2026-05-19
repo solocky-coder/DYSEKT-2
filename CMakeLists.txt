@@ -162,8 +162,7 @@ target_sources(Dysekt PRIVATE
     src/ui/WaveformOverview.cpp
     src/ui/ArchiveIntegration.cpp
     src/ui/GlobalEqPanel.cpp
-    src/sequencer/SequencerEngine.cpp
-    src/sequencer/MidiClip.cpp
+    # SequencerEngine and MidiClip are standalone-only — the DAW is the sequencer
 )
 
 target_include_directories(Dysekt PRIVATE
@@ -176,11 +175,13 @@ target_include_directories(Dysekt PRIVATE
 
 target_compile_definitions(Dysekt PUBLIC
     JUCE_USE_CURL=0
-    DYSEKT_HAS_LINK=$<BOOL:${DYSEKT_HAS_LINK}>
+    DYSEKT_HAS_LINK=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_WEB_BROWSER=0
     DYSEKT_HAS_SFIZZ=$<BOOL:${DYSEKT_HAS_SFIZZ}>
     DYSEKT_HAS_FLUIDSYNTH=$<BOOL:${DYSEKT_HAS_FLUIDSYNTH}>
+    DYSEKT_STANDALONE=0
 )
 
 target_link_libraries(Dysekt
