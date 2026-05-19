@@ -1,4 +1,4 @@
-name: Build DYSEKT Standalone
+name: Build DYSEKT
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-windows:
-    name: Windows Standalone
+    name: Windows Standalone + VST3
     runs-on: windows-latest
 
     steps:
@@ -93,25 +93,36 @@ jobs:
             -DJUCE_BUILD_EXTRAS=OFF `
             -DJUCE_BUILD_EXAMPLES=OFF
 
-      - name: Build Standalone only
+      - name: Build Standalone
         shell: pwsh
         run: cmake --build build --config RelWithDebInfo --target DysektStandalone --parallel
 
-      - name: Collect Standalone
+      - name: Build VST3
+        shell: pwsh
+        run: cmake --build build --config RelWithDebInfo --target Dysekt_VST3 --parallel
+
+      - name: Collect artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts/Standalone | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts/VST3 | Out-Null
 
-          # Copy the standalone .exe
+          # Standalone .exe
           $exes = Get-ChildItem -Recurse -Filter "DYSEKT.exe" build/
           foreach ($e in $exes) {
-            Copy-Item -Force $e.FullName artifacts/
+            Copy-Item -Force $e.FullName artifacts/Standalone/
           }
 
-          # Copy PDB for crash symbolication
+          # PDB for crash symbolication
           $pdbs = Get-ChildItem -Recurse -Filter "DYSEKT.pdb" build/
           foreach ($p in $pdbs) {
-            Copy-Item -Force $p.FullName artifacts/
+            Copy-Item -Force $p.FullName artifacts/Standalone/
+          }
+
+          # VST3 bundle (JUCE outputs a .vst3 folder)
+          $vst3s = Get-ChildItem -Recurse -Filter "DYSEKT.vst3" build/
+          foreach ($v in $vst3s) {
+            Copy-Item -Recurse -Force $v.FullName artifacts/VST3/
           }
 
           Write-Host "Collected artifacts:"
@@ -121,5 +132,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DYSEKT-Standalone
-          path: artifacts/
+          path: artifacts/Standalone/
+          if-no-files-found: error
+
+      - name: Upload VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYSEKT-VST3
+          path: artifacts/VST3/
           if-no-files-found: error
