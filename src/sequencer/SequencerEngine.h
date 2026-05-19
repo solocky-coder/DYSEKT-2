@@ -127,7 +127,8 @@ public:
     //==========================================================================
     //  Audio thread
     //==========================================================================
-    void processBlock (juce::MidiBuffer& outMidi, int numSamples, double sampleRate);
+    void processBlock (juce::MidiBuffer& outMidi, const juce::MidiBuffer& inMidi,
+                       int numSamples, double sampleRate);
 
     //==========================================================================
     //  Serialisation

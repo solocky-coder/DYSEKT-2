@@ -2522,7 +2522,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // ── Sequencer MIDI injection ──────────────────────────────────────────────
     {
         juce::MidiBuffer seqEvents;
-        sequencer.processBlock (seqEvents, buffer.getNumSamples(), currentSampleRate);
+        sequencer.processBlock (seqEvents, midi, buffer.getNumSamples(), currentSampleRate);
         if (sequencer.isPlaying())
             midi.addEvents (seqEvents, 0, buffer.getNumSamples(), 0);
     }

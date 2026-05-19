@@ -484,7 +484,8 @@ void SequencerEngine::setAbletonLink (AbletonLink* l) noexcept { impl->abletonLi
 void SequencerEngine::setSfzPlayer   (SfzPlayer*   p) noexcept { impl->sfzPlayer   = p; }
 
 //==============================================================================
-void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, int numSamples, double sampleRate)
+void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, const juce::MidiBuffer& inMidi,
+                                    int numSamples, double sampleRate)
 {
     const float fallbackBpm = impl->syncToHost.load (std::memory_order_relaxed)
                                 ? impl->hostBpm.load     (std::memory_order_relaxed)
@@ -551,6 +552,42 @@ void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, int numSamples, d
     }
 
     impl->justStarted = false;
+
+    // ── MIDI input recording ──────────────────────────────────────────────────
+    // When recording is armed and the sequencer is playing, capture incoming
+    // note-on events from hardware/virtual MIDI into clip 0 of track 0.
+    if (impl->recording.load (std::memory_order_relaxed)
+        && impl->playing.load (std::memory_order_relaxed)
+        && ! impl->tracks.isEmpty())
+    {
+        const juce::ScopedReadLock sl (impl->tracksLock);
+        auto& track = *impl->tracks[0];
+        if (! track.clips.isEmpty())
+        {
+            auto& clip = track.clips[0]->clip;
+            const int64_t mLen = impl->computeMasterLen();
+            const double  ticksPerSmp = (bpm / 60.0) * (double) MidiClip::kPPQ / sampleRate;
+
+            for (const auto meta : inMidi)
+            {
+                const auto msg = meta.getMessage();
+                // Skip channel 16 (SFZ internal) to avoid feedback
+                if (msg.getChannel() == 16) continue;
+                if (msg.isNoteOn())
+                {
+                    const double noteTick = impl->currentTick
+                                          + meta.samplePosition * ticksPerSmp;
+                    const int64_t t = (int64_t) std::fmod (noteTick, (double) mLen);
+                    MidiNote n;
+                    n.note          = msg.getNoteNumber();
+                    n.velocity      = msg.getVelocity();
+                    n.startTick     = t;
+                    n.durationTicks = MidiClip::kPPQ / 4;  // placeholder; extend on note-off
+                    clip.addNote (n);
+                }
+            }
+        }
+    }
 
     if (doLoop && masterLen > 0 && blockEndTick >= (double) masterLen)
     {

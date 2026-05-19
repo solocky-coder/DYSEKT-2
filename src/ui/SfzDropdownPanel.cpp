@@ -1104,14 +1104,18 @@ void SfzDropdownPanel::BankTreePopup::handleRowClick (int ri)
 
 void SfzDropdownPanel::BankTreePopup::mouseDown (const juce::MouseEvent& e)
 {
-    const int v  = (e.getPosition().y - 1) / kRowH;
-    const int ri = scrollTop + v;
+    // When registered as a global mouse listener, the event's position is in
+    // the originating component's coordinate space — convert to our local space.
+    const auto localPt = e.getEventRelativeTo (this).getPosition();
 
-    if (! getLocalBounds().contains (e.getPosition()))
+    if (! getLocalBounds().contains (localPt))
     {
         if (onDismiss) onDismiss();
         return;
     }
+
+    const int v  = (localPt.y - 1) / kRowH;
+    const int ri = scrollTop + v;
     handleRowClick (ri);
 }
 
@@ -1178,6 +1182,8 @@ void SfzDropdownPanel::openBankTree()
         popup->toFront (true);
     }
 
+    // Register to hear ALL mouse-downs in the app so outside-clicks dismiss the popup.
+    juce::Desktop::getInstance().addGlobalMouseListener (popup.get());
     bankTreePopup = std::move (popup);
     repaint();
 }
@@ -1185,6 +1191,7 @@ void SfzDropdownPanel::openBankTree()
 void SfzDropdownPanel::closeBankTree()
 {
     if (! bankTreePopup) return;
+    juce::Desktop::getInstance().removeGlobalMouseListener (bankTreePopup.get());
     if (auto* p = bankTreePopup->getParentComponent())
         p->removeChildComponent (bankTreePopup.get());
     bankTreePopup.reset();
