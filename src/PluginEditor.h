@@ -24,8 +24,10 @@
 #include "ui/SfzDropdownPanel.h"
 #include "ui/GlobalEqPanel.h"
 #include "ui/PadGridView.h"
+#if DYSEKT_STANDALONE
 #include "ui/PianoRollPanel.h"
 #include "ui/ArrangeView.h"
+#endif
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 #include "ui/PluginEditorConstants.h"
@@ -128,8 +130,10 @@ private:
     SfzDropdownPanel sfzDropdown;
     ShortcutsPanel   shortcutsPanel { processor };
     GlobalEqPanel    eqPanel;
+#if DYSEKT_STANDALONE
     PianoRollPanel   pianoRollPanel { processor.sequencer, &processor.abletonLink };
     ArrangeView      arrangeView    { processor.sequencer, &processor.abletonLink };
+#endif
 
     juce::TooltipWindow tooltipWindow { this, 500 };
 

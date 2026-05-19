@@ -217,9 +217,11 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+#if DYSEKT_STANDALONE
     sequencer.setAbletonLink (&abletonLink);
     sequencer.setSfzPlayer   (&sfzPlayer);
     sequencer.addMainTrack();
+#endif
     const bool rateChanged = (std::abs (sampleRate - currentSampleRate) > 0.01);
 
     currentSampleRate = sampleRate;
@@ -2244,9 +2246,11 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             if (auto bpmOpt = pos->getBpm())
             {
                 dawBpm.store ((float) *bpmOpt, std::memory_order_relaxed);
+#if DYSEKT_STANDALONE
                 sequencer.setHostBpm ((float) *bpmOpt);
                 if (abletonLink.isEnabled())
                     abletonLink.setBpm (*bpmOpt);
+#endif
             }
         }
     }
@@ -2514,6 +2518,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
 
+#if DYSEKT_STANDALONE
     // ── Sequencer MIDI injection ──────────────────────────────────────────────
     {
         juce::MidiBuffer seqEvents;
@@ -2521,6 +2526,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (sequencer.isPlaying())
             midi.addEvents (seqEvents, 0, buffer.getNumSamples(), 0);
     }
+#endif
 
     processMidi (midi);
 
@@ -3015,7 +3021,9 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     stream.writeInt   (sfzPlayer.getMidiChannel());
 
     // Sequencer state
+#if DYSEKT_STANDALONE
     sequencer.writeToStream (stream);
+#endif
 }
 
 void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
@@ -3193,7 +3201,9 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
 
     // Sequencer state (graceful — older saves won't have this block)
     if (! stream.isExhausted())
+#if DYSEKT_STANDALONE
         sequencer.readFromStream (stream);
+#endif
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

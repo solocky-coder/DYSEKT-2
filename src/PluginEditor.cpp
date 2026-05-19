@@ -88,6 +88,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      sfzPanelRestored = false;
  };
 
+#if DYSEKT_STANDALONE
  // SFZ loaded → add one sequencer track automatically (channel 15, 0-based).
  // SF2 loaded → fires once preset list is ready; no tracks yet — user assigns
  // per-preset channels by right-clicking preset rows in the key zone matrix.
@@ -100,7 +101,9 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      }
      // For SF2: do nothing here — tracks appear via onPresetChannelAssigned.
  };
+#endif
 
+#if DYSEKT_STANDALONE
  // SF2 preset right-clicked → user assigned a MIDI channel → create track.
  sfzDropdown.onPresetChannelAssigned = [this] (const Sf2PresetInfo& preset, int midiChannel1Based)
  {
@@ -121,8 +124,10 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      if (info.type == TrackType::SfPlayer)
          pianoRollPanel.addOrUpdateSfPresetTrack (info.preset, midiChannel1Based, info.colour);
  };
+#endif
  shortcutsPanel.setVisible (false);
  addChildComponent (shortcutsPanel);
+#if DYSEKT_STANDALONE
     addChildComponent (pianoRollPanel);
     addChildComponent (arrangeView);
 
@@ -134,6 +139,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
         pianoRollPanel.toFront (false);
         resized();
     };
+#endif
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
  shortcutsPanel.onThemeRequest = [this]
  {
@@ -161,7 +167,20 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  toggleBrowserPanel();
  }
  };
- browserPanel.onLoadRequest = [this] (const juce::File& f) { showTrimDialog (f); };
+ browserPanel.onLoadRequest = [this] (const juce::File& f)
+ {
+     const auto ext = f.getFileExtension().toLowerCase();
+     if (ext == ".sfz" || ext == ".sf2")
+     {
+         processor.sfzPlayer.loadFile (f);
+         sfzDropdown.reloadZones (f);
+         if (uiMode != 1) setUiMode (1);
+     }
+     else
+     {
+         showTrimDialog (f);
+     }
+ };
  waveformView.onLoadRequest = [this] (const juce::File& f) { showTrimDialog (f); };
  waveformView.onShortcutsToggle = [this] { toggleShortcutsPanel(); };
  waveformView.onRenameRequest = [this] (int sliceIdx, const juce::String& currentName)
@@ -380,8 +399,10 @@ void DysektEditor::toggleBrowserPanel()
         }
         else if (activeSlot == SlotContent::Seq)
         {
+#if DYSEKT_STANDALONE
             pianoRollPanel.setVisible (false);
             arrangeView.setVisible (false);
+#endif
             headerBar.setSeqActive (false);
         }
         activeSlot = SlotContent::Browser;
@@ -497,8 +518,10 @@ void DysektEditor::toggleSeqPanel()
 {
     if (activeSlot == SlotContent::Seq) {
         activeSlot = SlotContent::None;
+#if DYSEKT_STANDALONE
         arrangeView.setVisible (false);
         pianoRollPanel.setVisible (false);
+#endif
         headerBar.setSeqActive (false);
     } else {
         // Close any currently open slot
@@ -513,8 +536,10 @@ void DysektEditor::toggleSeqPanel()
             headerBar.setEqActive (false);
         }
         activeSlot = SlotContent::Seq;
+#if DYSEKT_STANDALONE
         arrangeView.setVisible (true);
         pianoRollPanel.setVisible (false);  // opens only on clip double-click
+#endif
         headerBar.setSeqActive (true);
     }
     resized(); repaint(); resized(); repaint();

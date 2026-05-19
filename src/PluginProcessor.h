@@ -10,8 +10,10 @@
 #include "audio/SampleData.h"
 #include "audio/SliceManager.h"
 #include "audio/VoicePool.h"
+#if DYSEKT_STANDALONE
 #include "sequencer/SequencerEngine.h"
 #include "sequencer/AbletonLink.h"
+#endif
 #include "audio/LazyChopEngine.h"
 #include "audio/SoundFontLoader.h"
 #include "audio/SfzPlayer.h"
@@ -335,8 +337,10 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     SliceManager     sliceManager;
     VoicePool        voicePool;
+#if DYSEKT_STANDALONE
     SequencerEngine  sequencer;
     AbletonLink      abletonLink;
+#endif
     LazyChopEngine   lazyChop;
     SampleData       sampleData;
     MidiLearnManager midiLearn;
