@@ -119,10 +119,12 @@ jobs:
             Copy-Item -Force $p.FullName artifacts/Standalone/
           }
 
-          # VST3 bundle (JUCE outputs a .vst3 folder)
+          # VST3 bundle (JUCE outputs a .vst3 folder, not a file)
           $vst3s = Get-ChildItem -Recurse -Filter "DYSEKT.vst3" build/
           foreach ($v in $vst3s) {
-            Copy-Item -Recurse -Force $v.FullName artifacts/VST3/
+            $dest = Join-Path "artifacts/VST3" $v.Name
+            if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+            Copy-Item -Recurse -Force $v.FullName "artifacts/VST3/"
           }
 
           Write-Host "Collected artifacts:"
