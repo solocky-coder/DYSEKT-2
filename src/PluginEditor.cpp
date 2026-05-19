@@ -783,8 +783,10 @@ void DysektEditor::resized()
  mixerPanel.setBounds (kFX, mixTop, kFW, mixBot - mixTop);
  browserPanel.setBounds ({});
  eqPanel.setBounds ({});
+#if DYSEKT_STANDALONE
  pianoRollPanel.setBounds ({});
  arrangeView.setBounds ({});
+#endif
  }
  else if (activeSlot == SlotContent::Browser && ! initBrowserOpen) {
  // Expand browser to fill ALL available area (waveformView space + slot)
@@ -793,8 +795,10 @@ void DysektEditor::resized()
  browserPanel.setBounds (kFX, browserTop, kFW, browserBot - browserTop);
  mixerPanel.setBounds ({});
  eqPanel.setBounds ({});
+#if DYSEKT_STANDALONE
  pianoRollPanel.setBounds ({});
  arrangeView.setBounds ({});
+#endif
  }
  else if (activeSlot == SlotContent::Eq) {
      const int eqTop = actionArea.getY();
@@ -802,17 +806,22 @@ void DysektEditor::resized()
      eqPanel.setBounds (kFX, eqTop, kFW, eqBot - eqTop);
      mixerPanel.setBounds ({});
      browserPanel.setBounds ({});
+#if DYSEKT_STANDALONE
      pianoRollPanel.setBounds ({});
      arrangeView.setBounds ({});
+#endif
  }
  else if (activeSlot == SlotContent::Seq) {
      const int seqTop = actionArea.getY();
      const int seqBot = slot.getBottom();
      const int seqH   = seqBot - seqTop;
 
+#if DYSEKT_STANDALONE
      arrangeView.setBounds (kFX, seqTop, kFW, seqH);
+#endif
 
      // PianoRollPanel floats as overlay on top of ArrangeView when visible
+#if DYSEKT_STANDALONE
      if (pianoRollPanel.isVisible())
      {
          const int overlayH = juce::jmax (250, seqH * 3 / 4);
@@ -823,6 +832,7 @@ void DysektEditor::resized()
      {
          pianoRollPanel.setBounds ({});
      }
+#endif
 
      mixerPanel.setBounds ({});
      browserPanel.setBounds ({});
@@ -830,8 +840,10 @@ void DysektEditor::resized()
  } else {
  mixerPanel.setBounds ({});
  eqPanel.setBounds ({});
+#if DYSEKT_STANDALONE
  pianoRollPanel.setBounds ({});
  arrangeView.setBounds ({});
+#endif
  if (! initBrowserOpen)
  browserPanel.setBounds ({});
  // initBrowserOpen browser is sized below, in the waveform frame area
@@ -1008,8 +1020,10 @@ void DysektEditor::toggleMixerPanel()
  eqPanel.setVisible (false);
  headerBar.setEqActive (false);
  } else if (activeSlot == SlotContent::Seq) {
+#if DYSEKT_STANDALONE
  pianoRollPanel.setVisible (false);
  arrangeView.setVisible (false);
+#endif
  headerBar.setSeqActive (false);
  }
  activeSlot = SlotContent::Mixer;
@@ -1034,8 +1048,10 @@ void DysektEditor::toggleEqPanel()
             browserPanel.setVisible (false);
             headerBar.setBrowserActive (false);
         } else if (activeSlot == SlotContent::Seq) {
+#if DYSEKT_STANDALONE
             pianoRollPanel.setVisible (false);
             arrangeView.setVisible (false);
+#endif
             headerBar.setSeqActive (false);
         }
         activeSlot = SlotContent::Eq;
@@ -1062,6 +1078,7 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
  { toggleShortcutsPanel(); return true; }
 
  // Esc dismisses the PianoRoll overlay, returning to ArrangeView-only
+#if DYSEKT_STANDALONE
  if (code == juce::KeyPress::escapeKey &&
      activeSlot == SlotContent::Seq &&
      pianoRollPanel.isVisible())
@@ -1070,6 +1087,7 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
      resized(); repaint();
      return true;
  }
+#endif
 
  if (code == '?') { toggleShortcutsPanel(); return true; }
 
@@ -1348,8 +1366,10 @@ void DysektEditor::timerCallback()
  headerBar.repaint();
  sliceControlBar.updateMidiLearnPulse();
  sliceControlBar.repaint();
-  if (activeSlot == SlotContent::Mixer) mixerPanel.updateFromSnapshot();
+if (activeSlot == SlotContent::Mixer) mixerPanel.updateFromSnapshot();
+#if DYSEKT_STANDALONE
 if (activeSlot == SlotContent::Seq)   pianoRollPanel.syncSnap();
+#endif
 
     // ── Chromatic track sync ────────────────────────────────────────────────
     // Whenever the UI snapshot changes, walk slices and keep the sequencer
@@ -1364,13 +1384,17 @@ if (activeSlot == SlotContent::Seq)   pianoRollPanel.syncSnap();
             if (sl.chromaticChannel > 0)
             {
                 const juce::String sliceName = "Slice " + juce::String (i + 1);
+#if DYSEKT_STANDALONE
                 pianoRollPanel.onSliceChromaticToggled (
                     i, true, sl.chromaticChannel, sliceName, sl.colour);
+#endif
             }
             else
             {
+#if DYSEKT_STANDALONE
                 pianoRollPanel.onSliceChromaticToggled (
                     i, false, 0, {}, juce::Colours::transparentBlack);
+#endif
             }
         }
     }

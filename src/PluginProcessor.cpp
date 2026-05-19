@@ -3200,8 +3200,8 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     }
 
     // Sequencer state (graceful — older saves won't have this block)
-    if (! stream.isExhausted())
 #if DYSEKT_STANDALONE
+    if (! stream.isExhausted())
         sequencer.readFromStream (stream);
 #endif
 }
