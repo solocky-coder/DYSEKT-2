@@ -582,7 +582,7 @@ void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, const juce::MidiB
                     n.note          = msg.getNoteNumber();
                     n.velocity      = msg.getVelocity();
                     n.startTick     = t;
-                    n.durationTicks = MidiClip::kPPQ / 4;  // placeholder; extend on note-off
+                    n.lengthTicks = MidiClip::kPPQ / 4;  // placeholder; extend on note-off
                     clip.addNote (n);
                 }
             }
