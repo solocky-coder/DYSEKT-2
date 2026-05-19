@@ -1,0 +1,74 @@
+#pragma once
+// =============================================================================
+//  Sf2ProgramGrid.h  —  Korg-M1-style preset grid for SF2 banks
+// =============================================================================
+//  Shows all presets in a scrollable N-column grid, grouped by bank.
+//  Left-click  → calls onPresetSelected(index)
+//  Right-click → pops a MIDI channel picker, calls onChannelChanged(ch)
+// =============================================================================
+
+#include <juce_gui_basics/juce_gui_basics.h>
+#include "../audio/SfzPlayer.h"
+
+class Sf2ProgramGrid : public juce::Component,
+                       public juce::ScrollBar::Listener
+{
+public:
+    // ── Callbacks wired by SfzDropdownPanel ──────────────────────────────────
+    std::function<void (int index)> onPresetSelected;
+    std::function<void (int ch)>    onChannelChanged;   // 0 = omni, 1-16
+
+    Sf2ProgramGrid();
+    ~Sf2ProgramGrid() override;
+
+    void setPresets  (const std::vector<Sf2PresetInfo>& list, int currentIndex,
+                      int currentMidiChannel);
+    void setCurrentIndex (int idx);
+
+    // ── Component overrides ───────────────────────────────────────────────────
+    void paint   (juce::Graphics&) override;
+    void resized () override;
+    void mouseDown        (const juce::MouseEvent&) override;
+    void mouseMove        (const juce::MouseEvent&) override;
+    void mouseExit        (const juce::MouseEvent&) override;
+    void mouseWheelMove   (const juce::MouseEvent&,
+                           const juce::MouseWheelDetails&) override;
+
+    // ── ScrollBar::Listener ───────────────────────────────────────────────────
+    void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override;
+
+private:
+    // Layout
+    static constexpr int kCols     = 8;
+    static constexpr int kCellH    = 36;
+    static constexpr int kHdrH     = 18;   // bank section header
+    static constexpr int kScrollW  = 10;
+    static constexpr int kPad      = 4;
+
+    std::vector<Sf2PresetInfo> presets;
+    int   currentIdx     { -1 };
+    int   midiCh         { 0 };
+    int   hoveredCell    { -1 };
+
+    // Each "row" in our layout is either a bank header or a row of up to kCols cells.
+    struct LayoutRow
+    {
+        bool isHeader { false };
+        int  bank     { 0 };
+        int  firstIdx { 0 };   // index into presets[] for the first cell in this row
+        int  count    { 0 };   // how many cells (1..kCols)
+    };
+    std::vector<LayoutRow> rows;
+    int totalH { 0 };
+
+    juce::ScrollBar scrollBar { true };  // vertical
+    int scrollY { 0 };
+
+    void rebuildLayout();
+    int  cellIndexAt (juce::Point<int> pt) const;
+    juce::Rectangle<int> cellBoundsFor (int presetIdx) const;
+
+    void showChannelMenu (int presetIdx, juce::Point<int> screenPos);
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Sf2ProgramGrid)
+};

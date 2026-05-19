@@ -21,8 +21,6 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
-#include <set>
-#include <map>
 #include "KeysPanel.h"
 #include "AddZoneOverlay.h"
 #include "SaveSfzOverlay.h"
@@ -32,6 +30,7 @@ class DysektProcessor;
 
 // =============================================================================
 #include "SfzFileBrowser.h"
+#include "Sf2ProgramGrid.h"
 
 // =============================================================================
 //  SfzDropdownPanel
@@ -55,21 +54,9 @@ public:
 
     // ── Public API ────────────────────────────────────────────────────────────
     void panelDidShow();
-    void reloadZones (const juce::File& f);
 
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;
-
-    /** Called when an SF2 file finishes loading (presets ready) or an SFZ file is loaded.
-        For SF2, this fires from timerCallback once the async preset list arrives.
-        For SFZ, this fires immediately from onFileChosen.
-        Use this to add a sequencer track for the loaded instrument. */
-    std::function<void (const juce::File& f, bool isSfz)> onSfzFileLoaded;
-
-    /** Called when the user right-clicks an SF2 preset row and picks a MIDI channel (1–16).
-        Preset is identified by its index in the preset list. channel is 1-based.
-        Use this to add/update a sequencer track for that preset on that channel. */
-    std::function<void (const Sf2PresetInfo& preset, int midiChannel1Based)> onPresetChannelAssigned;
 
     // ── Layout constants ──────────────────────────────────────────────────────
     static constexpr int kStripH  = 36;
@@ -116,71 +103,16 @@ private:
     // ── Cached preset list ────────────────────────────────────────────────────
     std::vector<Sf2PresetInfo> presetList;
 
-    // Maps preset list index → assigned MIDI channel (1-16).
-    // Populated when the user right-clicks a preset row and picks a channel.
-    // Cleared when a new SF2 file is loaded.  Used by reloadZones() to show
-    // the channel badge on each row.
-    std::map<int, int> presetChannelAssignments;
-
-    // Tracks the last SF2 file path for which onSfzFileLoaded was fired,
-    // so that timerCallback doesn't fire it multiple times for the same load.
-    juce::String sf2TrackFiredForFile;
-
-    // ── Bank-tree popup (SF2 two-level picker) ────────────────────────────────
-    // Displayed as a floating child of the top-level component so it renders
-    // above keysPanel and receives mouse events correctly.
-    struct TreeRow
-    {
-        enum class Kind { Bank, Preset } kind;
-        int bank     { 0 };
-        int listIdx  { -1 };
-        int nestLevel{ 0 };
-    };
-
-    class BankTreePopup : public juce::Component
-    {
-    public:
-        // Called when the user picks a preset (listIdx into presetList).
-        std::function<void(int)>  onPresetPicked;
-        // Called when the popup wants to dismiss itself.
-        std::function<void()>     onDismiss;
-
-        // Feed fresh data before showing.
-        void setData (const std::vector<Sf2PresetInfo>& presets,
-                      int currentPresetIndex);
-
-        void paint   (juce::Graphics&) override;
-        void mouseDown (const juce::MouseEvent&) override;
-        void mouseMove (const juce::MouseEvent&) override;
-        void mouseWheelMove (const juce::MouseEvent&,
-                             const juce::MouseWheelDetails&) override;
-
-        // Public so openBankTree() in the outer class can reference them.
-        static constexpr int kRowH     = 22;
-        static constexpr int kMaxRows  = 10;
-        static constexpr int kTreeW    = 220;
-
-        std::vector<Sf2PresetInfo> presetList;
-        int                        currentIdx { 0 };
-
-        std::set<int>        expandedBanks;
-        std::vector<TreeRow> treeRows;
-        int                  scrollTop  { 0 };
-        int                  hoverRow   { -1 };
-
-        void rebuildRows();
-        void handleRowClick (int ri);
-    };
-
-    std::unique_ptr<BankTreePopup> bankTreePopup;
-
-    void openBankTree();
-    void closeBankTree();
-    bool isBankTreeOpen() const { return bankTreePopup != nullptr; }
-
     // ── Inline file browser ───────────────────────────────────────────────────
     SfzFileBrowser fileBrowser;
     bool           browserOpen      { false };
+
+    // ── SF2 program grid ──────────────────────────────────────────────────────
+    Sf2ProgramGrid programGrid;
+    bool           programPickerOpen { false };
+
+    void openProgramGrid();
+    void closeProgramGrid();
 
     // State held between openAddZoneChooser() and onFileChosen() in kAddZone mode
     juce::File     addZoneTargetSfz;
@@ -208,6 +140,7 @@ private:
     static std::vector<KeysPanel::Keyzone> parseSf2Zones (const juce::File& f,
                                                             int targetBank   = 0,
                                                             int targetPreset = 0);
+    void reloadZones (const juce::File& f);
     void writeSfzZoneChange (const juce::File& f, int rowIndex,
                               const KeysPanel::Keyzone& updated);
 
@@ -252,7 +185,6 @@ private:
     void mouseDrag        (const juce::MouseEvent&) override;
     void mouseUp          (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
-    void mouseMove        (const juce::MouseEvent&) override;
     void mouseWheelMove   (const juce::MouseEvent&,
                            const juce::MouseWheelDetails&) override;
 
