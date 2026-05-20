@@ -780,33 +780,19 @@ void SfzPlayer::applyProgramChange()
     if (synth == nullptr || sfontId == FLUID_FAILED)
         return;
 
-    // Read the latest cached list (audio thread's own copy — no UI access).
-    // freshPresets may hold a pointer we posted; we skip it here since we
-    // already populated presetListCache in postPresetList().
-    // Instead we re-enumerate to get a local snapshot.
-    fluid_sfont_t* sfont = fluid_synth_get_sfont_by_id (synth, sfontId);
-    if (sfont == nullptr)
+    const int idx = juce::jlimit (0, (int) cachedPresets.size() - 1,
+                                  presetIndex.load (std::memory_order_relaxed));
+
+    // Use the cached list that was built by postPresetList() — this guarantees
+    // the index maps to the same preset the UI grid displayed.  Re-iterating
+    // the sfont here is unreliable because FluidSynth does not guarantee a
+    // stable iteration order between calls, which caused preset 0 to always
+    // play regardless of which grid cell was clicked.
+    if (cachedPresets.empty() || idx < 0)
         return;
 
-    const int idx = juce::jlimit (0, 16383, presetIndex.load (std::memory_order_relaxed));
-
-    // Walk to the idx-th preset.
-    fluid_sfont_iteration_start (sfont);
-    int count = 0;
-    fluid_preset_t* chosen = nullptr;
-    for (fluid_preset_t* p = fluid_sfont_iteration_next (sfont);
-         p != nullptr;
-         p = fluid_sfont_iteration_next (sfont), ++count)
-    {
-        chosen = p;
-        if (count == idx) break;
-    }
-
-    if (chosen == nullptr)
-        return;
-
-    const int bank   = fluid_preset_get_banknum (chosen);
-    const int preset = fluid_preset_get_num     (chosen);
+    const int bank   = cachedPresets[(size_t) idx].bank;
+    const int preset = cachedPresets[(size_t) idx].preset;
     const int offset = fluid_synth_get_bank_offset (synth, sfontId);
 
     fluid_synth_program_select (synth, 0, sfontId,
