@@ -317,6 +317,7 @@ void SfzPlayer::clearChannelPresets()
     for (auto& slot : pendingChannelAssignment)
         slot.store (-1, std::memory_order_relaxed);
     anyChannelDirty.store (false, std::memory_order_relaxed);
+    liveInputChannelMask.store (0, std::memory_order_relaxed);
 }
 
 juce::File SfzPlayer::getLoadedFile() const
@@ -535,59 +536,83 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     // No channel filtering — every channel passes through so each sequencer track
     // fires on the channel its preset was assigned to via setPresetOnChannel().
 
+    // ── Forward MIDI to FluidSynth ────────────────────────────────────────────
+    // Multi-timbral mode: route each message to its own FluidSynth channel (0-based).
+    //
+    // Live controller fan-out: if a message arrives on MIDI ch 1 AND
+    // liveInputChannelMask is non-zero, it is remapped to every channel set in
+    // that mask instead.  This lets a controller that always sends on ch 1 play
+    // whichever SF2 preset channels are currently selected in the UI.
+    // Sequencer messages (already on their correct channel) pass through unchanged.
+
+    const uint16_t liveMask = liveInputChannelMask.load (std::memory_order_relaxed);
+
     for (const auto meta : midiIn)
     {
-        const auto msg     = meta.getMessage();
-        const int  fluidCh = msg.getChannel() - 1;   // MIDI 1-16 → FluidSynth 0-15
+        const auto msg    = meta.getMessage();
+        const int  midiCh = msg.getChannel();   // 1-16
 
-        if (msg.isNoteOn())
+        // Determine the set of FluidSynth channels to address.
+        // Fan-out applies only to ch-1 messages when a live mask is configured.
+        uint16_t targetMask;
+        if (midiCh == 1 && liveMask != 0)
+            targetMask = liveMask;
+        else
+            targetMask = (uint16_t)(1u << (midiCh - 1));  // single destination
+
+        for (int fch = 0; fch < 16; ++fch)
         {
-            const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
-            fluid_synth_noteon (synth, fluidCh, note, msg.getVelocity());
+            if (! (targetMask & (1u << fch))) continue;
+
+            if (msg.isNoteOn())
+            {
+                const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
+                fluid_synth_noteon (synth, fch, note, msg.getVelocity());
+            }
+            else if (msg.isNoteOff())
+            {
+                const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
+                fluid_synth_noteoff (synth, fch, note);
+            }
+            else if (msg.isController())
+            {
+                fluid_synth_cc (synth, fch,
+                                msg.getControllerNumber(),
+                                msg.getControllerValue());
+            }
+            else if (msg.isPitchWheel())
+            {
+                fluid_synth_pitch_bend (synth, fch, msg.getPitchWheelValue());
+            }
+            else if (msg.isChannelPressure())
+            {
+                fluid_synth_channel_pressure (synth, fch,
+                                              msg.getChannelPressureValue());
+            }
+            else if (msg.isAftertouch())
+            {
+                fluid_synth_key_pressure (synth, fch,
+                                          msg.getNoteNumber(),
+                                          msg.getAfterTouchValue());
+            }
+            else if (msg.isProgramChange())
+            {
+                fluid_synth_program_change (synth, fch,
+                                            msg.getProgramChangeNumber());
+            }
+            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+            {
+                fluid_synth_all_notes_off (synth, fch);
+            }
         }
-        else if (msg.isNoteOff())
-        {
-            const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
-            fluid_synth_noteoff (synth, fluidCh, note);
-        }
-        else if (msg.isController())
-        {
-            fluid_synth_cc (synth, fluidCh,
-                            msg.getControllerNumber(),
-                            msg.getControllerValue());
-        }
-        else if (msg.isPitchWheel())
-        {
-            fluid_synth_pitch_bend (synth, fluidCh, msg.getPitchWheelValue());
-        }
-        else if (msg.isChannelPressure())
-        {
-            fluid_synth_channel_pressure (synth, fluidCh,
-                                          msg.getChannelPressureValue());
-        }
-        else if (msg.isAftertouch())
-        {
-            fluid_synth_key_pressure (synth, fluidCh,
-                                      msg.getNoteNumber(),
-                                      msg.getAfterTouchValue());
-        }
-        else if (msg.isProgramChange())
-        {
-            fluid_synth_program_change (synth, fluidCh,
-                                        msg.getProgramChangeNumber());
-        }
-        else if (msg.isSysEx())
+
+        // SysEx is not channel-specific — send once regardless of fan-out
+        if (msg.isSysEx())
         {
             fluid_synth_sysex (synth,
                                reinterpret_cast<const char*> (msg.getSysExData()),
                                msg.getSysExDataSize(),
                                nullptr, nullptr, nullptr, 0);
-        }
-        else if (msg.isAllNotesOff() || msg.isAllSoundOff())
-        {
-            // All-notes-off/all-sound-off on a specific channel, or globally
-            // if the message is on channel 0 (shouldn't happen, but guard).
-            fluid_synth_all_notes_off (synth, fluidCh);
         }
     }
 

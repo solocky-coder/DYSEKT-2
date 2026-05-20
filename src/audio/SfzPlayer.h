@@ -81,6 +81,20 @@ public:
     /** Clear all pending channel-preset assignments (e.g. on SF2 unload). */
     void clearChannelPresets();
 
+    /** Set which FluidSynth channels (bitmask, bit 0 = ch 0 … bit 15 = ch 15)
+     *  should receive live controller input that arrives on MIDI channel 1.
+     *  Call from the UI/message thread whenever the user selects or deselects
+     *  SF2 tracks.  0 = no fan-out (controller input is silenced for SF2). */
+    void setLiveInputChannelMask (uint16_t mask) noexcept
+    {
+        liveInputChannelMask.store (mask, std::memory_order_relaxed);
+    }
+
+    uint16_t getLiveInputChannelMask() const noexcept
+    {
+        return liveInputChannelMask.load (std::memory_order_relaxed);
+    }
+
     float      getVolume()      const noexcept { return volume.load(); }
     int        getTranspose()   const noexcept { return transpose.load(); }
     float      getPitchShift()  const noexcept { return pitchShift.load (std::memory_order_relaxed); }
@@ -206,6 +220,12 @@ private:
     // Written from the UI thread via setPresetOnChannel(); read+cleared on audio thread.
     std::atomic<int>  pendingChannelAssignment[16];  // initialised to -1 in ctor
     std::atomic<bool> anyChannelDirty { false };
+
+    // ── Live controller fan-out (SF2 multi-timbral) ───────────────────────────
+    // Bitmask of FluidSynth channels (bit 0 = ch 0 … bit 15 = ch 15) that should
+    // receive fan-out of incoming MIDI ch-1 controller input.
+    // Written from UI thread via setLiveInputChannelMask(); read on audio thread.
+    std::atomic<uint16_t> liveInputChannelMask { 0 };
 
     // ── Scratch buffer for FluidSynth interleaved → planar conversion ─────────
     std::vector<float> scratchL, scratchR;

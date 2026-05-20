@@ -483,6 +483,12 @@ void SequencerEngine::setTrackLengthTicks (int trackIndex, int64_t ticks)
 void SequencerEngine::setAbletonLink (AbletonLink* l) noexcept { impl->abletonLink = l; }
 void SequencerEngine::setSfzPlayer   (SfzPlayer*   p) noexcept { impl->sfzPlayer   = p; }
 
+void SequencerEngine::setSelectedSfLiveChannels (uint16_t channelMask) noexcept
+{
+    if (impl->sfzPlayer != nullptr)
+        impl->sfzPlayer->setLiveInputChannelMask (channelMask);
+}
+
 //==============================================================================
 void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, const juce::MidiBuffer& inMidi,
                                     int numSamples, double sampleRate)

@@ -86,7 +86,7 @@ public:
         // ── Track-strip callbacks ─────────────────────────────────────────────
         trackStrip.onTrackSelected = [this] (int idx)
         {
-            selectedTrack = idx;
+            selectTrack (idx);
             repaint();
         };
         trackStrip.onTrackMuted = [this] (int, bool) { repaint(); };
@@ -251,7 +251,7 @@ public:
             dragStartX     = e.x;
             dragStartTicks = engine.getClipInfo (trackIdx, hitClip).lengthTicks;
             dragResizeLen  = dragStartTicks;
-            selectedTrack  = trackIdx;
+            selectTrack (trackIdx);
             selectedClip   = hitClip;
             updateCursor (e);
             repaint(); return;
@@ -266,7 +266,7 @@ public:
             dragStartX     = e.x;
             dragStartTicks = engine.getClipInfo (trackIdx, hitClip).startTick;
             dragLiveOffset = dragStartTicks;
-            selectedTrack  = trackIdx;
+            selectTrack (trackIdx);
             selectedClip   = hitClip;
             updateCursor (e);
             repaint(); return;
@@ -277,7 +277,7 @@ public:
             const int64_t clickTick = snapTick (xToTick (e.x));
             const int64_t defLen    = MidiClip::kPPQ * 4 * 4;  // 4 bars default
             const int newIdx = engine.addClip (trackIdx, clickTick, defLen);
-            selectedTrack = trackIdx;
+            selectTrack (trackIdx);
             selectedClip  = newIdx;
             repaint(); return;
         }
@@ -381,7 +381,7 @@ public:
         {
             if (clipRectForClip (trackIdx, ci).contains (e.getPosition()))
             {
-                selectedTrack = trackIdx;
+                selectTrack (trackIdx);
                 selectedClip  = ci;
                 trackStrip.setSelectedTrack (trackIdx);
                 repaint();
@@ -619,6 +619,27 @@ private:
     //==========================================================================
     //  Scrollbars
     //==========================================================================
+    /** Set the selected track index and update the SfzPlayer's live input channel mask.
+     *  If the selected track is an SF2/SFZ track, its FluidSynth channel receives
+     *  live controller (ch-1) input.  Any other track type clears the mask (silence). */
+    void selectTrack (int idx)
+    {
+        selectedTrack = idx;
+
+        uint16_t mask = 0;
+        if (juce::isPositiveAndBelow (idx, engine.getNumTracks()))
+        {
+            const auto info = engine.getTrackInfo (idx);
+            if (info.type == TrackType::SfPlayer)
+            {
+                const int ch = info.midiChannel;  // 0-based FluidSynth channel
+                if (ch >= 0 && ch < 16)
+                    mask = (uint16_t)(1u << ch);
+            }
+        }
+        engine.setSelectedSfLiveChannels (mask);
+    }
+
     static void styleScrollBar (juce::ScrollBar& sb)
     {
         sb.setColour (juce::ScrollBar::backgroundColourId, juce::Colour (0xFF0A0A14));
@@ -721,7 +742,7 @@ private:
                 switch (result)
                 {
                     case 1:
-                        selectedTrack = trackIdx;
+                        selectTrack (trackIdx);
                         selectedClip  = clipIdx;
                         trackStrip.setSelectedTrack (trackIdx);
                         if (onClipDoubleClicked) onClipDoubleClicked (trackIdx, clipIdx);

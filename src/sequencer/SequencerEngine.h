@@ -149,6 +149,11 @@ public:
      *  Call once from PluginProcessor constructor, before any SF2 is loaded. */
     void setSfzPlayer (class SfzPlayer* player) noexcept;
 
+    /** Set which FluidSynth channel should receive live controller (ch-1) input.
+     *  Pass the 0-based midiChannel of the selected SF track, or -1 for none.
+     *  Called by ArrangeView whenever the selected track changes. */
+    void setSelectedSfLiveChannels (uint16_t channelMask) noexcept;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;
