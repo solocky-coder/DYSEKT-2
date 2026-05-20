@@ -398,6 +398,43 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
             onPresetChannelAssigned (presetList[(size_t) idx], ch);
         }
     };
+
+    // ── Preview toggle: left-click radio ─────────────────────────────────────
+    // index == -1  → user toggled off; clear the preview.
+    // index >= 0   → user toggled on (or a real channel was just assigned while
+    //                previewing): load preset onto ch15 + route live input.
+    //                If onChannelChanged already put the preset on a real channel,
+    //                midiCh on the grid has been updated, so we point the live mask
+    //                at that real channel instead of ch15.
+    programGrid.onPreviewToggled = [this] (int idx)
+    {
+        if (idx < 0)
+        {
+            processor.sfzPlayer.clearPreview();
+            return;
+        }
+
+        if (idx >= (int) presetList.size()) return;
+        const auto& info = presetList[(size_t) idx];
+
+        // Check if this preset already has a real MIDI channel assigned
+        // by inspecting the current live mask vs ch15.
+        const uint16_t mask = processor.sfzPlayer.getLiveInputChannelMask();
+        const uint16_t ch15bit = uint16_t(1) << 15;
+
+        if (mask & ~ch15bit)
+        {
+            // At least one non-preview channel is already live — the preset
+            // was just assigned a real channel via right-click → onChannelChanged.
+            // Keep the existing real-channel routing; just make sure ch15 is cleared.
+            processor.sfzPlayer.setLiveInputChannelMask (mask & ~ch15bit);
+        }
+        else
+        {
+            // Pure audition: load onto ch15 and route live input there.
+            processor.sfzPlayer.previewPreset (info.bank, info.preset);
+        }
+    };
     addChildComponent (programGrid);
 
     // [+ ZONE] always visible — openAddZoneChooser() creates a Custom.sfz if nothing is loaded
@@ -569,6 +606,11 @@ void SfzDropdownPanel::closeProgramGrid()
 {
     if (! programPickerOpen) return;
     programPickerOpen = false;
+
+    // Stop any active preview: clear ch15 routing and reset the grid visual.
+    processor.sfzPlayer.clearPreview();
+    programGrid.clearPreviewState();
+
     resized();
     repaint();
 }

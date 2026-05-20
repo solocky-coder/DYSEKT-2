@@ -3,7 +3,7 @@
 //  Sf2ProgramGrid.h  —  Korg-M1-style preset grid for SF2 banks
 // =============================================================================
 //  Shows all presets in a scrollable N-column grid, grouped by bank.
-//  Left-click  → calls onPresetSelected(index)
+//  Left-click  → radio-toggle preview (audition on channel 15); calls onPreviewToggled
 //  Right-click → pops a MIDI channel picker, calls onChannelChanged(ch)
 // =============================================================================
 
@@ -18,12 +18,22 @@ public:
     std::function<void (int index)> onPresetSelected;
     std::function<void (int ch)>    onChannelChanged;   // 0 = omni, 1-16
 
+    /** Fired when the preview toggle changes.
+     *  index == -1  → preview cleared.
+     *  index >= 0   → preset at that index is now being previewed. */
+    std::function<void (int index)> onPreviewToggled;
+
     Sf2ProgramGrid();
     ~Sf2ProgramGrid() override;
 
     void setPresets  (const std::vector<Sf2PresetInfo>& list, int currentIndex,
                       int currentMidiChannel);
     void setCurrentIndex (int idx);
+
+    /** Clear the preview toggle without firing onPreviewToggled.
+     *  Called by SfzDropdownPanel when the grid is closed or a real
+     *  channel is assigned so the visual state stays consistent. */
+    void clearPreviewState();
 
     // ── Component overrides ───────────────────────────────────────────────────
     void paint   (juce::Graphics&) override;
@@ -49,6 +59,7 @@ private:
     int   currentIdx     { -1 };
     int   midiCh         { 0 };
     int   hoveredCell    { -1 };
+    int   previewIdx     { -1 };  ///< index of currently-previewing preset, or -1
 
     // Each "row" in our layout is either a bank header or a row of up to kCols cells.
     struct LayoutRow

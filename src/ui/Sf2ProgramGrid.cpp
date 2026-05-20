@@ -30,6 +30,7 @@ void Sf2ProgramGrid::setPresets (const std::vector<Sf2PresetInfo>& list,
     currentIdx = currentIndex;
     midiCh     = currentMidiChannel;
     hoveredCell = -1;
+    previewIdx  = -1;
     scrollY    = 0;
     rebuildLayout();
     repaint();
@@ -38,6 +39,12 @@ void Sf2ProgramGrid::setPresets (const std::vector<Sf2PresetInfo>& list,
 void Sf2ProgramGrid::setCurrentIndex (int idx)
 {
     currentIdx = idx;
+    repaint();
+}
+
+void Sf2ProgramGrid::clearPreviewState()
+{
+    previewIdx = -1;
     repaint();
 }
 
@@ -167,11 +174,27 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 
                 const juce::Rectangle<int> cell (kPad + c * cellW, y, cellW - 2, kCellH - 2);
 
-                const bool isSelected = (idx == currentIdx);
-                const bool isHovered  = (idx == hoveredCell) && ! isSelected;
+                const bool isSelected  = (idx == currentIdx);
+                const bool isPreviewing = (idx == previewIdx);
+                const bool isHovered   = (idx == hoveredCell) && ! isSelected && ! isPreviewing;
 
                 // Cell background
-                if (isSelected)
+                if (isPreviewing)
+                {
+                    // Bright teal/green glow — distinct from the accent-coloured "selected" state
+                    const auto previewColour = juce::Colour (0xff00c896);
+                    g.setColour (previewColour.withAlpha (0.22f));
+                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (previewColour.withAlpha (0.80f));
+                    g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.5f);
+
+                    // Small "live" dot in top-right corner
+                    const auto dot = juce::Rectangle<float> (
+                        (float)(cell.getRight() - 7), (float)(cell.getY() + 3), 4.f, 4.f);
+                    g.setColour (previewColour);
+                    g.fillEllipse (dot);
+                }
+                else if (isSelected)
                 {
                     g.setColour (theme.accent.withAlpha (0.30f));
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
@@ -196,8 +219,9 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                     const auto badge = cell.withWidth (22).withHeight (10)
                                            .withX (cell.getX() + 2).withY (cell.getY() + 2);
                     g.setFont (DysektLookAndFeel::makeFont (7.0f));
-                    g.setColour (isSelected ? theme.accent.brighter (0.2f)
-                                           : theme.foreground.withAlpha (0.30f));
+                    g.setColour (isPreviewing ? juce::Colour (0xff00c896).brighter (0.3f)
+                                 : isSelected ? theme.accent.brighter (0.2f)
+                                             : theme.foreground.withAlpha (0.30f));
                     g.drawText (juce::String (info.preset), badge,
                                 juce::Justification::centredLeft, false);
                 }
@@ -205,8 +229,9 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 // Preset name (centred)
                 {
                     g.setFont (DysektLookAndFeel::makeFont (9.0f));
-                    g.setColour (isSelected ? theme.foreground.brighter (0.1f)
-                                           : theme.foreground.withAlpha (0.78f));
+                    g.setColour (isPreviewing ? juce::Colour (0xfff0fff8)
+                                 : isSelected ? theme.foreground.brighter (0.1f)
+                                             : theme.foreground.withAlpha (0.78f));
                     g.drawText (info.name, cell.reduced (3, 0),
                                 juce::Justification::centred, true);
                 }
@@ -298,8 +323,19 @@ void Sf2ProgramGrid::mouseDown (const juce::MouseEvent& e)
     }
     else
     {
-        if (onPresetSelected)
-            onPresetSelected (idx);
+        // Radio-button toggle: clicking the active preview preset turns it off;
+        // clicking any other preset switches the preview to that one.
+        if (idx == previewIdx)
+        {
+            previewIdx = -1;
+            if (onPreviewToggled) onPreviewToggled (-1);
+        }
+        else
+        {
+            previewIdx = idx;
+            if (onPreviewToggled) onPreviewToggled (idx);
+        }
+        repaint();
     }
 }
 
@@ -323,7 +359,7 @@ void Sf2ProgramGrid::scrollBarMoved (juce::ScrollBar*, double newRangeStart)
 // =============================================================================
 //  Channel picker popup
 // =============================================================================
-void Sf2ProgramGrid::showChannelMenu (int /*presetIdx*/, juce::Point<int> screenPos)
+void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
 {
     juce::PopupMenu menu;
     menu.addSectionHeader ("MIDI Input Channel");
@@ -343,7 +379,7 @@ void Sf2ProgramGrid::showChannelMenu (int /*presetIdx*/, juce::Point<int> screen
             .withTargetScreenArea (juce::Rectangle<int> (screenPos.x, screenPos.y, 1, 1))
             .withParentComponent (topLvl)
             .withStandardItemHeight ((int)(22 * ms)),
-        [this] (int result)
+        [this, presetIdx] (int result)
         {
             if (result == 1)
             {
@@ -354,6 +390,12 @@ void Sf2ProgramGrid::showChannelMenu (int /*presetIdx*/, juce::Point<int> screen
             {
                 midiCh = result - 100;
                 if (onChannelChanged) onChannelChanged (midiCh);
+
+                // Keep the preview toggle alive but mark this preset as the
+                // one being previewed — the panel will reroute the live mask
+                // to the newly assigned real channel.
+                this->previewIdx = presetIdx;
+                if (onPreviewToggled) onPreviewToggled (presetIdx);
             }
             repaint();
         });
