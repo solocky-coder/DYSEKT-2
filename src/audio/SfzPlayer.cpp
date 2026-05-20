@@ -285,6 +285,19 @@ void SfzPlayer::updateReverbParams()
 void SfzPlayer::setPresetByIndex (int idx)
 {
     presetIndex.store (idx, std::memory_order_relaxed);
+
+    // Cache the bank/program for applyProgramChange so it doesn't need to
+    // re-enumerate the sfont iterator (whose order may not match postPresetList).
+    {
+        // Use the UI-side cached list — safe to read here since setPresetByIndex
+        // is always called from the UI thread and cachedPresets is UI-thread-only.
+        if (idx >= 0 && idx < (int) cachedPresets.size())
+        {
+            pendingBank   .store (cachedPresets[(size_t) idx].bank,   std::memory_order_relaxed);
+            pendingProgram.store (cachedPresets[(size_t) idx].preset, std::memory_order_relaxed);
+        }
+    }
+
     programChangePending.store (true, std::memory_order_release);
 }
 
@@ -733,6 +746,22 @@ void SfzPlayer::applyPendingLoad()
     presetIndex.store (0, std::memory_order_relaxed);
     postPresetList();
 
+    // Seed bank/program for the initial program change (preset 0).
+    // We can't use cachedPresets here (audio thread), so read directly from FluidSynth.
+    {
+        fluid_sfont_t* sfont = fluid_synth_get_sfont_by_id (synth, sfontId);
+        if (sfont != nullptr)
+        {
+            fluid_sfont_iteration_start (sfont);
+            fluid_preset_t* first = fluid_sfont_iteration_next (sfont);
+            if (first != nullptr)
+            {
+                pendingBank   .store (fluid_preset_get_banknum (first), std::memory_order_relaxed);
+                pendingProgram.store (fluid_preset_get_num     (first), std::memory_order_relaxed);
+            }
+        }
+    }
+
     // Assign first preset (bank 0, preset 0) to channel 0 as default.
     // The sequencer will call setPresetOnChannel() to populate other channels.
     applyPendingChannelChanges();  // all slots are -1 at this point; no-op but clears dirty flag
@@ -780,24 +809,13 @@ void SfzPlayer::applyProgramChange()
     if (synth == nullptr || sfontId == FLUID_FAILED)
         return;
 
-    const int idx = juce::jlimit (0, (int) cachedPresets.size() - 1,
-                                  presetIndex.load (std::memory_order_relaxed));
-
-    // Use the cached list that was built by postPresetList() — this guarantees
-    // the index maps to the same preset the UI grid displayed.  Re-iterating
-    // the sfont here is unreliable because FluidSynth does not guarantee a
-    // stable iteration order between calls, which caused preset 0 to always
-    // play regardless of which grid cell was clicked.
-    if (cachedPresets.empty() || idx < 0)
-        return;
-
-    const int bank   = cachedPresets[(size_t) idx].bank;
-    const int preset = cachedPresets[(size_t) idx].preset;
-    const int offset = fluid_synth_get_bank_offset (synth, sfontId);
+    const int bank    = pendingBank   .load (std::memory_order_relaxed);
+    const int program = pendingProgram.load (std::memory_order_relaxed);
+    const int offset  = fluid_synth_get_bank_offset (synth, sfontId);
 
     fluid_synth_program_select (synth, 0, sfontId,
                                 (unsigned int)(offset + bank),
-                                (unsigned int) preset);
+                                (unsigned int) program);
 #endif
 }
 

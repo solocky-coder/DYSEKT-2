@@ -185,7 +185,9 @@ private:
     std::atomic<float> fineTune    { 0.0f }; // cents -100..+100
     std::atomic<float> reverb      { 0.4f }; // 0..1
     std::atomic<float> chorus      { 0.2f }; // 0..1
-    std::atomic<int>   presetIndex { 0 };    // index into cachedPresets
+    std::atomic<int>   presetIndex   { 0 };  // index into cachedPresets (UI display)
+    std::atomic<int>   pendingBank   { 0 };  // bank number for applyProgramChange
+    std::atomic<int>   pendingProgram{ 0 };  // program number for applyProgramChange
     std::atomic<bool>  loaded      { false };
 
     // ── SFZ ADSR atomics (written from any thread, read on audio thread) ──────
