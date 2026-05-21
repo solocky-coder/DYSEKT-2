@@ -81,6 +81,14 @@ public:
     /** Clear all pending channel-preset assignments (e.g. on SF2 unload). */
     void clearChannelPresets();
 
+    /** Preview mode: load bank/preset onto the dedicated preview channel (15)
+     *  and route live controller input to it.  Call from the UI thread.
+     *  A second call with the same bank/preset clears the preview (toggle). */
+    void previewPreset (int bank, int preset);
+
+    /** Stop any active preview: silence channel 15 and clear the live mask bit. */
+    void clearPreview();
+
     /** Set which FluidSynth channels (bitmask, bit 0 = ch 0 … bit 15 = ch 15)
      *  should receive live controller input that arrives on MIDI channel 1.
      *  Call from the UI/message thread whenever the user selects or deselects

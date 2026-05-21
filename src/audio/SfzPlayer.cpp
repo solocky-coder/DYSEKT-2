@@ -320,6 +320,30 @@ void SfzPlayer::clearChannelPresets()
     liveInputChannelMask.store (0, std::memory_order_relaxed);
 }
 
+// =============================================================================
+//  Preview (audition) — channel 15 scratch slot
+// =============================================================================
+static constexpr int kPreviewChannel = 15;
+
+void SfzPlayer::previewPreset (int bank, int preset)
+{
+    setPresetOnChannel (kPreviewChannel, bank, preset);
+    // Route live controller input to the preview channel.
+    const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
+    liveInputChannelMask.store (mask | (uint16_t(1) << kPreviewChannel),
+                                std::memory_order_relaxed);
+}
+
+void SfzPlayer::clearPreview()
+{
+    // Remove channel 15 from the live mask.
+    const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
+    liveInputChannelMask.store (mask & ~(uint16_t(1) << kPreviewChannel),
+                                std::memory_order_relaxed);
+    // Reset channel 15 to GM piano so it stays silent until next preview.
+    setPresetOnChannel (kPreviewChannel, 0, 0);
+}
+
 juce::File SfzPlayer::getLoadedFile() const
 {
     // activeFile is only written on the audio thread; a torn read is harmless
