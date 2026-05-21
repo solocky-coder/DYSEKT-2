@@ -121,13 +121,13 @@ DysektProcessor::DysektProcessor()
     : AudioProcessor (BusesProperties()
                           // ── MIDI input buses ──────────────────────────────────────────────────
                           // DYSEKT: main slicer MIDI (ch 1-15 by default)
-                          // DYFONT: dedicated SF2/SFZ player MIDI (ch 16 by default)
+                          // DY-SFP: dedicated SF2/SFZ player MIDI (ch 16 by default)
                           // Hosts that support multiple MIDI inputs (Reaper, Logic, Bitwig, etc.)
                           // can route separate tracks/clips to each port independently.
                           // Hosts that don't support multiple MIDI inputs merge everything onto the
                           // first port; channel-based routing acts as the fallback in that case.
                           .withInput  ("DYSEKT", juce::AudioChannelSet::disabled(), true)
-                          .withInput  ("DYFONT", juce::AudioChannelSet::disabled(), false)
+                          .withInput  ("DY-SFP", juce::AudioChannelSet::disabled(), true)
                           // ── Audio output buses ────────────────────────────────────────────────
                           .withOutput ("Main", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Out 2", juce::AudioChannelSet::stereo(), false)
@@ -204,7 +204,7 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
     }
 
     // MIDI input buses must be disabled (no audio channels) or absent.
-    // Hosts that expose our named ports (DYSEKT / DYFONT) present them as
+    // Hosts that expose our named ports (DYSEKT / DY-SFP) present them as
     // disabled channel sets — accept any combination.
     for (int i = 0; i < layouts.inputBuses.size(); ++i)
     {
@@ -1320,7 +1320,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
 void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 {
     // If the SF2 player is locked to a specific MIDI channel, exclude those
-    // messages from the slicer so the DYFONT port acts as a dedicated input.
+    // messages from the slicer so the DY-SFP port acts as a dedicated input.
     const int sf2Ch = sfzPlayer.getMidiChannel();  // 0 = omni, 1-16 = dedicated
 
     for (const auto metadata : midi)
@@ -1328,7 +1328,7 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
         const auto msg = metadata.getMessage();
 
         // Skip messages on the SF2 player's dedicated channel — they belong
-        // exclusively to DYFONT and should not trigger slices or MIDI learn.
+        // exclusively to DY-SFP and should not trigger slices or MIDI learn.
         if (sf2Ch != 0 && msg.getChannel() == sf2Ch)
             continue;
 
@@ -2784,13 +2784,13 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //   DYSEKT port  (bus 0, default enabled)
     //     → slicer + processMidi(); sfzPlayer's dedicated channel is skipped.
     //
-    //   DYFONT port  (bus 1, optional — host must route a MIDI track to it)
+    //   DY-SFP port  (bus 1, optional — host must route a MIDI track to it)
     //     → sfzPlayer exclusively, omni (all channels accepted).
     //     This is the true multitimbral path: no channel filter needed because
     //     the host has already isolated this stream to a separate port.
     //
     // Fallback for hosts that don't support multiple MIDI input buses (or where
-    // the DYFONT port is left unconnected): messages on sf2Ch (default ch 16)
+    // the DY-SFP port is left unconnected): messages on sf2Ch (default ch 16)
     // in the main midi buffer are extracted and forwarded to sfzPlayer, while
     // processMidi() continues to skip that channel for the slicer.  This gives
     // identical behaviour to the old single-port model.
@@ -2799,11 +2799,11 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int numSamples = buffer.getNumSamples();
         const int sf2Ch      = sfzPlayer.getMidiChannel(); // 0=omni, 1-16=dedicated
 
-        // ── Build sfzMidiBuf: prefer DYFONT port; fall back to channel filter ──
+        // ── Build sfzMidiBuf: prefer DY-SFP port; fall back to channel filter ──
         // getBusBuffer() returns the audio buffer for a given bus — MIDI buses
         // declared with disabled() carry no audio, so we can't read "bus 1" audio.
         // Instead, JUCE merges all MIDI input buses into the single MidiBuffer
-        // passed to processBlock.  When a host routes DYFONT separately, its
+        // passed to processBlock.  When a host routes DY-SFP separately, its
         // messages still arrive here but on whatever channel the user configured.
         // We therefore always use the channel-based split, which correctly serves
         // both the single-port (channel-tagged) and multi-port (same channel tag,
@@ -2812,7 +2812,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (sf2Ch == 0)
         {
             // Omni: sfzPlayer takes everything — only valid when running on the
-            // DYFONT port with nothing routed to DYSEKT.  Rare; usually sf2Ch > 0.
+            // DY-SFP port with nothing routed to DYSEKT.  Rare; usually sf2Ch > 0.
             sfzMidiBuf = midi;
         }
         else

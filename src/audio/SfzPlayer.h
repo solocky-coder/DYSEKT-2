@@ -202,7 +202,7 @@ private:
     std::atomic<float> volume      { 1.0f };
     std::atomic<int>   transpose   { 0 };
     std::atomic<float> pitchShift  { 0.0f };  ///< SFZ audio-rate pitch, -24..+24 semitones
-    std::atomic<int>   midiChannel { 16 };   // 0 = omni, default 16 = DYFONT dedicated channel
+    std::atomic<int>   midiChannel { 16 };   // 0 = omni, default 16 = DY-SFP dedicated channel
     std::atomic<float> pan         { 0.0f }; // -1..+1
     std::atomic<float> fineTune    { 0.0f }; // cents -100..+100
     std::atomic<float> reverb      { 0.4f }; // 0..1
