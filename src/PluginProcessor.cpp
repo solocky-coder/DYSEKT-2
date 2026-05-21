@@ -485,12 +485,16 @@ void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
     {
         case MidiRouteMode::Slicer:
             // No live input to the SF-player while the slicer is in front.
+#if DYSEKT_STANDALONE
             sequencer.setSelectedSfLiveChannels (0);
+#endif
             break;
 
         case MidiRouteMode::SfPlayer:
             // Route all SF-track channels to the live player.
+#if DYSEKT_STANDALONE
             sequencer.setSelectedSfLiveChannels (sequencer.getAllSfPlayerChannelMask());
+#endif
             break;
 
         case MidiRouteMode::Sequencer:
