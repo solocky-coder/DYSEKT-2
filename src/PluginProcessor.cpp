@@ -475,6 +475,31 @@ void DysektProcessor::publishUiSliceSnapshot()
     }
 }
 
+void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
+{
+    // Called on the message thread.  Atomically update the route mode so
+    // processMidi() sees the new value on the next audio callback.
+    midiRouteMode.store (static_cast<int> (mode), std::memory_order_relaxed);
+
+    switch (mode)
+    {
+        case MidiRouteMode::Slicer:
+            // No live input to the SF-player while the slicer is in front.
+            sequencer.setSelectedSfLiveChannels (0);
+            break;
+
+        case MidiRouteMode::SfPlayer:
+            // Route all SF-track channels to the live player.
+            sequencer.setSelectedSfLiveChannels (sequencer.getAllSfPlayerChannelMask());
+            break;
+
+        case MidiRouteMode::Sequencer:
+            // Live-input mask is managed by ArrangeView / setSelectedSfLiveChannels();
+            // leave it unchanged here so the currently-selected track keeps focus.
+            break;
+    }
+}
+
 void DysektProcessor::pushCommand (Command cmd)
 {
     const bool critical = isCriticalCommand (cmd.type);
@@ -1319,6 +1344,17 @@ void DysektProcessor::handleCommand (const Command& cmd)
 
 void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 {
+    // ── MIDI route mode guard ─────────────────────────────────────────────────
+    // When SF-player or Sequencer mode is active, the slicer should not process
+    // any live MIDI — that would cause unwanted slice triggers while the user is
+    // playing through the SF-player.  The sfzPlayer itself receives notes via
+    // its liveInputChannelMask (set by setMidiRouteMode / setSelectedSfLiveChannels).
+    {
+        const int routeMode = midiRouteMode.load (std::memory_order_relaxed);
+        if (routeMode != 0) // 0 = MidiRouteMode::Slicer
+            return;
+    }
+
     // If the SF2 player is locked to a specific MIDI channel, exclude those
     // messages from the slicer so the DY-SFP port acts as a dedicated input.
     const int sf2Ch = sfzPlayer.getMidiChannel();  // 0 = omni, 1-16 = dedicated

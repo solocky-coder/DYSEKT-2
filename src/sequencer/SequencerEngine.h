@@ -154,6 +154,11 @@ public:
      *  Called by ArrangeView whenever the selected track changes. */
     void setSelectedSfLiveChannels (uint16_t channelMask) noexcept;
 
+    /** Returns a bitmask (bit N = channel N+1) covering every SfPlayer track's
+     *  assigned MIDI channel.  Used by setMidiRouteMode() to direct all live
+     *  input to the SF-player when SF-player mode is active. */
+    uint16_t getAllSfPlayerChannelMask() const noexcept;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;

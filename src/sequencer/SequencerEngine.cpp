@@ -489,6 +489,16 @@ void SequencerEngine::setSelectedSfLiveChannels (uint16_t channelMask) noexcept
         impl->sfzPlayer->setLiveInputChannelMask (channelMask);
 }
 
+uint16_t SequencerEngine::getAllSfPlayerChannelMask() const noexcept
+{
+    uint16_t mask = 0;
+    const juce::ScopedReadLock sl (impl->tracksLock);
+    for (auto* t : impl->tracks)
+        if (t->type == TrackType::SfPlayer)
+            mask |= static_cast<uint16_t> (1u << (t->midiChannel & 0xF));
+    return mask;
+}
+
 //==============================================================================
 void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, const juce::MidiBuffer& inMidi,
                                     int numSamples, double sampleRate)

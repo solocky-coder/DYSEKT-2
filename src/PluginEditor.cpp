@@ -262,6 +262,12 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      // sfzPanelRestored starts false; the timerCallback will populate zones.
  }
 
+ // Restore the correct MIDI route mode that matches the saved uiMode.
+ // setUiMode() wasn't called by loadUserSettings(), so we must do this here.
+ processor.setMidiRouteMode (uiMode == 1
+     ? DysektProcessor::MidiRouteMode::SfPlayer
+     : DysektProcessor::MidiRouteMode::Slicer);
+
  if (processor.sampleData.getSnapshot() == nullptr)
  processor.loadDefaultSampleIfNeeded();
 
@@ -332,6 +338,11 @@ void DysektEditor::setUiMode (int mode)
  // any soundfont has been loaded, so the KeysPanel guard works from the
  // very first paint in that mode.
  sfzDropdown.keysPanel.setSlicerHighlightEnabled (uiMode == 0);
+
+ // Route live MIDI to the active front-end.
+ processor.setMidiRouteMode (uiMode == 1
+     ? DysektProcessor::MidiRouteMode::SfPlayer
+     : DysektProcessor::MidiRouteMode::Slicer);
 
  // Hide waveform overview immediately when switching to SFZ mode
  waveformOverview.setVisible (uiMode == 0 && !showPadGrid);
@@ -523,6 +534,10 @@ void DysektEditor::toggleSeqPanel()
         pianoRollPanel.setVisible (false);
 #endif
         headerBar.setSeqActive (false);
+        // Sequencer closed — return live MIDI to whichever front-end is showing.
+        processor.setMidiRouteMode (uiMode == 1
+            ? DysektProcessor::MidiRouteMode::SfPlayer
+            : DysektProcessor::MidiRouteMode::Slicer);
     } else {
         // Close any currently open slot
         if (activeSlot == SlotContent::Mixer) {
@@ -541,6 +556,8 @@ void DysektEditor::toggleSeqPanel()
         pianoRollPanel.setVisible (false);  // opens only on clip double-click
 #endif
         headerBar.setSeqActive (true);
+        // Sequencer opened — live MIDI goes to the selected sequencer channel.
+        processor.setMidiRouteMode (DysektProcessor::MidiRouteMode::Sequencer);
     }
     resized(); repaint(); resized(); repaint();
 }

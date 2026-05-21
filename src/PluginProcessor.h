@@ -290,6 +290,18 @@ public:
     // =========================================================================
     void pushCommand (Command cmd);
 
+    /** Controls where incoming live MIDI is routed.
+     *
+     *  Slicer    — all channels (except sf2Ch) go to the slice engine.
+     *              sfzPlayer receives mask = 0 (no live input).
+     *  SfPlayer  — slicer is bypassed entirely; sfzPlayer receives
+     *              mask = all assigned SF-track channels.
+     *  Sequencer — sequencer drives SF output; sfzPlayer live mask is
+     *              governed by setSelectedSfLiveChannels(); slicer is bypassed.
+     */
+    enum class MidiRouteMode { Slicer, SfPlayer, Sequencer };
+    void setMidiRouteMode (MidiRouteMode mode);
+
     void loadFileAsync      (const juce::File& file);
     void loadDefaultSampleIfNeeded();   // loads Empty.wav on first launch
 
@@ -456,6 +468,7 @@ public:
     std::atomic<int>  trimRegionStart  { 0 };
     std::atomic<int>  trimRegionEnd    { 0 };
     std::atomic<bool> trimModeActive   { false };  // set by editor; CC routes to trim when true
+    std::atomic<int>  midiRouteMode    { 0 };       // 0=Slicer, 1=SfPlayer, 2=Sequencer
     std::atomic<int> trimInSample    { 0 };
     std::atomic<int> trimOutSample   { 0 };
 
