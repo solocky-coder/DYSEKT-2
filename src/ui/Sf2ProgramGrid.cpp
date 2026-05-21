@@ -385,6 +385,15 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
             {
                 midiCh = 0;
                 if (onChannelChanged) onChannelChanged (0);
+
+                // Assigning Omni while a preview is active: the preview channel
+                // (ch15) is no longer meaningful — clear it so the live mask
+                // doesn't keep an orphaned ch15 bit.
+                if (this->previewIdx >= 0)
+                {
+                    this->previewIdx = -1;
+                    if (onPreviewToggled) onPreviewToggled (-1);
+                }
             }
             else if (result >= 101 && result <= 116)
             {
