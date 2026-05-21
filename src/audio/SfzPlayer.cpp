@@ -327,6 +327,13 @@ static constexpr int kPreviewChannel = 15;
 
 void SfzPlayer::previewPreset (int bank, int preset)
 {
+    // Channel 15 is only a free scratch slot when an SF2 file is loaded.
+    // SFZ playback owns channel 15 (sfizz); calling this while an SFZ is
+    // active would corrupt that channel.  The UI gates this already, but
+    // guard here too so a future refactor can't silently break it.
+    jassert (! isSfzFile);
+    if (isSfzFile) return;
+
     setPresetOnChannel (kPreviewChannel, bank, preset);
     // Route live controller input to the preview channel.
     const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
