@@ -181,8 +181,12 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 // Cell background
                 if (isPreviewing)
                 {
-                    // Bright teal/green glow — distinct from the accent-coloured "selected" state
-                    const auto previewColour = juce::Colour (0xff00c896);
+                    // Preview colour: rotate the accent hue by 150° so it stays
+                    // visually distinct from the selected state on every theme.
+                    const auto previewColour = theme.accent
+                                                   .withRotatedHue (150.0f / 360.0f)
+                                                   .withSaturation (juce::jmax (0.55f, theme.accent.getSaturation()))
+                                                   .withBrightness (juce::jmax (0.70f, theme.accent.getBrightness()));
                     g.setColour (previewColour.withAlpha (0.22f));
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
                     g.setColour (previewColour.withAlpha (0.80f));
@@ -219,7 +223,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                     const auto badge = cell.withWidth (22).withHeight (10)
                                            .withX (cell.getX() + 2).withY (cell.getY() + 2);
                     g.setFont (DysektLookAndFeel::makeFont (7.0f));
-                    g.setColour (isPreviewing ? juce::Colour (0xff00c896).brighter (0.3f)
+                    g.setColour (isPreviewing ? theme.accent.withRotatedHue (150.0f / 360.0f).brighter (0.3f)
                                  : isSelected ? theme.accent.brighter (0.2f)
                                              : theme.foreground.withAlpha (0.30f));
                     g.drawText (juce::String (info.preset), badge,
@@ -229,7 +233,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 // Preset name (centred)
                 {
                     g.setFont (DysektLookAndFeel::makeFont (9.0f));
-                    g.setColour (isPreviewing ? juce::Colour (0xfff0fff8)
+                    g.setColour (isPreviewing ? theme.accent.withRotatedHue (150.0f / 360.0f).brighter (0.5f).withAlpha (0.95f)
                                  : isSelected ? theme.foreground.brighter (0.1f)
                                              : theme.foreground.withAlpha (0.78f));
                     g.drawText (info.name, cell.reduced (3, 0),
@@ -323,8 +327,19 @@ void Sf2ProgramGrid::mouseDown (const juce::MouseEvent& e)
     }
     else
     {
-        // Radio-button toggle: clicking the active preview preset turns it off;
-        // clicking any other preset switches the preview to that one.
+        // Commit the selection immediately so the preset becomes active.
+        // onPresetSelected → setPresetByIndex + closeProgramGrid, so the grid
+        // will be hidden after this call; skip the preview toggle in that case.
+        currentIdx = idx;
+        if (onPresetSelected)
+        {
+            onPresetSelected (idx);
+            // closeProgramGrid() was called inside onPresetSelected; no need to
+            // update previewIdx or repaint a grid that is now hidden.
+            return;
+        }
+
+        // Fallback (no onPresetSelected wired): radio-button preview toggle.
         if (idx == previewIdx)
         {
             previewIdx = -1;
