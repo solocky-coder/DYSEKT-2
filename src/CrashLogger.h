@@ -2,8 +2,25 @@
 #include <juce_core/juce_core.h>
 
 #if JUCE_WINDOWS
+  // Guard against min/max macro pollution from windows.h bleeding into every
+  // translation unit that includes this header (via PluginProcessor.h).
+  // These must be defined BEFORE windows.h is pulled in.
+  #ifndef NOMINMAX
+    #define NOMINMAX
+  #endif
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
   #include <windows.h>
   #include <dbghelp.h>
+  // Belt-and-suspenders: undef in case an earlier transitive include already
+  // brought in windows.h without NOMINMAX (some JUCE/SDK versions do this).
+  #ifdef min
+    #undef min
+  #endif
+  #ifdef max
+    #undef max
+  #endif
   #pragma comment (lib, "dbghelp.lib")
 #else
   #include <signal.h>
