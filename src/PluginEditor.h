@@ -63,6 +63,17 @@ public:
     /// 0 = Waveform View (original), 1 = SFZ Player.
     void setUiMode (int mode);
 
+    /** Derive and apply the correct MidiRouteMode from the current uiMode and
+     *  activeSlot.  Call this whenever either changes instead of repeating the
+     *  inline ternary everywhere.
+     *
+     *  Rules:
+     *    activeSlot == Seq           → Sequencer
+     *    uiMode == 1 (SFZ panel)     → SfPlayer
+     *    otherwise                   → Slicer
+     */
+    void syncMidiRouteMode();
+
 private:
     void timerCallback() override;
     void ensureDefaultThemes();

@@ -139,6 +139,20 @@ DysektEditor::DysektEditor (DysektProcessor& p)
         pianoRollPanel.toFront (false);
         resized();
     };
+
+    // Route live MIDI to the right engine based on which track type is selected.
+    // SF-player track → Sequencer mode (channel mask already set by ArrangeView).
+    // Slicer track (MainSlice / ChromaticSlice) → Slicer mode.
+    // Nothing selected → Sequencer mode with mask=0 (no live input).
+    arrangeView.onTrackTypeSelected = [this] (TrackType type, bool hasSelection)
+    {
+        if (activeSlot != SlotContent::Seq) return;
+        using Mode = DysektProcessor::MidiRouteMode;
+        processor.setMidiRouteMode (
+            (hasSelection && type != TrackType::SfPlayer)
+                ? Mode::Slicer
+                : Mode::Sequencer);
+    };
 #endif
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
  shortcutsPanel.onThemeRequest = [this]
@@ -264,9 +278,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  // Restore the correct MIDI route mode that matches the saved uiMode.
  // setUiMode() wasn't called by loadUserSettings(), so we must do this here.
- processor.setMidiRouteMode (uiMode == 1
-     ? DysektProcessor::MidiRouteMode::SfPlayer
-     : DysektProcessor::MidiRouteMode::Slicer);
+ syncMidiRouteMode();
 
  if (processor.sampleData.getSnapshot() == nullptr)
  processor.loadDefaultSampleIfNeeded();
@@ -322,6 +334,16 @@ DysektEditor::~DysektEditor()
  setLookAndFeel (nullptr);
 }
 
+// ── MIDI route mode helper ────────────────────────────────────────────────────
+void DysektEditor::syncMidiRouteMode()
+{
+    using Mode = DysektProcessor::MidiRouteMode;
+    const Mode mode = (activeSlot == SlotContent::Seq) ? Mode::Sequencer
+                    : (uiMode == 1)                    ? Mode::SfPlayer
+                                                       : Mode::Slicer;
+    processor.setMidiRouteMode (mode);
+}
+
 // ── Interface mode switch ─────────────────────────────────────────────────────
 void DysektEditor::setUiMode (int mode)
 {
@@ -340,9 +362,7 @@ void DysektEditor::setUiMode (int mode)
  sfzDropdown.keysPanel.setSlicerHighlightEnabled (uiMode == 0);
 
  // Route live MIDI to the active front-end.
- processor.setMidiRouteMode (uiMode == 1
-     ? DysektProcessor::MidiRouteMode::SfPlayer
-     : DysektProcessor::MidiRouteMode::Slicer);
+ syncMidiRouteMode();
 
  // Hide waveform overview immediately when switching to SFZ mode
  waveformOverview.setVisible (uiMode == 0 && !showPadGrid);
@@ -535,9 +555,7 @@ void DysektEditor::toggleSeqPanel()
 #endif
         headerBar.setSeqActive (false);
         // Sequencer closed — return live MIDI to whichever front-end is showing.
-        processor.setMidiRouteMode (uiMode == 1
-            ? DysektProcessor::MidiRouteMode::SfPlayer
-            : DysektProcessor::MidiRouteMode::Slicer);
+        syncMidiRouteMode();
     } else {
         // Close any currently open slot
         if (activeSlot == SlotContent::Mixer) {
@@ -556,8 +574,9 @@ void DysektEditor::toggleSeqPanel()
         pianoRollPanel.setVisible (false);  // opens only on clip double-click
 #endif
         headerBar.setSeqActive (true);
-        // Sequencer opened — live MIDI goes to the selected sequencer channel.
-        processor.setMidiRouteMode (DysektProcessor::MidiRouteMode::Sequencer);
+        // Sequencer opened — apply route mode for whichever track is currently selected.
+        syncMidiRouteMode();            // sets Sequencer as default
+        arrangeView.notifyCurrentTrack(); // overrides to Slicer if a slicer track is active
     }
     resized(); repaint(); resized(); repaint();
 }

@@ -19,6 +19,7 @@
 #include "audio/SfzPlayer.h"
 #include "UndoManager.h"
 #include "MidiLearnManager.h"
+#include "CrashLogger.h"
 #include "params/ParamIds.h"
 #include "params/ParamLayout.h"
 
@@ -636,6 +637,11 @@ private:
     std::vector<float> masterPitchScratchR;
 
     friend class SoundFontLoader;
+
+    // ── Crash logger ──────────────────────────────────────────────────────────
+    // Declared last so it is constructed first and destroyed last,
+    // ensuring the log captures the full object lifetime.
+    CrashLogger crashLogger;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DysektProcessor)
 };
