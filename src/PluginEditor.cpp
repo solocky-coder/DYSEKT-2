@@ -576,7 +576,9 @@ void DysektEditor::toggleSeqPanel()
         headerBar.setSeqActive (true);
         // Sequencer opened — apply route mode for whichever track is currently selected.
         syncMidiRouteMode();            // sets Sequencer as default
+#if DYSEKT_STANDALONE
         arrangeView.notifyCurrentTrack(); // overrides to Slicer if a slicer track is active
+#endif
     }
     resized(); repaint(); resized(); repaint();
 }
