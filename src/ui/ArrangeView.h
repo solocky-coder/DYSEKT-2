@@ -58,6 +58,25 @@ public:
     /** Owner wires this to open the piano roll for the given track + clip. */
     std::function<void(int trackIndex, int clipIndex)> onClipDoubleClicked;
 
+    /** Fired whenever the selected track changes.
+     *  @param type        Track type of the newly selected track.
+     *  @param hasSelection  false when nothing is selected (deselect / empty view). */
+    std::function<void(TrackType type, bool hasSelection)> onTrackTypeSelected;
+
+    /** Re-fires onTrackTypeSelected for the currently selected track.
+     *  Call this when opening the sequencer panel so the editor can
+     *  apply the correct MIDI route mode for whatever track is already selected. */
+    void notifyCurrentTrack()
+    {
+        if (onTrackTypeSelected)
+        {
+            if (juce::isPositiveAndBelow (selectedTrack, engine.getNumTracks()))
+                onTrackTypeSelected (engine.getTrackInfo (selectedTrack).type, true);
+            else
+                onTrackTypeSelected (TrackType::MainSlice, false);
+        }
+    }
+
     //==========================================================================
     ArrangeView (SequencerEngine& seq, AbletonLink* link = nullptr)
         : engine (seq),
@@ -627,9 +646,13 @@ private:
         selectedTrack = idx;
 
         uint16_t mask = 0;
-        if (juce::isPositiveAndBelow (idx, engine.getNumTracks()))
+        TrackType type = TrackType::MainSlice;
+        bool hasSelection = juce::isPositiveAndBelow (idx, engine.getNumTracks());
+
+        if (hasSelection)
         {
             const auto info = engine.getTrackInfo (idx);
+            type = info.type;
             if (info.type == TrackType::SfPlayer)
             {
                 const int ch = info.midiChannel;  // 0-based FluidSynth channel
@@ -638,6 +661,9 @@ private:
             }
         }
         engine.setSelectedSfLiveChannels (mask);
+
+        if (onTrackTypeSelected)
+            onTrackTypeSelected (type, hasSelection);
     }
 
     static void styleScrollBar (juce::ScrollBar& sb)
