@@ -159,6 +159,29 @@ public:
      *  input to the SF-player when SF-player mode is active. */
     uint16_t getAllSfPlayerChannelMask() const noexcept;
 
+    //==========================================================================
+    //  Live MIDI channel for the selected arranger track
+    //==========================================================================
+
+    /** Set the MIDI channel (1-based) that live input should be re-stamped to
+     *  when the arranger is active.  Pass 0 to disable re-stamping (SfPlayer
+     *  tracks handle their own routing via liveInputChannelMask).
+     *  Called from ArrangeView::selectTrack on the message thread — atomic. */
+    void setSelectedLiveChannel (int ch1Based) noexcept;
+
+    /** Returns the current selected live channel (1-16), or 0 if none. */
+    int  getSelectedLiveChannel() const noexcept;
+
+    //==========================================================================
+    //  Per-track MIDI activity flags (for the receive indicator in TrackHeaderStrip)
+    //==========================================================================
+
+    static constexpr int kActivityFlagCount = 64;
+
+    /** Returns true and clears the flag if the audio thread set it since last
+     *  call.  Safe to call from the message thread (atomic exchange). */
+    bool getMidiActivityAndClear (int trackIndex) noexcept;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;

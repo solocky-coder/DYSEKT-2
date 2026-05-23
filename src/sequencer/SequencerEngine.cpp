@@ -42,7 +42,10 @@ struct SequencerEngine::Impl
     float                lastAppliedBpm = 0.f;
 
     AbletonLink* abletonLink = nullptr;
-    SfzPlayer*   sfzPlayer   = nullptr;   // optional; set via setSfzPlayer()
+    SfzPlayer*   sfzPlayer   = nullptr;
+
+    std::atomic<bool> midiActivityFlags[SequencerEngine::kActivityFlagCount] = {};
+    std::atomic<int>  selectedLiveChannel { 0 };  // 1-based; 0 = disabled
 
     //==========================================================================
     Impl()  = default;
@@ -500,6 +503,25 @@ uint16_t SequencerEngine::getAllSfPlayerChannelMask() const noexcept
 }
 
 //==============================================================================
+void SequencerEngine::setSelectedLiveChannel (int ch1Based) noexcept
+{
+    impl->selectedLiveChannel.store (ch1Based, std::memory_order_relaxed);
+}
+
+int SequencerEngine::getSelectedLiveChannel() const noexcept
+{
+    return impl->selectedLiveChannel.load (std::memory_order_relaxed);
+}
+
+//==============================================================================
+bool SequencerEngine::getMidiActivityAndClear (int trackIndex) noexcept
+{
+    if (! juce::isPositiveAndBelow (trackIndex, kActivityFlagCount))
+        return false;
+    return impl->midiActivityFlags[trackIndex].exchange (false, std::memory_order_relaxed);
+}
+
+//==============================================================================
 void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, const juce::MidiBuffer& inMidi,
                                     int numSamples, double sampleRate)
 {
@@ -558,12 +580,18 @@ void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, const juce::MidiB
             auto& track = *impl->tracks[ti];
             if (! track.enabled) continue;
 
+            const int priorSize = outMidi.getNumEvents();
+
             for (int ci = 0; ci < track.clips.size(); ++ci)
             {
                 impl->processClipSlot (outMidi, track, ti, ci, *track.clips[ci],
                                        impl->currentTick, blockEndTick,
                                        numSamples, ticksPerSample, doLoop, masterLen);
             }
+
+            if (outMidi.getNumEvents() > priorSize
+                && juce::isPositiveAndBelow (ti, kActivityFlagCount))
+                impl->midiActivityFlags[ti].store (true, std::memory_order_relaxed);
         }
     }
 

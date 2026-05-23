@@ -1349,13 +1349,12 @@ void DysektProcessor::handleCommand (const Command& cmd)
 void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 {
     // ── MIDI route mode guard ─────────────────────────────────────────────────
-    // When SF-player or Sequencer mode is active, the slicer should not process
-    // any live MIDI — that would cause unwanted slice triggers while the user is
-    // playing through the SF-player.  The sfzPlayer itself receives notes via
-    // its liveInputChannelMask (set by setMidiRouteMode / setSelectedSfLiveChannels).
+    // In SfPlayer mode, block live MIDI from the slicer/VoicePool entirely —
+    // all input belongs to the SF-player.  In Sequencer mode, live MIDI must
+    // still reach the VoicePool (re-channeled to the selected track above).
     {
         const int routeMode = midiRouteMode.load (std::memory_order_relaxed);
-        if (routeMode != 0) // 0 = MidiRouteMode::Slicer
+        if (routeMode == static_cast<int> (MidiRouteMode::SfPlayer))
             return;
     }
 
@@ -2563,6 +2562,23 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         juce::MidiBuffer seqEvents;
         sequencer.processBlock (seqEvents, midi, buffer.getNumSamples(), currentSampleRate);
+
+        // Re-stamp all live input to the selected track's channel so the VoicePool
+        // routes correctly (chromatic slices key off channel number).
+        // Only applies in Sequencer mode; ch 0 means SfPlayer track selected (skip).
+        const int liveCh = sequencer.getSelectedLiveChannel();
+        if (liveCh > 0)
+        {
+            juce::MidiBuffer restamped;
+            for (const auto meta : midi)
+            {
+                const auto msg = meta.getMessage();
+                if (msg.getChannel() == 16) { restamped.addEvent (msg, meta.samplePosition); continue; }
+                restamped.addEvent (msg.withChannel (liveCh), meta.samplePosition);
+            }
+            midi = restamped;
+        }
+
         if (sequencer.isPlaying())
             midi.addEvents (seqEvents, 0, buffer.getNumSamples(), 0);
     }
@@ -2857,13 +2873,17 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
         else
         {
-            // Extract only the sfzPlayer's dedicated channel into sfzMidiBuf.
-            // processMidi() already skips that channel for the slicer, so there
-            // is no double-processing — each message is consumed by exactly one engine.
+            // Extract the sfzPlayer's dedicated channel, PLUS ch-1 messages when
+            // a live mask is active (multi-timbral: keyboard on ch 1 gets fan-out
+            // routed inside SfzPlayer to whichever FluidSynth channel is selected).
+            const uint16_t liveMask = sfzPlayer.getLiveInputChannelMask();
             for (const auto meta : midi)
             {
-                if (meta.getMessage().getChannel() == sf2Ch)
-                    sfzMidiBuf.addEvent (meta.getMessage(), meta.samplePosition);
+                const auto& msg = meta.getMessage();
+                const int   ch  = msg.getChannel();
+                if (ch == sf2Ch
+                    || (ch == 1 && liveMask != 0))
+                    sfzMidiBuf.addEvent (msg, meta.samplePosition);
             }
         }
 

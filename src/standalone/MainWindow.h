@@ -55,40 +55,12 @@ public:
 
         editor = std::make_unique<DysektEditor> (*processor);
 
-        // ── Option C: wire MIDI routing callbacks into ArrangeView ────────────
-        // Must be done after midiRouter is constructed (see below), so we use
-        // lambdas that capture by reference — midiRouter will be valid by the
-        // time these are called (they're called from UI thread only).
-        editor->arrangeView.onGetMidiOutputDeviceNames = [this] ()
-        {
-            return midiRouter ? midiRouter->getOutputDeviceNames() : juce::StringArray{};
-        };
-        editor->arrangeView.onGetTrackRoute = [this] (int ti)
-        {
-            return midiRouter ? midiRouter->getTrackRoute (ti) : MidiTrackRoute{};
-        };
-        editor->arrangeView.onSetTrackRoute = [this] (int ti, MidiTrackRoute r)
-        {
-            if (midiRouter) midiRouter->setTrackRoute (ti, r);
-        };
-
         // ── Audio callback ────────────────────────────────────────────────
         player.setProcessor (processor.get());
         deviceManager.addAudioCallback (&player);
 
         // ── MIDI router ───────────────────────────────────────────────────
         midiRouter = std::make_unique<MidiRouter> (deviceManager);
-
-        // Wire SequencerEngine -> MidiRouter dispatch (called from audio thread)
-        processor->sequencer.setExternalMidiDispatch (
-            [this] (const std::vector<juce::MidiBuffer>& perTrack,
-                    int    numSamples,
-                    double bpm,
-                    double sr,
-                    bool   playing)
-            {
-                midiRouter->dispatchBlock (perTrack, numSamples, bpm, sr, playing);
-            });
 
         // ── MIDI input ────────────────────────────────────────────────────
         // Enable every available device and wire it to the player AND the

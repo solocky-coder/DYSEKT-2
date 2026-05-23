@@ -649,17 +649,29 @@ private:
         TrackType type = TrackType::MainSlice;
         bool hasSelection = juce::isPositiveAndBelow (idx, engine.getNumTracks());
 
+        int liveCh = 0;  // 0 = disabled (SfPlayer handles its own mask)
+
         if (hasSelection)
         {
             const auto info = engine.getTrackInfo (idx);
             type = info.type;
-            if (info.type == TrackType::SfPlayer)
+            switch (info.type)
             {
-                const int ch = info.midiChannel;  // 0-based FluidSynth channel
-                if (ch >= 0 && ch < 16)
-                    mask = (uint16_t)(1u << ch);
+                case TrackType::MainSlice:
+                    liveCh = 1;  // slicer always responds on ch 1
+                    break;
+                case TrackType::ChromaticSlice:
+                    liveCh = info.midiChannel + 1;  // stored 0-based
+                    break;
+                case TrackType::SfPlayer:
+                    liveCh = 0;  // SfPlayer uses liveInputChannelMask instead
+                    if (info.midiChannel >= 0 && info.midiChannel < 16)
+                        mask = (uint16_t)(1u << info.midiChannel);
+                    break;
             }
         }
+
+        engine.setSelectedLiveChannel (liveCh);
         engine.setSelectedSfLiveChannels (mask);
 
         if (onTrackTypeSelected)
