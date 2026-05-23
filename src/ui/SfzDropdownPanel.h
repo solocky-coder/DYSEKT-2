@@ -54,6 +54,7 @@ public:
 
     // ── Public API ────────────────────────────────────────────────────────────
     void panelDidShow();
+    void initEmptySfz();
 
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;

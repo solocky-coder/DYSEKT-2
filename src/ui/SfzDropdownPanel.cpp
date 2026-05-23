@@ -1339,8 +1339,29 @@ void SfzDropdownPanel::panelDidShow()
 
     if (processor.sfzPlayer.isLoaded())
         reloadZones (processor.sfzPlayer.getLoadedFile());
+    else
+        initEmptySfz();   // bootstrap so [+ ZONE] is available and zones show immediately
     resized();
     repaint();
+}
+
+// =============================================================================
+//  initEmptySfz
+// =============================================================================
+
+void SfzDropdownPanel::initEmptySfz()
+{
+    // Create Custom.sfz in the user's Music folder if it doesn't exist yet.
+    // (Never overwrites — if the file is already there from a previous session,
+    //  we just reload it so the existing zones are restored.)
+    auto sfz = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+                   .getChildFile ("Custom.sfz");
+
+    if (! sfz.existsAsFile())
+        sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
+
+    processor.sfzPlayer.loadFile (sfz);   // sfizz handles empty file gracefully (silence)
+    reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }
 
 // =============================================================================
@@ -1682,50 +1703,84 @@ std::vector<KeysPanel::Keyzone> SfzDropdownPanel::parseSf2Zones (const juce::Fil
 
 void SfzDropdownPanel::reloadZones (const juce::File& f)
 {
-    const auto ext = f.getFileExtension().toLowerCase();
+    const auto ext   = f.getFileExtension().toLowerCase();
     const bool isSfz = (ext == ".sfz");
+    const bool isSf2 = (ext == ".sf2");
 
-    std::vector<KeysPanel::Keyzone> zones;
-    if (isSfz)
-        zones = parseSfzZones (f);
-    else if (ext == ".sf2")
+    if (isSf2)
     {
-        // Resolve bank/program from the currently selected preset so we only
-        // display zones belonging to that preset (not the entire SF2 file).
-        int bank = 0, program = 0;
-        const auto presets = processor.sfzPlayer.getPresetList();
-        const int  idx     = processor.sfzPlayer.getCurrentPresetIndex();
-        if (idx >= 0 && idx < (int) presets.size())
+        // ── SF2: show the full preset grid — no editing needed ───────────────
+        // Build one Keyzone row per preset so the sf2PresetListMode renderer
+        // in KeysPanel can display the same grid shown in the screenshot.
+        const auto presets    = processor.sfzPlayer.getPresetList();
+        const int  currentIdx = processor.sfzPlayer.getCurrentPresetIndex();
+
+        std::vector<KeysPanel::Keyzone> rows;
+        rows.reserve (presets.size());
+        for (size_t i = 0; i < presets.size(); ++i)
         {
-            bank    = presets[(size_t) idx].bank;
-            program = presets[(size_t) idx].preset;
+            KeysPanel::Keyzone z;
+            z.name   = presets[i].name;
+            z.colour = zoneColourDP ((int) i);
+            z.loKey  = 0;
+            z.hiKey  = 127;
+            rows.push_back (z);
         }
-        zones = parseSf2Zones (f, bank, program);
-    }
 
-    keysPanel.setSfzEditable (isSfz);
-
-    // [+ ZONE] button visibility must be set BEFORE setKeyzones() so that
-    // rebuild() sizes the component correctly (it reads addZoneBtnVisible to
-    // decide whether to add an extra row).  Setting it after setKeyzones()
-    // means rebuild() runs with the wrong value and the component is too short
-    // to display the button even though repaint() draws it.
-    keysPanel.setAddZoneButtonVisible (isSfz);
-    if (isSfz)
-        keysPanel.onAddZoneRequested = [this] { openAddZoneChooser(); };
-    else
+        keysPanel.setSf2PresetListMode (true);
+        keysPanel.setSfzEditable (false);
+        keysPanel.setAddZoneButtonVisible (false);
         keysPanel.onAddZoneRequested = nullptr;
+        keysPanel.onZoneEdited       = nullptr;
 
-    keysPanel.setKeyzones (zones);
+        keysPanel.setKeyzones (rows);
+        keysPanel.setSelectedPresetRow (currentIdx);
 
-    if (! zones.empty())
-        keysPanel.autoScrollToZones();
+        // Clicking a row switches the active preset
+        keysPanel.onRowClicked = [this] (int rowIndex)
+        {
+            processor.sfzPlayer.setPresetByIndex (rowIndex);
+            keysPanel.setSelectedPresetRow (rowIndex);
+            repaint();
+        };
 
-    // Wire the edit callback — only fires for SFZ (sfzEditable == true)
-    keysPanel.onZoneEdited = [this, f] (int rowIndex, const KeysPanel::Keyzone& updated)
+        keysPanel.onRowRightClicked = nullptr;
+    }
+    else
     {
-        writeSfzZoneChange (f, rowIndex, updated);
-    };
+        // ── SFZ (or nothing): editable zone matrix ───────────────────────────
+        std::vector<KeysPanel::Keyzone> zones;
+        if (isSfz)
+            zones = parseSfzZones (f);
+
+        keysPanel.setSf2PresetListMode (false);
+        keysPanel.setSfzEditable (isSfz);
+
+        // [+ ZONE] button visibility must be set BEFORE setKeyzones() so that
+        // rebuild() sizes the component correctly (it reads addZoneBtnVisible to
+        // decide whether to add an extra row).  Setting it after setKeyzones()
+        // means rebuild() runs with the wrong value and the component is too short
+        // to display the button even though repaint() draws it.
+        keysPanel.setAddZoneButtonVisible (isSfz);
+        if (isSfz)
+            keysPanel.onAddZoneRequested = [this] { openAddZoneChooser(); };
+        else
+            keysPanel.onAddZoneRequested = nullptr;
+
+        keysPanel.onRowClicked      = nullptr;
+        keysPanel.onRowRightClicked = nullptr;
+
+        keysPanel.setKeyzones (zones);
+
+        if (! zones.empty())
+            keysPanel.autoScrollToZones();
+
+        // Wire the edit callback — only fires for SFZ (sfzEditable == true)
+        keysPanel.onZoneEdited = [this, f] (int rowIndex, const KeysPanel::Keyzone& updated)
+        {
+            writeSfzZoneChange (f, rowIndex, updated);
+        };
+    }
 }
 
 // =============================================================================
