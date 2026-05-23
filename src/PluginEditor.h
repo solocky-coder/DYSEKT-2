@@ -142,7 +142,7 @@ private:
     ShortcutsPanel   shortcutsPanel { processor };
     GlobalEqPanel    eqPanel;
 #if DYSEKT_STANDALONE
-    PianoRollPanel   pianoRollPanel { processor.sequencer, &processor.abletonLink };
+    PianoRollWindow  pianoRollPanel { processor.sequencer, lnf, &processor.abletonLink };
     ArrangeView      arrangeView    { processor.sequencer, &processor.abletonLink };
 #endif
 

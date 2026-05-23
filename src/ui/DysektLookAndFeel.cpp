@@ -411,3 +411,96 @@ void DysektLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWindow& aler
     // Message body
     textLayout.draw (g, textArea.toFloat());
 }
+
+//==============================================================================
+//  DocumentWindow title bar — themed to match DYSEKT's dark palette
+//==============================================================================
+
+void DysektLookAndFeel::drawDocumentWindowTitleBar (
+    juce::DocumentWindow& window, juce::Graphics& g,
+    int w, int h, int titleSpaceX, int titleSpaceW,
+    const juce::Image* /*icon*/, bool /*drawTitleTextOnLeft*/)
+{
+    const auto& t = getTheme();
+
+    // Title bar background
+    g.setColour (t.header);
+    g.fillRect (0, 0, w, h);
+
+    // Thin accent line along the bottom edge
+    g.setColour (t.accent.withAlpha (0.35f));
+    g.fillRect (0, h - 1, w, 1);
+
+    // Title text
+    g.setColour (t.foreground);
+    g.setFont (makeFont (13.f, false));
+    g.drawFittedText (window.getName(),
+                      titleSpaceX + 4, 0, titleSpaceW - 8, h,
+                      juce::Justification::centredLeft, 1);
+}
+
+//==============================================================================
+//  Themed close / minimise / maximise buttons for DocumentWindow
+//==============================================================================
+
+namespace
+{
+    // A simple flat button that draws an X, –, or □ in DYSEKT's colours.
+    class DysektTitleBarButton : public juce::Button
+    {
+    public:
+        enum class Kind { Close, Minimise, Maximise };
+
+        DysektTitleBarButton (Kind k) : juce::Button ({}), kind (k) {}
+
+        void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
+        {
+            const auto& t = getTheme();
+            const auto  b = getLocalBounds().toFloat().reduced (2.f);
+
+            // Hover / press fill
+            if (isDown)
+                g.setColour (kind == Kind::Close ? juce::Colour (0xFFBB3333)
+                                                 : t.buttonHover);
+            else if (isHighlighted)
+                g.setColour (kind == Kind::Close ? juce::Colour (0xFF883333)
+                                                 : t.button);
+            else
+                g.setColour (juce::Colours::transparentBlack);
+
+            g.fillRoundedRectangle (b, 3.f);
+
+            // Icon
+            g.setColour (isHighlighted ? t.foreground : t.foreground.withAlpha (0.6f));
+            const float cx = b.getCentreX(), cy = b.getCentreY();
+            const float r  = b.getHeight() * 0.22f;
+
+            if (kind == Kind::Close)
+            {
+                g.drawLine (cx - r, cy - r, cx + r, cy + r, 1.5f);
+                g.drawLine (cx + r, cy - r, cx - r, cy + r, 1.5f);
+            }
+            else if (kind == Kind::Minimise)
+            {
+                g.drawLine (cx - r, cy, cx + r, cy, 1.5f);
+            }
+            else  // Maximise
+            {
+                g.drawRect (juce::Rectangle<float> (cx - r, cy - r, r * 2.f, r * 2.f), 1.5f);
+            }
+        }
+
+    private:
+        Kind kind;
+    };
+}
+
+juce::Button* DysektLookAndFeel::createDocumentWindowButton (int buttonType)
+{
+    using Kind = DysektTitleBarButton::Kind;
+    if (buttonType == juce::DocumentWindow::closeButton)
+        return new DysektTitleBarButton (Kind::Close);
+    if (buttonType == juce::DocumentWindow::minimiseButton)
+        return new DysektTitleBarButton (Kind::Minimise);
+    return new DysektTitleBarButton (Kind::Maximise);
+}

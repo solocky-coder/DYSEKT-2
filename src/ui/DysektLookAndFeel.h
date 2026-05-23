@@ -46,6 +46,12 @@ public:
     juce::Rectangle<int> getTooltipBounds (const juce::String& text, juce::Point<int> screenPos,
                                            juce::Rectangle<int> parentArea) override;
 
+    // ── DocumentWindow (PianoRollWindow) title bar ────────────────────────
+    void drawDocumentWindowTitleBar (juce::DocumentWindow&, juce::Graphics&,
+                                     int w, int h, int titleSpaceX, int titleSpaceW,
+                                     const juce::Image* icon, bool drawTitleTextOnLeft) override;
+    juce::Button* createDocumentWindowButton (int buttonType) override;
+
     // ── AlertWindow sizing ────────────────────────────────────────────────
     juce::Font getAlertWindowTitleFont()   override;
     juce::Font getAlertWindowMessageFont() override;
