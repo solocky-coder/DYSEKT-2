@@ -45,7 +45,13 @@ struct SequencerEngine::Impl
     SfzPlayer*   sfzPlayer   = nullptr;
 
     std::atomic<bool> midiActivityFlags[SequencerEngine::kActivityFlagCount] = {};
-    std::atomic<int>  selectedLiveChannel { 0 };  // 1-based; 0 = disabled
+    std::atomic<int>  selectedLiveChannel  { 0 };  // 1-based; 0 = disabled
+    std::atomic<int>  recordingTrackIndex  { -1 }; // which track receives recorded MIDI (-1 = none)
+
+    // Tracks notes currently held during recording so we can set their real
+    // duration when the note-off arrives.  Audio-thread only.
+    struct OpenRecNote { int note; int64_t startTick; int noteIndexInClip; };
+    juce::Array<OpenRecNote> openRecNotes;
 
     //==========================================================================
     Impl()  = default;
@@ -513,6 +519,12 @@ int SequencerEngine::getSelectedLiveChannel() const noexcept
     return impl->selectedLiveChannel.load (std::memory_order_relaxed);
 }
 
+void SequencerEngine::setRecordingTrack (int trackIndex) noexcept
+{
+    impl->recordingTrackIndex.store (trackIndex, std::memory_order_relaxed);
+    impl->openRecNotes.clearQuick();  // discard any held notes from previous selection
+}
+
 //==============================================================================
 bool SequencerEngine::getMidiActivityAndClear (int trackIndex) noexcept
 {
@@ -542,11 +554,13 @@ void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, const juce::MidiB
         {
             impl->playing.store (false, std::memory_order_relaxed);
             impl->flushAllActiveNotes (outMidi, 0);
+            impl->openRecNotes.clearQuick();
         }
     }
     if (impl->pendingRewind.exchange (false, std::memory_order_relaxed))
     {
         impl->flushAllActiveNotes (outMidi, 0);
+        impl->openRecNotes.clearQuick();
         impl->currentTick = 0.0;
         impl->playheadTick.store (0, std::memory_order_relaxed);
         impl->justStarted = true;
@@ -598,36 +612,57 @@ void SequencerEngine::processBlock (juce::MidiBuffer& outMidi, const juce::MidiB
     impl->justStarted = false;
 
     // ── MIDI input recording ──────────────────────────────────────────────────
-    // When recording is armed and the sequencer is playing, capture incoming
-    // note-on events from hardware/virtual MIDI into clip 0 of track 0.
+    // Cubase-style: the selected (record-armed) track captures all incoming
+    // MIDI regardless of channel.  Note-offs close open notes with their real
+    // duration rather than a fixed placeholder.
+    const int recTi = impl->recordingTrackIndex.load (std::memory_order_relaxed);
     if (impl->recording.load (std::memory_order_relaxed)
         && impl->playing.load (std::memory_order_relaxed)
-        && ! impl->tracks.isEmpty())
+        && juce::isPositiveAndBelow (recTi, impl->tracks.size()))
     {
         const juce::ScopedReadLock sl (impl->tracksLock);
-        auto& track = *impl->tracks[0];
+        auto& track = *impl->tracks[recTi];
         if (! track.clips.isEmpty())
         {
             auto& clip = track.clips[0]->clip;
-            const int64_t mLen = impl->computeMasterLen();
+            const int64_t mLen        = impl->computeMasterLen();
             const double  ticksPerSmp = (bpm / 60.0) * (double) MidiClip::kPPQ / sampleRate;
 
             for (const auto meta : inMidi)
             {
                 const auto msg = meta.getMessage();
-                // Skip channel 16 (SFZ internal) to avoid feedback
-                if (msg.getChannel() == 16) continue;
-                if (msg.isNoteOn())
+                if (msg.getChannel() == 16) continue;  // skip SFZ-internal channel
+
+                const double  evTick = impl->currentTick + meta.samplePosition * ticksPerSmp;
+                const int64_t t      = (int64_t) std::fmod (evTick, (double) mLen);
+
+                if (msg.isNoteOn (true))   // true = treat velocity-0 as note-off
                 {
-                    const double noteTick = impl->currentTick
-                                          + meta.samplePosition * ticksPerSmp;
-                    const int64_t t = (int64_t) std::fmod (noteTick, (double) mLen);
                     MidiNote n;
-                    n.note          = msg.getNoteNumber();
-                    n.velocity      = msg.getVelocity();
-                    n.startTick     = t;
-                    n.durationTick = MidiClip::kPPQ / 4;  // placeholder; extend on note-off
-                    clip.addNote (n);
+                    n.note         = msg.getNoteNumber();
+                    n.velocity     = msg.getVelocity();
+                    n.startTick    = t;
+                    n.durationTick = MidiClip::kPPQ / 4;  // filled in on note-off
+                    const int idx  = clip.addNote (n);     // addNote returns index
+                    impl->openRecNotes.add ({ n.note, t, idx });
+                }
+                else if (msg.isNoteOff (true))
+                {
+                    const int noteNum = msg.getNoteNumber();
+                    for (int i = impl->openRecNotes.size() - 1; i >= 0; --i)
+                    {
+                        auto& orn = impl->openRecNotes.getReference (i);
+                        if (orn.note == noteNum)
+                        {
+                            // Compute real duration, clamped to loop length
+                            int64_t dur = t - orn.startTick;
+                            if (dur <= 0) dur += mLen;   // wrapped loop
+                            if (dur <= 0) dur  = MidiClip::kPPQ / 4;
+                            clip.setNoteDuration (orn.noteIndexInClip, dur);
+                            impl->openRecNotes.remove (i);
+                            break;
+                        }
+                    }
                 }
             }
         }

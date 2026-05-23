@@ -96,6 +96,15 @@ void MidiClip::setNoteVelocity (int index, int velocity)
     addNoteToList (notes.getReference (index));
 }
 
+void MidiClip::setNoteDuration (int index, int64_t durationTicks)
+{
+    const juce::ScopedWriteLock sl (lock);
+    if (! juce::isPositiveAndBelow (index, notes.size())) return;
+    removeNoteFromList (notes.getReference (index));
+    notes.getReference (index).durationTick = juce::jmax ((int64_t) 1, durationTicks);
+    addNoteToList (notes.getReference (index));
+}
+
 void MidiClip::clear()
 {
     const juce::ScopedWriteLock sl (lock);

@@ -673,6 +673,7 @@ private:
 
         engine.setSelectedLiveChannel (liveCh);
         engine.setSelectedSfLiveChannels (mask);
+        engine.setRecordingTrack (hasSelection ? idx : -1);
 
         if (onTrackTypeSelected)
             onTrackTypeSelected (type, hasSelection);

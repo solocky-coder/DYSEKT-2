@@ -57,7 +57,8 @@ public:
     void removeNote      (int index);
     void moveNote        (int index, int64_t newStartTick, int newNote = -1);
     void resizeNote      (int index, int64_t newDurationTick);
-    void setNoteVelocity (int index, int velocity);
+    void setNoteVelocity  (int index, int velocity);
+    void setNoteDuration  (int index, int64_t durationTicks);
     void clear();
 
     int hitTest (int64_t tick, int noteNum) const;

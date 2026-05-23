@@ -172,6 +172,11 @@ public:
     /** Returns the current selected live channel (1-16), or 0 if none. */
     int  getSelectedLiveChannel() const noexcept;
 
+    /** Tell the engine which track index receives recorded MIDI.
+     *  Call alongside setSelectedLiveChannel when the user selects a track.
+     *  Pass -1 to disable recording. */
+    void setRecordingTrack (int trackIndex) noexcept;
+
     //==========================================================================
     //  Per-track MIDI activity flags (for the receive indicator in TrackHeaderStrip)
     //==========================================================================
