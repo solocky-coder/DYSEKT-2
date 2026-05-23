@@ -2574,7 +2574,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             {
                 const auto msg = meta.getMessage();
                 if (msg.getChannel() == 16) { restamped.addEvent (msg, meta.samplePosition); continue; }
-                restamped.addEvent (msg.withChannel (liveCh), meta.samplePosition);
+                auto m = msg; m.setChannel (liveCh); restamped.addEvent (m, meta.samplePosition);
             }
             midi = restamped;
         }
