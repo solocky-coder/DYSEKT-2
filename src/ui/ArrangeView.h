@@ -1189,7 +1189,7 @@ private:
         if (x < clipGridBounds.getX() || x > clipGridBounds.getRight()) return;
 
         // Thin line through tracks
-        g.setColour (juce::Colour::fromFloatRGBA (0.95f, 0.52f, 0.12f, 0.82f));
+        g.setColour (juce::Colours::white.withAlpha (0.85f));
         g.fillRect (x, rulerBounds.getY(),
                     1, rulerBounds.getHeight() + clipGridBounds.getHeight());
     }

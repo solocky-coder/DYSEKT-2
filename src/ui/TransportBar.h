@@ -122,7 +122,6 @@ public:
     void resized() override
     {
         auto bounds = getLocalBounds().reduced (4, 2);
-        const int h     = bounds.getHeight();
         const int btnW  = 44;
         const int bpmW  = 80;
         const int snapW = 58;
@@ -130,36 +129,30 @@ public:
         const int linkW = 52;
         const int gap   = 4;
 
-        // ── LINK pinned to far right ──────────────────────────────────────
+        // ── Right-side elements: LINK → pos → snap → BPM (right to left) ──
+        auto right = bounds;
         if (linkPtr != nullptr)
         {
-            linkBtn.setBounds (bounds.removeFromRight (linkW));
-            bounds.removeFromRight (gap);
+            linkBtn  .setBounds (right.removeFromRight (linkW));
+            right.removeFromRight (gap);
         }
+        posLabel .setBounds (right.removeFromRight (posW));   right.removeFromRight (gap * 2);
+        snapCombo.setBounds (right.removeFromRight (snapW));  right.removeFromRight (gap * 2);
+        bpmLabel .setBounds (right.removeFromRight (bpmW));
 
-        // ── pos display just left of LINK (or right edge) ─────────────────
-        posLabel.setBounds (bounds.removeFromRight (posW));
-        bounds.removeFromRight (gap * 2);
+        // ── Transport buttons: centered across the FULL bar width ──────────
+        const int nBtns    = 5;   // rewind, play, stop, rec, loop
+        const int groupW   = nBtns * btnW + (nBtns - 1) * gap;
+        const int barW     = bounds.getWidth();
+        const int centerX  = bounds.getX() + (barW - groupW) / 2;
+        const int y        = bounds.getY();
+        const int h        = bounds.getHeight();
 
-        // ── snap combo ────────────────────────────────────────────────────
-        snapCombo.setBounds (bounds.removeFromRight (snapW));
-        bounds.removeFromRight (gap * 2);
-
-        // ── BPM field ─────────────────────────────────────────────────────
-        bpmLabel.setBounds (bounds.removeFromRight (bpmW));
-        bounds.removeFromRight (gap * 4);
-
-        // ── Transport buttons: centered in the remaining space ────────────
-        const int nBtns     = 5;  // rewind, play, stop, rec, loop
-        const int totalBtns = nBtns * btnW + (nBtns - 1) * gap;
-        const int leftPad   = juce::jmax (0, (bounds.getWidth() - totalBtns) / 2);
-        auto row = bounds.withTrimmedLeft (leftPad);
-
-        rewindBtn.setBounds (row.removeFromLeft (btnW)); row.removeFromLeft (gap);
-        playBtn  .setBounds (row.removeFromLeft (btnW)); row.removeFromLeft (gap);
-        stopBtn  .setBounds (row.removeFromLeft (btnW)); row.removeFromLeft (gap);
-        recBtn   .setBounds (row.removeFromLeft (btnW)); row.removeFromLeft (gap);
-        loopBtn  .setBounds (row.removeFromLeft (btnW));
+        rewindBtn.setBounds (centerX + 0 * (btnW + gap), y, btnW, h);
+        playBtn  .setBounds (centerX + 1 * (btnW + gap), y, btnW, h);
+        stopBtn  .setBounds (centerX + 2 * (btnW + gap), y, btnW, h);
+        recBtn   .setBounds (centerX + 3 * (btnW + gap), y, btnW, h);
+        loopBtn  .setBounds (centerX + 4 * (btnW + gap), y, btnW, h);
     }
 
     void paint (juce::Graphics& g) override
