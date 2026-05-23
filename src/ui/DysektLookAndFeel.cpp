@@ -125,11 +125,15 @@ void DysektLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& but
     g.setColour (textCol);
 
     const int h = button.getHeight();
-    float fontSize = h < 16 ? 8.0f
+    // Symbol-only button (loop): single non-ASCII char — render larger with system font
+    const juce::String txt = button.getButtonText();
+    const bool isSymbol = (txt.length() <= 2 && txt[0] > 127);
+    float fontSize = isSymbol ? (h < 22 ? 14.0f : 17.0f)
+                   : h < 16 ? 8.0f
                    : h < 22 ? 10.0f
                    : h < 28 ? 11.0f
                    : 13.0f;
-    g.setFont (makeFont (fontSize));
+    g.setFont (isSymbol ? juce::Font (fontSize) : makeFont (fontSize));
     g.drawText (button.getButtonText(), button.getLocalBounds().reduced (2, 0),
                 juce::Justification::centred);
 }

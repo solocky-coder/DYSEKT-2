@@ -1192,14 +1192,6 @@ private:
         g.setColour (juce::Colour::fromFloatRGBA (0.95f, 0.52f, 0.12f, 0.82f));
         g.fillRect (x, rulerBounds.getY(),
                     1, rulerBounds.getHeight() + clipGridBounds.getHeight());
-
-        // Triangle caret in ruler
-        juce::Path tri;
-        tri.addTriangle ((float)x,       (float)rulerBounds.getBottom(),
-                         (float)x - 6.f, (float)rulerBounds.getY() + 5.f,
-                         (float)x + 6.f, (float)rulerBounds.getY() + 5.f);
-        g.setColour (juce::Colour::fromFloatRGBA (0.95f, 0.52f, 0.12f, 0.97f));
-        g.fillPath (tri);
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ArrangeView)

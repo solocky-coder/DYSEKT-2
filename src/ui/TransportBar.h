@@ -24,7 +24,7 @@ public:
         makeBtn (playBtn,   "PLAY");
         makeBtn (stopBtn,   "STOP");
         makeBtn (recBtn,    "REC");
-        makeBtn (loopBtn,   "LOOP");
+        makeBtn (loopBtn,   juce::String::fromUTF8 ("\xe2\x86\xbb")); // ↻ repeat symbol
 
         playBtn.setClickingTogglesState (false);
         stopBtn.setClickingTogglesState (false);
@@ -121,26 +121,45 @@ public:
     //==========================================================================
     void resized() override
     {
-        auto r = getLocalBounds().reduced (4, 2);
-        const int btnW = 44, gap = 4;
+        auto bounds = getLocalBounds().reduced (4, 2);
+        const int h     = bounds.getHeight();
+        const int btnW  = 44;
+        const int bpmW  = 80;
+        const int snapW = 58;
+        const int posW  = 88;
+        const int linkW = 52;
+        const int gap   = 4;
 
-        rewindBtn.setBounds (r.removeFromLeft (btnW)); r.removeFromLeft (gap);
-        playBtn  .setBounds (r.removeFromLeft (btnW)); r.removeFromLeft (gap);
-        stopBtn  .setBounds (r.removeFromLeft (btnW)); r.removeFromLeft (gap);
-        recBtn   .setBounds (r.removeFromLeft (btnW)); r.removeFromLeft (gap * 3);
-        loopBtn  .setBounds (r.removeFromLeft (btnW)); r.removeFromLeft (gap * 3);
-
-        bpmLabel .setBounds (r.removeFromLeft (90));   r.removeFromLeft (gap * 2);
-        snapCombo.setBounds (r.removeFromLeft (62));   r.removeFromLeft (gap * 2);
+        // ── LINK pinned to far right ──────────────────────────────────────
         if (linkPtr != nullptr)
         {
-            posLabel.setBounds (r.removeFromRight (100));
-            linkBtn .setBounds (r.removeFromRight (btnW)); r.removeFromRight (gap * 2);
+            linkBtn.setBounds (bounds.removeFromRight (linkW));
+            bounds.removeFromRight (gap);
         }
-        else
-        {
-            posLabel.setBounds (r);
-        }
+
+        // ── pos display just left of LINK (or right edge) ─────────────────
+        posLabel.setBounds (bounds.removeFromRight (posW));
+        bounds.removeFromRight (gap * 2);
+
+        // ── snap combo ────────────────────────────────────────────────────
+        snapCombo.setBounds (bounds.removeFromRight (snapW));
+        bounds.removeFromRight (gap * 2);
+
+        // ── BPM field ─────────────────────────────────────────────────────
+        bpmLabel.setBounds (bounds.removeFromRight (bpmW));
+        bounds.removeFromRight (gap * 4);
+
+        // ── Transport buttons: centered in the remaining space ────────────
+        const int nBtns     = 5;  // rewind, play, stop, rec, loop
+        const int totalBtns = nBtns * btnW + (nBtns - 1) * gap;
+        const int leftPad   = juce::jmax (0, (bounds.getWidth() - totalBtns) / 2);
+        auto row = bounds.withTrimmedLeft (leftPad);
+
+        rewindBtn.setBounds (row.removeFromLeft (btnW)); row.removeFromLeft (gap);
+        playBtn  .setBounds (row.removeFromLeft (btnW)); row.removeFromLeft (gap);
+        stopBtn  .setBounds (row.removeFromLeft (btnW)); row.removeFromLeft (gap);
+        recBtn   .setBounds (row.removeFromLeft (btnW)); row.removeFromLeft (gap);
+        loopBtn  .setBounds (row.removeFromLeft (btnW));
     }
 
     void paint (juce::Graphics& g) override
