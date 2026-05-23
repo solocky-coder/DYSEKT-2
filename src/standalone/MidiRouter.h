@@ -63,12 +63,6 @@ public:
         deviceNames.clear();
         deviceIdentifiers.clear();
 
-        // Virtual port always first (macOS/Linux only)
-       #if JUCE_MAC || JUCE_LINUX
-        deviceNames.add ("DYSEKT (Virtual)");
-        deviceIdentifiers.add ("__virtual__");
-       #endif
-
         for (const auto& d : available)
         {
             deviceNames.add (d.name);
@@ -85,11 +79,6 @@ public:
             }
         }
 
-        // Ensure virtual port is open if platform supports it
-       #if JUCE_MAC || JUCE_LINUX
-        if (virtualOutput == nullptr)
-            virtualOutput = juce::MidiOutput::createNewDevice ("DYSEKT");
-       #endif
     }
 
     juce::StringArray getOutputDeviceNames() const
@@ -103,9 +92,6 @@ public:
         const juce::ScopedLock sl (routeLock);
         if (! juce::isPositiveAndBelow (deviceIndex, deviceIdentifiers.size()))
             return false;
-       #if JUCE_MAC || JUCE_LINUX
-        if (deviceIndex == 0) return virtualOutput != nullptr;
-       #endif
         const juce::String& id = deviceIdentifiers[deviceIndex];
         for (const auto& h : openOutputHandles)
             if (h == id) return true;
@@ -116,14 +102,6 @@ public:
     {
         const juce::ScopedLock sl (routeLock);
         if (! juce::isPositiveAndBelow (deviceIndex, deviceIdentifiers.size())) return;
-
-       #if JUCE_MAC || JUCE_LINUX
-        if (deviceIndex == 0)
-        {
-            // Virtual port — always open, ignore toggle
-            return;
-        }
-       #endif
 
         const juce::String& id = deviceIdentifiers[deviceIndex];
 
@@ -267,13 +245,6 @@ public:
 
             // Find the target output handle
             juce::MidiOutput* target = nullptr;
-           #if JUCE_MAC || JUCE_LINUX
-            if (route.outputDeviceIndex == 0)
-            {
-                target = virtualOutput.get();
-            }
-            else
-           #endif
             {
                 const juce::String& targetId = deviceIdentifiers[route.outputDeviceIndex];
                 for (size_t k = 0; k < openOutputHandles.size(); ++k)
@@ -325,11 +296,6 @@ public:
         if (thruIdx < 0) return;
 
         juce::MidiOutput* target = nullptr;
-       #if JUCE_MAC || JUCE_LINUX
-        if (thruIdx == 0)
-            target = virtualOutput.get();
-        else
-       #endif
         {
             if (thruIdx < (int) deviceIdentifiers.size())
             {
@@ -405,15 +371,10 @@ private:
         const juce::ScopedLock sl (routeLock);
         openOutputs.clear();
         openOutputHandles.clear();
-        virtualOutput.reset();
     }
 
     void sendToAllOpenOutputs (const juce::MidiMessage& msg)
     {
-       #if JUCE_MAC || JUCE_LINUX
-        if (virtualOutput != nullptr)
-            virtualOutput->sendMessageNow (msg);
-       #endif
         for (auto& out : openOutputs)
             if (out) out->sendMessageNow (msg);
     }
@@ -428,10 +389,6 @@ private:
 
     std::vector<std::unique_ptr<juce::MidiOutput>> openOutputs;
     std::vector<juce::String>                       openOutputHandles;
-
-   #if JUCE_MAC || JUCE_LINUX
-    std::unique_ptr<juce::MidiOutput> virtualOutput;
-   #endif
 
     std::vector<MidiTrackRoute> trackRoutes;   // index == sequencer track index
     int                         thruOutputDeviceIndex = -1;
