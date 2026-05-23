@@ -164,11 +164,12 @@ public:
     ~TransportBar() override
     {
         stopTimer();
-        // Detach custom LAF before destruction
-        for (auto* c : { (juce::Component*)&rewindBtn, &playBtn, &stopBtn,
-                          &recBtn, &loopBtn, &linkBtn })
-            if (auto* b = dynamic_cast<juce::Button*>(c))
-                b->setLookAndFeel (nullptr);
+        rewindBtn.setLookAndFeel (nullptr);
+        playBtn  .setLookAndFeel (nullptr);
+        stopBtn  .setLookAndFeel (nullptr);
+        recBtn   .setLookAndFeel (nullptr);
+        loopBtn  .setLookAndFeel (nullptr);
+        linkBtn  .setLookAndFeel (nullptr);
     }
 
     //==========================================================================
