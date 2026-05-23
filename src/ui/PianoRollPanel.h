@@ -172,6 +172,7 @@ public:
     //  Forwarded accessors (so PluginEditor can reach panel internals)
     void setActiveTool (PianoRollComponent::Tool t)   { panel.setActiveTool (t); }
     SequencerTrackInfo getTrackInfo (int i) const     { return panel.getTrackInfo (i); }
+    void syncSnap()                                    { panel.syncSnap(); }
 
     void onSliceChromaticToggled (int si, bool en, int ch,
                                   const juce::String& name, juce::Colour col)

@@ -134,9 +134,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
     // Wire ArrangeView double-click → show PianoRollPanel as overlay
     arrangeView.onClipDoubleClicked = [this] (int trackIndex, int clipIndex)
     {
-        pianoRollPanel.setActiveTrackPublic (trackIndex, clipIndex);
-        pianoRollPanel.setVisible (true);
-        pianoRollPanel.toFront (false);
+        pianoRollPanel.openFor (trackIndex, clipIndex);
         resized();
     };
 
