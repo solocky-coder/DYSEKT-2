@@ -378,14 +378,11 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     addChildComponent (fileBrowser);
 
     // ── SF2 program grid ──────────────────────────────────────────────────────
-    programGrid.onPresetSelected = [this] (int idx)
-    {
-        processor.sfzPlayer.setPresetByIndex (idx);
-        if (processor.sfzPlayer.isLoaded())
-            reloadZones (processor.sfzPlayer.getLoadedFile());
-        closeProgramGrid();
-        repaint();
-    };
+    // Left-click in the grid auditions the preset (handled by onPreviewToggled).
+    // It must NOT close the grid — the grid stays open until the user explicitly
+    // navigates away. Nulling onPresetSelected prevents the fallback close path
+    // in Sf2ProgramGrid::mouseDown from firing.
+    programGrid.onPresetSelected = nullptr;
     programGrid.onChannelChanged = [this] (int ch)
     {
         processor.sfzPlayer.setMidiChannel (ch);
