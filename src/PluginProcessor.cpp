@@ -2565,7 +2565,9 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         // Re-stamp all live input to the selected track's channel so the VoicePool
         // routes correctly (chromatic slices key off channel number).
-        // Only applies in Sequencer mode; ch 0 means SfPlayer track selected (skip).
+        // liveCh == 0 means an SF-player track is selected: sfzPlayer owns live
+        // input via liveInputChannelMask, so replace the buffer going to processMidi
+        // with sequencer-only events to prevent the VoicePool from double-triggering.
         const int liveCh = sequencer.getSelectedLiveChannel();
         if (liveCh > 0)
         {
@@ -2577,10 +2579,18 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 auto m = msg; m.setChannel (liveCh); restamped.addEvent (m, meta.samplePosition);
             }
             midi = restamped;
-        }
 
-        if (sequencer.isPlaying())
-            midi.addEvents (seqEvents, 0, buffer.getNumSamples(), 0);
+            if (sequencer.isPlaying())
+                midi.addEvents (seqEvents, 0, buffer.getNumSamples(), 0);
+        }
+        else
+        {
+            // SF-player track selected (or nothing selected): processMidi/VoicePool
+            // only sees sequencer playback events — live notes go to sfzPlayer only.
+            midi.clear();
+            if (sequencer.isPlaying())
+                midi.addEvents (seqEvents, 0, buffer.getNumSamples(), 0);
+        }
     }
 #endif
 

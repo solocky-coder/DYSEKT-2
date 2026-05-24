@@ -554,6 +554,13 @@ void DysektEditor::toggleSeqPanel()
         headerBar.setSeqActive (false);
         // Sequencer closed — return live MIDI to whichever front-end is showing.
         syncMidiRouteMode();
+#if DYSEKT_STANDALONE
+        // Clear sequencer live-input and recording state so a closed sequencer
+        // doesn't keep recording into a track or routing notes to a stale channel.
+        processor.sequencer.setSelectedLiveChannel (0);
+        processor.sequencer.setSelectedSfLiveChannels (0);
+        processor.sequencer.setRecordingTrack (-1);
+#endif
     } else {
         // Close any currently open slot
         if (activeSlot == SlotContent::Mixer) {
