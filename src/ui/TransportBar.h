@@ -5,63 +5,64 @@
 #include "DysektLookAndFeel.h"
 
 //==============================================================================
-//  TransportLAF  —  TouchDAW-style coloured filled transport buttons
+//  TransportLAF  —  flat tile buttons with a small coloured indicator dot
 //==============================================================================
 class TransportLAF : public DysektLookAndFeel
 {
 public:
-    // Each button registered here gets a specific fill colour
-    void registerBtn (juce::Button* b, juce::Colour baseCol)
+    // Register a semantic colour for the indicator dot of each button.
+    void registerBtn (juce::Button* b, juce::Colour dotCol)
     {
-        colours[b] = baseCol;
+        colours[b] = dotCol;
     }
 
     void drawButtonBackground (juce::Graphics& g, juce::Button& btn,
                                const juce::Colour& /*bgColour*/,
                                bool isHighlighted, bool isDown) override
     {
-        auto bounds = btn.getLocalBounds().toFloat().reduced (1.5f);
-        const float r = 5.f;
+        auto bounds = btn.getLocalBounds().toFloat().reduced (1.0f);
+        const float r = 4.f;
 
-        juce::Colour base = colours.count (&btn) ? colours.at (&btn)
-                                                 : getTheme().button;
-
-        // Toggle-on buttons (rec armed, loop on) glow at full saturation
-        const bool on = btn.getToggleState();
-        juce::Colour fill = on   ? base
-                          : isDown ? base.withAlpha (0.75f)
-                          : isHighlighted ? base.withAlpha (0.35f)
-                          : base.withAlpha (0.18f);
-
-        // Subtle bevel — slightly lighter top edge
-        g.setColour (fill.brighter (0.15f));
+        // Flat dark tile — slightly lighter on hover/press
+        const juce::Colour tile = isDown        ? juce::Colour (0xff2a2a2a)
+                                : isHighlighted ? juce::Colour (0xff222222)
+                                                : juce::Colour (0xff181818);
+        g.setColour (tile);
         g.fillRoundedRectangle (bounds, r);
-        g.setColour (fill);
-        g.fillRoundedRectangle (bounds.reduced (0, 1), r);
 
-        // Border
-        juce::Colour border = on ? base.brighter (0.4f) : base.withAlpha (0.55f);
-        g.setColour (border);
-        g.drawRoundedRectangle (bounds, r, 1.f);
+        // Hairline border — just enough to separate from the background
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.drawRoundedRectangle (bounds, r, 0.5f);
+
+        // Indicator dot — top-right corner, only when the button is on
+        const bool on = btn.getToggleState();
+        if (on)
+        {
+            const juce::Colour dot = colours.count (&btn) ? colours.at (&btn)
+                                                          : juce::Colours::white;
+            const float dotR = 2.8f;
+            const float dotX = bounds.getRight() - dotR * 2.f - 2.f;
+            const float dotY = bounds.getY()     + 2.f;
+            g.setColour (dot);
+            g.fillEllipse (dotX, dotY, dotR * 2.f, dotR * 2.f);
+        }
     }
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& btn,
                          bool /*isHighlighted*/, bool isDown) override
     {
-        const bool on   = btn.getToggleState();
+        const bool on = btn.getToggleState();
+
+        // Active: use the dot colour so icon and dot share the same hue
         juce::Colour base = colours.count (&btn) ? colours.at (&btn)
-                                                 : getTheme().foreground;
-
-        // When active, use the base colour at full brightness; otherwise dim white
-        juce::Colour textCol = on || isDown ? base.brighter (0.5f)
-                                            : juce::Colours::white.withAlpha (0.75f);
+                                                 : juce::Colours::white;
+        const juce::Colour textCol = on    ? base.brighter (0.3f).withAlpha (0.95f)
+                                   : isDown ? juce::Colours::white.withAlpha (0.90f)
+                                           : juce::Colours::white.withAlpha (0.50f);
         g.setColour (textCol);
-
-        // Use system font for symbol glyphs at a readable size
-        const juce::String txt = btn.getButtonText();
-        const bool isSymbol = (txt.length() <= 3);
-        g.setFont (isSymbol ? juce::Font (15.f) : DysektLookAndFeel::makeFont (11.f));
-        g.drawText (txt, btn.getLocalBounds(), juce::Justification::centred, false);
+        g.setFont (juce::Font (15.f));
+        g.drawText (btn.getButtonText(), btn.getLocalBounds(),
+                    juce::Justification::centred, false);
     }
 
 private:
@@ -98,17 +99,18 @@ public:
         };
 
         // Unicode glyphs: rewind ⏮  play ▶  stop ■  rec ⏺  loop ↻
-        addBtn (rewindBtn, juce::String::fromUTF8 ("\xe2\x8f\xae"),  cRewind); // ⏮
-        addBtn (playBtn,   juce::String::fromUTF8 ("\xe2\x96\xb6"),  cPlay);   // ▶
-        addBtn (stopBtn,   juce::String::fromUTF8 ("\xe2\x96\xa0"),  cStop);   // ■
-        addBtn (recBtn,    juce::String::fromUTF8 ("\xe2\x8f\xba"),  cRec,  true); // ⏺
-        addBtn (loopBtn,   juce::String::fromUTF8 ("\xe2\x86\xbb"),  cLoop, true); // ↻
+        addBtn (rewindBtn, juce::String::fromUTF8 ("\xe2\x8f\xae"),  cRewind);        // ⏮
+        addBtn (playBtn,   juce::String::fromUTF8 ("\xe2\x96\xb6"),  cPlay,  true); // ▶ toggle — dot mirrors engine.isPlaying()
+        addBtn (stopBtn,   juce::String::fromUTF8 ("\xe2\x96\xa0"),  cStop);         // ■
+        addBtn (recBtn,    juce::String::fromUTF8 ("\xe2\x8f\xba"),  cRec,   true); // ⏺
+        addBtn (loopBtn,   juce::String::fromUTF8 ("\xe2\x86\xbb"),  cLoop,  true); // ↻
 
         loopBtn.setToggleState (true, juce::dontSendNotification);
 
-        rewindBtn.onClick    = [this] { engine.rewind(); };
-        playBtn.onClick      = [this] { engine.play();   };
-        stopBtn.onClick      = [this] { engine.stop();   };
+        rewindBtn.onClick = [this] { engine.rewind(); };
+        // playBtn is a visual toggle only — timerCallback() syncs its state to engine.isPlaying()
+        playBtn.onClick   = [this] { engine.play(); playBtn.setToggleState (engine.isPlaying(), juce::dontSendNotification); };
+        stopBtn.onClick   = [this] { engine.stop(); };
         recBtn.onStateChange  = [this] { engine.setRecording (recBtn.getToggleState()); };
         loopBtn.onStateChange = [this] { engine.setLooping   (loopBtn.getToggleState()); };
 
@@ -250,6 +252,11 @@ private:
     void timerCallback() override
     {
         const auto& t = getTheme();
+
+        // Mirror engine play state onto playBtn toggle so the dot shows while playing
+        const bool playing = engine.isPlaying();
+        if (playBtn.getToggleState() != playing)
+            playBtn.setToggleState (playing, juce::dontSendNotification);
 
         // BPM
         if (! bpmLabel.isBeingEdited())
