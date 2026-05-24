@@ -26,17 +26,21 @@ void Sf2ProgramGrid::setPresets (const std::vector<Sf2PresetInfo>& list,
                                   int currentIndex,
                                   int currentMidiChannel)
 {
-    presets    = list;
-    // Don't auto-select index 0 — only highlight a preset the user has
-    // explicitly clicked or assigned a MIDI channel to.
-    if (currentIndex < 0 || midiCh == 0)
-        currentIdx = -1;
-    else
-        currentIdx = currentIndex;
-    midiCh     = currentMidiChannel;
-    hoveredCell = -1;
-    previewIdx  = -1;
-    scrollY    = 0;
+    const bool firstLoad = presets.empty();
+    presets = list;
+    midiCh  = currentMidiChannel;
+
+    // On first load only: start with nothing highlighted.
+    // After that, preserve whatever the user has radio-selected (previewIdx/currentIdx)
+    // so that timer-driven refreshes don't wipe the selection state.
+    if (firstLoad)
+    {
+        currentIdx  = -1;
+        previewIdx  = -1;
+        hoveredCell = -1;
+        scrollY     = 0;
+    }
+
     rebuildLayout();
     repaint();
 }
@@ -328,19 +332,8 @@ void Sf2ProgramGrid::mouseDown (const juce::MouseEvent& e)
     }
     else
     {
-        // Commit the selection immediately so the preset becomes active.
-        // onPresetSelected → setPresetByIndex + closeProgramGrid, so the grid
-        // will be hidden after this call; skip the preview toggle in that case.
-        currentIdx = idx;
-        if (onPresetSelected)
-        {
-            onPresetSelected (idx);
-            // closeProgramGrid() was called inside onPresetSelected; no need to
-            // update previewIdx or repaint a grid that is now hidden.
-            return;
-        }
-
-        // Fallback (no onPresetSelected wired): radio-button preview toggle.
+        // Radio-button preview toggle — left-click auditions, click again to deactivate.
+        // currentIdx is only set via right-click channel assignment, never on left-click.
         if (idx == previewIdx)
         {
             previewIdx = -1;

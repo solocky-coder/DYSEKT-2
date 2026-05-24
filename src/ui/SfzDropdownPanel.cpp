@@ -973,9 +973,6 @@ void SfzDropdownPanel::timerCallback()
 
     presetList = processor.sfzPlayer.getPresetList();
 
-    if (programPickerOpen)
-        programGrid.setCurrentIndex (processor.sfzPlayer.getCurrentPresetIndex());
-
     repaint();
 }
 

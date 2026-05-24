@@ -334,7 +334,13 @@ void SfzPlayer::previewPreset (int bank, int preset)
     jassert (! isSfzFile);
     if (isSfzFile) return;
 
-    setPresetOnChannel (kPreviewChannel, bank, preset);
+    // Load onto both the preview channel (15) AND channel 0.
+    // Channel 0 is the default FluidSynth playback channel; without this,
+    // any MIDI not explicitly fan-fanned to ch15 still hits ch0 and plays
+    // whatever preset was loaded at startup (always preset 0).
+    setPresetOnChannel (0,                bank, preset);
+    setPresetOnChannel (kPreviewChannel,  bank, preset);
+
     // Route live controller input to the preview channel.
     const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
     liveInputChannelMask.store (mask | (uint16_t(1) << kPreviewChannel),
@@ -347,7 +353,9 @@ void SfzPlayer::clearPreview()
     const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
     liveInputChannelMask.store (mask & ~(uint16_t(1) << kPreviewChannel),
                                 std::memory_order_relaxed);
-    // Reset channel 15 to GM piano so it stays silent until next preview.
+    // Reset both the preview channel and ch0 to GM piano so neither plays
+    // the previously-auditioned preset after the preview is dismissed.
+    setPresetOnChannel (0,               0, 0);
     setPresetOnChannel (kPreviewChannel, 0, 0);
 }
 
