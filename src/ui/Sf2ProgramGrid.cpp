@@ -28,17 +28,17 @@ void Sf2ProgramGrid::setPresets (const std::vector<Sf2PresetInfo>& list,
 {
     const bool firstLoad = presets.empty();
     presets = list;
-    midiCh  = currentMidiChannel;
+    // midiCh is now per-preset — don't reset presetChannels here.
+    // (currentMidiChannel parameter kept for API compatibility but ignored.)
 
     // On first load only: start with nothing highlighted.
-    // After that, preserve whatever the user has radio-selected (previewIdx/currentIdx)
-    // so that timer-driven refreshes don't wipe the selection state.
     if (firstLoad)
     {
-        currentIdx  = -1;
-        previewIdx  = -1;
-        hoveredCell = -1;
-        scrollY     = 0;
+        currentIdx    = -1;
+        previewIdx    = -1;
+        hoveredCell   = -1;
+        presetChannels.clear();
+        scrollY       = 0;
     }
 
     rebuildLayout();
@@ -235,14 +235,31 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                                 juce::Justification::centredLeft, false);
                 }
 
+                // MIDI channel badge (bottom-right corner) — only when assigned
+                const int assignedCh = presetChannels.count (idx) ? presetChannels.at (idx) : 0;
+                if (assignedCh > 0)
+                {
+                    const juce::String chLabel = "ch" + juce::String (assignedCh);
+                    const int bw = 22, bh = 11;
+                    const auto badgeR = juce::Rectangle<int> (
+                        cell.getRight() - bw - 2, cell.getBottom() - bh - 2, bw, bh);
+                    g.setColour (theme.accent.withAlpha (0.85f));
+                    g.fillRoundedRectangle (badgeR.toFloat(), 2.f);
+                    g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
+                    g.setColour (theme.darkBar);
+                    g.drawText (chLabel, badgeR, juce::Justification::centred, false);
+                }
+
                 // Preset name (centred)
                 {
                     g.setFont (DysektLookAndFeel::makeFont (12.0f));
                     g.setColour (isPreviewing ? theme.foreground.brighter (0.2f).withAlpha (0.95f)
                                  : isSelected ? theme.foreground.brighter (0.1f)
                                              : theme.foreground.withAlpha (0.78f));
-                    g.drawText (info.name, cell.reduced (3, 0),
-                                juce::Justification::centred, true);
+                    // Shrink name area if channel badge is showing
+                    const auto nameRect = assignedCh > 0 ? cell.reduced (3, 0).withTrimmedBottom (12)
+                                                         : cell.reduced (3, 0);
+                    g.drawText (info.name, nameRect, juce::Justification::centred, true);
                 }
             }
             y += kCellH;
@@ -371,15 +388,26 @@ void Sf2ProgramGrid::scrollBarMoved (juce::ScrollBar*, double newRangeStart)
 void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
 {
     juce::PopupMenu menu;
-    menu.addSectionHeader ("MIDI Input Channel");
+    menu.addSectionHeader ("Assign MIDI Channel");
     menu.addSeparator();
 
-    const int current = midiCh;
+    const int current = presetChannels.count (presetIdx) ? presetChannels.at (presetIdx) : 0;
 
-    menu.addItem (1, "Omni (all channels)", true, current == 0);
-    menu.addSeparator();
     for (int ch = 1; ch <= 16; ++ch)
-        menu.addItem (100 + ch, "Channel " + juce::String (ch), true, current == ch);
+    {
+        // Mark channel as used by another preset so user can see what's taken
+        bool usedByOther = false;
+        for (auto& kv : presetChannels)
+            if (kv.first != presetIdx && kv.second == ch)
+                usedByOther = true;
+
+        const juce::String label = "Channel " + juce::String (ch)
+                                   + (usedByOther ? "  [in use]" : "");
+        menu.addItem (100 + ch, label, true, current == ch);
+    }
+
+    menu.addSeparator();
+    menu.addItem (1, "Deactivate", current != 0);
 
     auto* topLvl = getTopLevelComponent();
     float ms = DysektLookAndFeel::getMenuScale();
@@ -392,13 +420,12 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
         {
             if (result == 1)
             {
-                midiCh = 0;
-                if (onChannelChanged) onChannelChanged (0);
+                // Deactivate — remove channel assignment for this preset
+                presetChannels.erase (presetIdx);
+                if (onChannelChanged) onChannelChanged (presetIdx, 0);
 
-                // Assigning Omni while a preview is active: the preview channel
-                // (ch15) is no longer meaningful — clear it so the live mask
-                // doesn't keep an orphaned ch15 bit.
-                if (this->previewIdx >= 0)
+                // If this was the previewed preset, clear preview too
+                if (this->previewIdx == presetIdx)
                 {
                     this->previewIdx = -1;
                     if (onPreviewToggled) onPreviewToggled (-1);
@@ -406,12 +433,11 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
             }
             else if (result >= 101 && result <= 116)
             {
-                midiCh = result - 100;
-                if (onChannelChanged) onChannelChanged (midiCh);
+                const int ch = result - 100;
+                presetChannels[presetIdx] = ch;
+                if (onChannelChanged) onChannelChanged (presetIdx, ch);
 
-                // Keep the preview toggle alive but mark this preset as the
-                // one being previewed — the panel will reroute the live mask
-                // to the newly assigned real channel.
+                // Mark as the active preview so the live dot shows
                 this->previewIdx = presetIdx;
                 if (onPreviewToggled) onPreviewToggled (presetIdx);
             }

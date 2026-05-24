@@ -384,26 +384,76 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     // navigates away. Nulling onPresetSelected prevents the fallback close path
     // in Sf2ProgramGrid::mouseDown from firing.
     programGrid.onPresetSelected = nullptr;
-    programGrid.onChannelChanged = [this] (int ch)
+    // ── Multitimbral channel assignment ──────────────────────────────────────
+    // Right-click on a cell calls this with the preset index and the chosen
+    // MIDI channel (1-16), or ch==0 to deactivate.
+    //
+    // For each assigned preset:
+    //   • Load it onto its FluidSynth channel (ch-1) via setPresetOnChannel()
+    //   • Add its bit to liveInputChannelMask so a ch-1 controller fans out to it
+    //
+    // On deactivate:
+    //   • Clear the FluidSynth channel (load GM piano / silence)
+    //   • Remove its bit from liveInputChannelMask
+    programGrid.onChannelChanged = [this] (int presetIdx, int ch)
     {
-        processor.sfzPlayer.setMidiChannel (ch);
+        if (presetIdx < 0 || presetIdx >= (int) presetList.size()) return;
+        const auto& info = presetList[(size_t) presetIdx];
 
-        // Fire the standalone sequencer callback with the active preset info
-        if (onPresetChannelAssigned && ! presetList.empty())
+        if (ch == 0)
         {
-            const int idx = juce::jlimit (0, (int) presetList.size() - 1,
-                                          processor.sfzPlayer.getCurrentPresetIndex());
-            onPresetChannelAssigned (presetList[(size_t) idx], ch);
+            // Deactivate — find which FluidSynth channel this preset was on
+            // by scanning the grid's presetChannels map (we don't store it here,
+            // so we rebuild the live mask from scratch from whatever remains).
+            // Simplest: just rebuild the full mask from the grid's current map.
+            uint16_t newMask = 0;
+            const auto& chMap = programGrid.getPresetChannels();
+            for (auto& kv : chMap)
+            {
+                if (kv.first == presetIdx) continue;  // this one is being removed
+                if (kv.second >= 1 && kv.second <= 16)
+                    newMask |= uint16_t(1) << (kv.second - 1);
+            }
+            // Silence all 16 FluidSynth channels, then reload only the
+            // still-assigned presets.  This is the safest way to remove one
+            // entry without needing to track which channel it was on here.
+            for (int c = 0; c < 16; ++c)
+                processor.sfzPlayer.setPresetOnChannel (c, 0, 0);
+
+            for (auto& kv : chMap)
+            {
+                if (kv.first == presetIdx) continue;
+                if (kv.second >= 1 && kv.second <= 16 && kv.first < (int)presetList.size())
+                    processor.sfzPlayer.setPresetOnChannel (kv.second - 1,
+                                                            presetList[(size_t)kv.first].bank,
+                                                            presetList[(size_t)kv.first].preset);
+            }
+            processor.sfzPlayer.setLiveInputChannelMask (newMask);
+
+            if (onPresetChannelAssigned)
+                onPresetChannelAssigned (info, 0);
+        }
+        else
+        {
+            // Assign: load preset onto FluidSynth channel (ch-1, 0-based)
+            processor.sfzPlayer.setPresetOnChannel (ch - 1, info.bank, info.preset);
+
+            // Add this channel to the live fan-out mask
+            uint16_t mask = processor.sfzPlayer.getLiveInputChannelMask();
+            mask |= uint16_t(1) << (ch - 1);
+            // Remove ch15 (preview slot) — real assignment supersedes it
+            mask &= ~(uint16_t(1) << 15);
+            processor.sfzPlayer.setLiveInputChannelMask (mask);
+
+            if (onPresetChannelAssigned)
+                onPresetChannelAssigned (info, ch);
         }
     };
 
     // ── Preview toggle: left-click radio ─────────────────────────────────────
-    // index == -1  → user toggled off; clear the preview.
-    // index >= 0   → user toggled on (or a real channel was just assigned while
-    //                previewing): load preset onto ch15 + route live input.
-    //                If onChannelChanged already put the preset on a real channel,
-    //                midiCh on the grid has been updated, so we point the live mask
-    //                at that real channel instead of ch15.
+    // index == -1 → deactivate preview; index >= 0 → audition on ch15.
+    // If the preset already has a real channel assigned, left-click just
+    // highlights it visually — no need to re-route anything.
     programGrid.onPreviewToggled = [this] (int idx)
     {
         if (idx < 0)
@@ -415,23 +465,14 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
         if (idx >= (int) presetList.size()) return;
         const auto& info = presetList[(size_t) idx];
 
-        // Check if this preset already has a real MIDI channel assigned
-        // by inspecting the current live mask vs ch15.
-        const uint16_t mask = processor.sfzPlayer.getLiveInputChannelMask();
-        const uint16_t ch15bit = uint16_t(1) << 15;
+        // If this preset already has a real MIDI channel assigned, the audio
+        // routing is already correct — just highlight it visually.
+        const auto& chMap = programGrid.getPresetChannels();
+        if (chMap.count (idx) && chMap.at (idx) >= 1)
+            return;  // already routed on a real channel
 
-        if (mask & ~ch15bit)
-        {
-            // At least one non-preview channel is already live — the preset
-            // was just assigned a real channel via right-click → onChannelChanged.
-            // Keep the existing real-channel routing; just make sure ch15 is cleared.
-            processor.sfzPlayer.setLiveInputChannelMask (mask & ~ch15bit);
-        }
-        else
-        {
-            // Pure audition: load onto ch15 and route live input there.
-            processor.sfzPlayer.previewPreset (info.bank, info.preset);
-        }
+        // Pure audition: load onto ch15 and route live input there.
+        processor.sfzPlayer.previewPreset (info.bank, info.preset);
     };
     addChildComponent (programGrid);
 

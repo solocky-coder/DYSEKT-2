@@ -1,3 +1,4 @@
+#include <unordered_map>
 #pragma once
 // =============================================================================
 //  Sf2ProgramGrid.h  —  Korg-M1-style preset grid for SF2 banks
@@ -16,7 +17,8 @@ class Sf2ProgramGrid : public juce::Component,
 public:
     // ── Callbacks wired by SfzDropdownPanel ──────────────────────────────────
     std::function<void (int index)> onPresetSelected;
-    std::function<void (int ch)>    onChannelChanged;   // 0 = omni, 1-16
+    // ch == 0 → deactivate/remove assignment; ch 1-16 → assign that MIDI channel
+    std::function<void (int presetIdx, int ch)> onChannelChanged;
 
     /** Fired when the preview toggle changes.
      *  index == -1  → preview cleared.
@@ -29,6 +31,9 @@ public:
     void setPresets  (const std::vector<Sf2PresetInfo>& list, int currentIndex,
                       int currentMidiChannel);
     void setCurrentIndex (int idx);
+
+    /** Read-only access to the current per-preset channel assignments. */
+    const std::unordered_map<int,int>& getPresetChannels() const noexcept { return presetChannels; }
 
     /** Clear the preview toggle without firing onPreviewToggled.
      *  Called by SfzDropdownPanel when the grid is closed or a real
@@ -57,7 +62,8 @@ private:
 
     std::vector<Sf2PresetInfo> presets;
     int   currentIdx     { -1 };
-    int   midiCh         { 0 };
+    // Maps preset index → assigned MIDI channel (1-16). 0/absent = not assigned.
+    std::unordered_map<int,int> presetChannels;
     int   hoveredCell    { -1 };
     int   previewIdx     { -1 };  ///< index of currently-previewing preset, or -1
 
