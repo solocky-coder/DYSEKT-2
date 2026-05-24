@@ -638,7 +638,10 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     processor.sfzPlayer.loadFile (f);
     reloadZones (f);
     closeBrowser();
-    closeProgramGrid();
+    if (f.getFileExtension().toLowerCase() == ".sf2")
+        openProgramGrid();
+    else
+        closeProgramGrid();
     repaint();
 
     if (onFileLoaded)
@@ -1314,6 +1317,10 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
             processor.sfzPlayer.loadFile (file);
             reloadZones (file);
             closeBrowser();
+            if (ext == ".sf2")
+                openProgramGrid();
+            else
+                closeProgramGrid();
             repaint();
             return;
         }
@@ -1337,7 +1344,12 @@ void SfzDropdownPanel::panelDidShow()
     }
 
     if (processor.sfzPlayer.isLoaded())
-        reloadZones (processor.sfzPlayer.getLoadedFile());
+    {
+        const auto f = processor.sfzPlayer.getLoadedFile();
+        reloadZones (f);
+        if (f.getFileExtension().toLowerCase() == ".sf2" && ! programPickerOpen)
+            openProgramGrid();
+    }
     else
         initEmptySfz();   // bootstrap so [+ ZONE] is available and zones show immediately
     resized();

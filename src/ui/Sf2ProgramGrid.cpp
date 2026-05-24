@@ -27,7 +27,12 @@ void Sf2ProgramGrid::setPresets (const std::vector<Sf2PresetInfo>& list,
                                   int currentMidiChannel)
 {
     presets    = list;
-    currentIdx = currentIndex;
+    // Don't auto-select index 0 — only highlight a preset the user has
+    // explicitly clicked or assigned a MIDI channel to.
+    if (currentIndex < 0 || midiCh == 0)
+        currentIdx = -1;
+    else
+        currentIdx = currentIndex;
     midiCh     = currentMidiChannel;
     hoveredCell = -1;
     previewIdx  = -1;
@@ -181,21 +186,17 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 // Cell background
                 if (isPreviewing)
                 {
-                    // Preview colour: rotate the accent hue by 150° so it stays
-                    // visually distinct from the selected state on every theme.
-                    const auto previewColour = theme.accent
-                                                   .withRotatedHue (150.0f / 360.0f)
-                                                   .withSaturation (juce::jmax (0.55f, theme.accent.getSaturation()))
-                                                   .withBrightness (juce::jmax (0.70f, theme.accent.getBrightness()));
-                    g.setColour (previewColour.withAlpha (0.22f));
+                    // Use the theme accent colour directly — same family as selected,
+                    // but brighter fill so it reads as "active/auditing".
+                    g.setColour (theme.accent.withAlpha (0.35f));
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
-                    g.setColour (previewColour.withAlpha (0.80f));
+                    g.setColour (theme.accent.withAlpha (0.90f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.5f);
 
                     // Small "live" dot in top-right corner
                     const auto dot = juce::Rectangle<float> (
                         (float)(cell.getRight() - 7), (float)(cell.getY() + 3), 4.f, 4.f);
-                    g.setColour (previewColour);
+                    g.setColour (theme.accent);
                     g.fillEllipse (dot);
                 }
                 else if (isSelected)
@@ -223,7 +224,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                     const auto badge = cell.withWidth (22).withHeight (10)
                                            .withX (cell.getX() + 2).withY (cell.getY() + 2);
                     g.setFont (DysektLookAndFeel::makeFont (7.0f));
-                    g.setColour (isPreviewing ? theme.accent.withRotatedHue (150.0f / 360.0f).brighter (0.3f)
+                    g.setColour (isPreviewing ? theme.accent.brighter (0.3f)
                                  : isSelected ? theme.accent.brighter (0.2f)
                                              : theme.foreground.withAlpha (0.30f));
                     g.drawText (juce::String (info.preset), badge,
@@ -233,7 +234,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 // Preset name (centred)
                 {
                     g.setFont (DysektLookAndFeel::makeFont (9.0f));
-                    g.setColour (isPreviewing ? theme.accent.withRotatedHue (150.0f / 360.0f).brighter (0.5f).withAlpha (0.95f)
+                    g.setColour (isPreviewing ? theme.foreground.brighter (0.2f).withAlpha (0.95f)
                                  : isSelected ? theme.foreground.brighter (0.1f)
                                              : theme.foreground.withAlpha (0.78f));
                     g.drawText (info.name, cell.reduced (3, 0),
