@@ -73,7 +73,7 @@ private:
     bool                 navigated     { false };
 
     static constexpr int kBreadcrumbH = 22;
-    static constexpr int kRowH        = 18;
+    static constexpr int kRowH        = 26;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SfzFileBrowser)
 };

@@ -77,7 +77,7 @@ void SfzFileBrowser::paint (juce::Graphics& g)
     {
         const auto pathArea = breadcrumbZone.withTrimmedLeft (upBtnZone.getWidth() + 4)
                                             .withTrimmedRight (4);
-        g.setFont (DysektLookAndFeel::makeFont (9.5f));
+        g.setFont (DysektLookAndFeel::makeFont (12.0f));
         g.setColour (theme.foreground.withAlpha (0.55f));
 
         // Show last 2 path segments so it fits; show "Drives" in virtual-root mode
@@ -286,14 +286,14 @@ void SfzFileBrowser::paintListBoxItem (int row, juce::Graphics& g,
         g.fillAll();
     }
 
-    g.setFont (DysektLookAndFeel::makeFont (10.5f));
+    g.setFont (DysektLookAndFeel::makeFont (13.0f));
 
     if (isDir)
     {
         g.setColour (theme.accent.withAlpha (0.55f));
-        g.drawText (u8"\U0001F4C1", 3, 0, 16, h, juce::Justification::centredLeft, false);
+        g.drawText (u8"\U0001F4C1", 3, 0, 20, h, juce::Justification::centredLeft, false);
         g.setColour (selected ? theme.accent : theme.foreground.withAlpha (0.80f));
-        g.drawText (f.getFileName(), 22, 0, w - 26, h,
+        g.drawText (f.getFileName(), 26, 0, w - 30, h,
                     juce::Justification::centredLeft, true);
     }
     else
@@ -302,25 +302,25 @@ void SfzFileBrowser::paintListBoxItem (int row, juce::Graphics& g,
         const auto ext = f.getFileExtension().toUpperCase().trimCharactersAtStart (".");
         if (ext.isEmpty())
         {
-            g.setFont (DysektLookAndFeel::makeFont (10.5f));
+            g.setFont (DysektLookAndFeel::makeFont (13.0f));
             g.setColour (selected ? theme.accent : theme.foreground.withAlpha (0.80f));
             g.drawText (f.getFileName(), 6, 0, w - 10, h,
                         juce::Justification::centredLeft, true);
         }
         else
         {
-            const int  badgeW = 30;
-            const auto badgeRect = juce::Rectangle<int> (w - badgeW - 4, (h - 12) / 2, badgeW, 12);
+            const int  badgeW = 36;
+            const auto badgeRect = juce::Rectangle<int> (w - badgeW - 4, (h - 14) / 2, badgeW, 14);
             g.setColour (theme.accent.withAlpha (0.18f));
             g.fillRoundedRectangle (badgeRect.toFloat(), 2.0f);
-            g.setFont (DysektLookAndFeel::makeFont (8.0f));
+            g.setFont (DysektLookAndFeel::makeFont (10.0f));
             g.setColour (theme.accent.withAlpha (0.80f));
             g.drawText (ext, badgeRect, juce::Justification::centred, false);
 
             // Filename
-            g.setFont (DysektLookAndFeel::makeFont (10.5f));
+            g.setFont (DysektLookAndFeel::makeFont (13.0f));
             g.setColour (selected ? theme.accent : theme.foreground.withAlpha (0.80f));
-            g.drawText (f.getFileNameWithoutExtension(), 6, 0, w - badgeW - 12, h,
+            g.drawText (f.getFileNameWithoutExtension(), 6, 0, w - badgeW - 14, h,
                         juce::Justification::centredLeft, true);
         }
     }
@@ -788,7 +788,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
     // Folder icon (always visible — this is the open/close toggle)
     {
         const bool hover = folderIconZone.contains (getMouseXYRelative());
-        g.setFont (DysektLookAndFeel::makeFont (10.0f));
+        g.setFont (DysektLookAndFeel::makeFont (13.0f));
         g.setColour (browserOpen
                      ? theme.accent.withAlpha (0.90f)
                      : hover ? theme.accent.withAlpha (0.70f)
@@ -803,7 +803,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
         const bool hover  = zone.contains (getMouseXYRelative()) && active;
         g.setColour (hover ? theme.accent.withAlpha (0.30f) : juce::Colours::transparentBlack);
         g.fillRoundedRectangle (zone.toFloat(), 2.0f);
-        g.setFont (DysektLookAndFeel::makeFont (11.0f));
+        g.setFont (DysektLookAndFeel::makeFont (13.0f));
         g.setColour (active ? theme.accent.withAlpha (0.75f)
                             : theme.foreground.withAlpha (0.20f));
         g.drawText (sym, zone, juce::Justification::centred, false);
@@ -818,7 +818,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
         if (browserOpen)
         {
             // Browser is open — show a hint
-            g.setFont (DysektLookAndFeel::makeFont (10.0f));
+            g.setFont (DysektLookAndFeel::makeFont (12.0f));
             g.setColour (theme.accent.withAlpha (0.70f));
             g.drawText ("browsing files \u2014 double-click to load", lbl,
                         juce::Justification::centred, true);
@@ -826,21 +826,21 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
         else if (programPickerOpen)
         {
             // Program grid is open
-            g.setFont (DysektLookAndFeel::makeFont (10.0f));
+            g.setFont (DysektLookAndFeel::makeFont (12.0f));
             g.setColour (theme.accent.withAlpha (0.70f));
             g.drawText ("select a preset \u2014 right-click for MIDI ch", lbl,
                         juce::Justification::centred, true);
         }
         else if (! isLoaded)
         {
-            g.setFont (DysektLookAndFeel::makeFont (10.5f));
+            g.setFont (DysektLookAndFeel::makeFont (12.0f));
             g.setColour (theme.foreground.withAlpha (0.38f));
             g.drawText ("click \U0001F4C1 or drop a file", lbl,
                         juce::Justification::centred, false);
         }
         else if (presetList.empty())
         {
-            g.setFont (DysektLookAndFeel::makeFont (10.5f));
+            g.setFont (DysektLookAndFeel::makeFont (12.0f));
             g.setColour (theme.foreground.withAlpha (0.75f));
             g.drawText (processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension(),
                         lbl, juce::Justification::centred, true);
@@ -854,7 +854,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
             // Top mini-label
             {
                 auto topLine = lbl.removeFromTop (lbl.getHeight() / 2);
-                g.setFont (DysektLookAndFeel::makeFont (8.5f));
+                g.setFont (DysektLookAndFeel::makeFont (10.5f));
                 g.setColour (theme.foreground.withAlpha (0.38f));
                 const auto caption =
                     processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension()
@@ -864,7 +864,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
             }
 
             // Preset name
-            g.setFont (DysektLookAndFeel::makeFont (11.0f));
+            g.setFont (DysektLookAndFeel::makeFont (13.0f));
             g.setColour (theme.foreground);
             g.drawText (info.name, lbl, juce::Justification::centred, true);
         }
@@ -908,11 +908,11 @@ void SfzDropdownPanel::drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
     const int textX = cx + (int) r + 5;
     const int textW = bounds.getRight() - textX;
 
-    g.setFont (DysektLookAndFeel::makeFont (7.5f, true));
+    g.setFont (DysektLookAndFeel::makeFont (10.5f, true));
     g.setColour (theme.foreground.withAlpha (0.38f));
     g.drawText (label,    textX, cy - 10, textW, 10, juce::Justification::centredLeft, false);
 
-    g.setFont (DysektLookAndFeel::makeFont (8.5f));
+    g.setFont (DysektLookAndFeel::makeFont (11.5f));
     g.setColour (theme.foreground.withAlpha (0.82f));
     g.drawText (valueStr, textX, cy,      textW, 10, juce::Justification::centredLeft, false);
 }

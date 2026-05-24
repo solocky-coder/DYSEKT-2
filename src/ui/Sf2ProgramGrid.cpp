@@ -166,7 +166,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
             const auto hdrBounds = juce::Rectangle<int> (kPad, y, w, kHdrH);
             g.setColour (theme.accent.withAlpha (0.12f));
             g.fillRect (hdrBounds);
-            g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
+            g.setFont (DysektLookAndFeel::makeFont (11.0f, true));
             g.setColour (theme.accent.withAlpha (0.65f));
             g.drawText ("BANK " + juce::String (row.bank),
                         hdrBounds.reduced (4, 0),
@@ -227,7 +227,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 {
                     const auto badge = cell.withWidth (22).withHeight (10)
                                            .withX (cell.getX() + 2).withY (cell.getY() + 2);
-                    g.setFont (DysektLookAndFeel::makeFont (7.0f));
+                    g.setFont (DysektLookAndFeel::makeFont (9.5f));
                     g.setColour (isPreviewing ? theme.accent.brighter (0.3f)
                                  : isSelected ? theme.accent.brighter (0.2f)
                                              : theme.foreground.withAlpha (0.30f));
@@ -237,7 +237,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 
                 // Preset name (centred)
                 {
-                    g.setFont (DysektLookAndFeel::makeFont (9.0f));
+                    g.setFont (DysektLookAndFeel::makeFont (12.0f));
                     g.setColour (isPreviewing ? theme.foreground.brighter (0.2f).withAlpha (0.95f)
                                  : isSelected ? theme.foreground.brighter (0.1f)
                                              : theme.foreground.withAlpha (0.78f));
