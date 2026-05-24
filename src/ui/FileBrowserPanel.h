@@ -152,7 +152,6 @@ public:
                     juce::Justification::centredLeft, true);
     }
 
-    int getDefaultFileListRowHeight() override { return kRowHeight; }
     int smallRowHeight() const { return kRowHeight; }
 
     // Shared sizing constants — keep in sync with SfzFileBrowser::kRowH
