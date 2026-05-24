@@ -506,7 +506,9 @@ void SfzDropdownPanel::resized()
     // ── Keyboard panel ────────────────────────────────────────────────────────
     const int kbY = kStripH;  // ADSR is now in the top strip, no extra row
     const int kbH = juce::jmax (60, h - kbY);
-    keysPanel.setVisible (kbH > 0 && ! browserOpen && ! programPickerOpen);
+    const bool isSf2Loaded = processor.sfzPlayer.isLoaded()
+                             && processor.sfzPlayer.getLoadedFile().getFileExtension().toLowerCase() == ".sf2";
+    keysPanel.setVisible (kbH > 0 && ! browserOpen && ! programPickerOpen && ! isSf2Loaded);
     if (kbH > 0)
         keysPanel.setBounds (kPad, kbY, w - kPad * 2, kbH);
     else
@@ -1709,42 +1711,9 @@ void SfzDropdownPanel::reloadZones (const juce::File& f)
 
     if (isSf2)
     {
-        // ── SF2: show the full preset grid — no editing needed ───────────────
-        // Build one Keyzone row per preset so the sf2PresetListMode renderer
-        // in KeysPanel can display the same grid shown in the screenshot.
-        const auto presets    = processor.sfzPlayer.getPresetList();
-        const int  currentIdx = processor.sfzPlayer.getCurrentPresetIndex();
-
-        std::vector<KeysPanel::Keyzone> rows;
-        rows.reserve (presets.size());
-        for (size_t i = 0; i < presets.size(); ++i)
-        {
-            KeysPanel::Keyzone z;
-            z.name   = presets[i].name;
-            z.colour = zoneColourDP ((int) i);
-            z.loKey  = 0;
-            z.hiKey  = 127;
-            rows.push_back (z);
-        }
-
-        keysPanel.setSf2PresetListMode (true);
-        keysPanel.setSfzEditable (false);
-        keysPanel.setAddZoneButtonVisible (false);
-        keysPanel.onAddZoneRequested = nullptr;
-        keysPanel.onZoneEdited       = nullptr;
-
-        keysPanel.setKeyzones (rows);
-        keysPanel.setSelectedPresetRow (currentIdx);
-
-        // Clicking a row switches the active preset
-        keysPanel.onRowClicked = [this] (int rowIndex)
-        {
-            processor.sfzPlayer.setPresetByIndex (rowIndex);
-            keysPanel.setSelectedPresetRow (rowIndex);
-            repaint();
-        };
-
-        keysPanel.onRowRightClicked = nullptr;
+        // SF2: keysPanel is hidden for SF2 files — Sf2ProgramGrid handles everything.
+        // Nothing to do here.
+        return;
     }
     else
     {

@@ -123,6 +123,7 @@ private:
     Sf2ProgramGrid programGrid;
     bool           programPickerOpen { false };
 
+
     void openProgramGrid();
     void closeProgramGrid();
 
