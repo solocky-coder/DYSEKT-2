@@ -101,37 +101,65 @@ public:
     }
 
     void drawFileBrowserRow (juce::Graphics& g, int width, int height,
-                             const juce::File&, const juce::String& filename,
-                             juce::Image*, const juce::String& fileSizeDescription,
-                             const juce::String&, bool, bool isItemSelected,
+                             const juce::File& file, const juce::String& filename,
+                             juce::Image*, const juce::String& /*fileSizeDescription*/,
+                             const juce::String&, bool isDirectory, bool isItemSelected,
                              int, juce::DirectoryContentsDisplayComponent&) override
     {
         const auto& t = getTheme();
-        const auto bgHighlight  = t.accent.withAlpha (0.12f);
-        const auto textNormal   = t.foreground.withAlpha (0.75f);
-        const auto textSelected = t.accent;
 
+        // Selection highlight — same tint as SfzFileBrowser
         if (isItemSelected)
         {
-            g.setColour (bgHighlight);
+            g.setColour (t.accent.withAlpha (0.14f));
             g.fillAll();
         }
 
-        const auto textCol = isItemSelected ? textSelected : textNormal;
-        g.setColour (textCol);
-        g.setFont (juce::Font (juce::FontOptions{}.withHeight (19.5f)));
-        g.drawText (filename, 2, 0, width - 4, height, juce::Justification::centredLeft, true);
+        const auto textCol = isItemSelected ? t.accent : t.foreground.withAlpha (0.80f);
 
-        if (! fileSizeDescription.isEmpty())
+        // Folder / file icon — same emoji + size as SfzFileBrowser
+        if (isDirectory)
         {
-            g.setFont (juce::Font (juce::FontOptions{}.withHeight (16.5f)));
-            g.setColour (textCol.withAlpha (0.6f));
-            g.drawText (fileSizeDescription, width - 80, 0, 78, height,
-                        juce::Justification::centredRight, true);
+            g.setColour (t.accent.withAlpha (0.55f));
+            g.setFont (juce::Font (juce::FontOptions{}.withHeight (kIconSize)));
+            g.drawText (u8"\U0001F4C1", 3, 0, kIconWidth, height,
+                        juce::Justification::centredLeft, false);
         }
+        else
+        {
+            // Extension badge — same style as SfzFileBrowser
+            const auto ext = file.getFileExtension().toUpperCase().trimCharactersAtStart (".");
+            if (! ext.isEmpty())
+            {
+                const int  badgeW    = 36;
+                const auto badgeRect = juce::Rectangle<int> (width - badgeW - 4,
+                                                              (height - 14) / 2, badgeW, 14);
+                g.setColour (t.accent.withAlpha (0.18f));
+                g.fillRoundedRectangle (badgeRect.toFloat(), 2.0f);
+                g.setFont (juce::Font (juce::FontOptions{}.withHeight (10.0f)));
+                g.setColour (t.accent.withAlpha (0.80f));
+                g.drawText (ext, badgeRect, juce::Justification::centred, false);
+            }
+        }
+
+        // Filename — same font size as SfzFileBrowser (13pt)
+        g.setFont (juce::Font (juce::FontOptions{}.withHeight (kTextSize)));
+        g.setColour (textCol);
+        const int textX = isDirectory ? kIconWidth + 4 : 6;
+        const int textW = isDirectory ? width - textX - 4
+                                      : width - 36 - 12;
+        g.drawText (filename, textX, 0, textW, height,
+                    juce::Justification::centredLeft, true);
     }
 
-    int smallRowHeight() const { return 26; }
+    int getDefaultFileListRowHeight() override { return kRowHeight; }
+    int smallRowHeight() const { return kRowHeight; }
+
+    // Shared sizing constants — keep in sync with SfzFileBrowser::kRowH
+    static constexpr float kIconSize  = 16.0f;   ///< emoji font size
+    static constexpr int   kIconWidth = 22;       ///< pixel width reserved for icon column
+    static constexpr float kTextSize  = 13.0f;   ///< filename font size
+    static constexpr int   kRowHeight = 26;       ///< row pixel height
 };
 
 // ── Play/Stop icon button ─────────────────────────────────────

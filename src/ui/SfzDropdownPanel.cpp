@@ -286,14 +286,15 @@ void SfzFileBrowser::paintListBoxItem (int row, juce::Graphics& g,
         g.fillAll();
     }
 
-    g.setFont (DysektLookAndFeel::makeFont (13.0f));
+    g.setFont (DysektLookAndFeel::makeFont (16.0f));  // icon size — matches FileBrowserPanel::kIconSize
 
     if (isDir)
     {
         g.setColour (theme.accent.withAlpha (0.55f));
-        g.drawText (u8"\U0001F4C1", 3, 0, 20, h, juce::Justification::centredLeft, false);
+        g.drawText (u8"\U0001F4C1", 3, 0, 22, h, juce::Justification::centredLeft, false);
+        g.setFont (DysektLookAndFeel::makeFont (13.0f));
         g.setColour (selected ? theme.accent : theme.foreground.withAlpha (0.80f));
-        g.drawText (f.getFileName(), 26, 0, w - 30, h,
+        g.drawText (f.getFileName(), 28, 0, w - 32, h,
                     juce::Justification::centredLeft, true);
     }
     else
