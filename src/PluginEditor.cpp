@@ -275,16 +275,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  if (uiMode == 1)
  {
      sfzDropdown.setVisible (true);
-     // If the SF2/SFZ is already loaded (e.g. setStateInformation completed
-     // before the editor was created), call panelDidShow() immediately so the
-     // Sf2ProgramGrid opens without waiting for the timer.  If the load is
-     // still in-flight, sfzPanelRestored stays false and the timerCallback
-     // will call panelDidShow() once isLoaded() becomes true.
-     if (processor.sfzPlayer.isLoaded())
-     {
-         sfzDropdown.panelDidShow();
-         sfzPanelRestored = true;
-     }
+     // sfzPanelRestored starts false; the timerCallback will populate zones.
  }
 
  // Restore the correct MIDI route mode that matches the saved uiMode.
@@ -382,13 +373,24 @@ void DysektEditor::setUiMode (int mode)
  if (uiMode == 1)
  {
      sfzDropdown.setVisible (true);
-     // Reset the restore flag so the timer will call panelDidShow once
-     // the player is confirmed loaded (handles async load after project open).
+     // Reset the restore flag.  Only call panelDidShow() immediately if the
+     // player is loaded AND the preset list is already available — otherwise
+     // leave sfzPanelRestored = false so the timer retries once FluidSynth
+     // finishes building its preset list (async after setStateInformation).
      sfzPanelRestored = false;
      if (processor.sfzPlayer.isLoaded())
      {
-         sfzDropdown.panelDidShow();
-         sfzPanelRestored = true;
+         const auto presets = processor.sfzPlayer.getPresetList();
+         const bool sf2 = processor.sfzPlayer.getLoadedFile()
+                              .getFileExtension().toLowerCase() == ".sf2";
+         // For SF2: only proceed once the preset list is populated.
+         // For SFZ: no preset list needed — show immediately.
+         if (! sf2 || ! presets.empty())
+         {
+             sfzDropdown.panelDidShow();
+             sfzPanelRestored = true;
+         }
+         // else: timer will call panelDidShow() once presets arrive.
      }
  }
  else
@@ -1361,35 +1363,46 @@ void DysektEditor::timerCallback()
  // SF-player async restore: once sfzPlayer finishes loading after
  // setStateInformation (or a fresh UI open), repopulate the zone matrix
  // and apply the saved preset index. Runs each timer tick until done.
- if (uiMode == 1 && ! sfzPanelRestored)
+ //
+ // Two cases handled here:
+ //   1. sfzPanelRestored == false: initial restore — wait for isLoaded + presets.
+ //   2. sfzPanelRestored == true but programGrid not yet open: setUiMode() fired
+ //      before FluidSynth finished (SF2 async); retry until presets arrive.
+ if (uiMode == 1)
  {
-     if (processor.sfzPlayer.isLoaded())
+     if (! sfzPanelRestored)
      {
-         // getPresetList() drains freshPresets; first call after load
-         // populates cachedPresets inside sfzPlayer.
-         const auto presets = processor.sfzPlayer.getPresetList();
-         if (! presets.empty())
+         if (processor.sfzPlayer.isLoaded())
          {
-             // Apply any preset index that was saved by setStateInformation.
-             const int pending = processor.pendingSfzPresetIndex.exchange (
-                 -1, std::memory_order_relaxed);
-             if (pending >= 0)
-                 processor.sfzPlayer.setPresetByIndex (pending);
-
-             sfzDropdown.panelDidShow();
-             sfzPanelRestored = true;
-
-             // Late-preset guard: if panelDidShow() found an SF2 loaded but
-             // the program grid wasn't opened (because presets weren't ready
-             // on the first call), open it now that we have a non-empty list.
-             if (processor.sfzPlayer.isLoaded()
-                 && processor.sfzPlayer.getLoadedFile()
-                        .getFileExtension().toLowerCase() == ".sf2"
-                 && ! sfzDropdown.isProgramPickerOpen()
-                 && ! presets.empty())
+             // getPresetList() drains freshPresets; first call after load
+             // populates cachedPresets inside sfzPlayer.
+             const auto presets = processor.sfzPlayer.getPresetList();
+             if (! presets.empty())
              {
-                 sfzDropdown.panelDidShow();  // retry now presets are available
+                 // Apply any preset index that was saved by setStateInformation.
+                 const int pending = processor.pendingSfzPresetIndex.exchange (
+                     -1, std::memory_order_relaxed);
+                 if (pending >= 0)
+                     processor.sfzPlayer.setPresetByIndex (pending);
+
+                 sfzDropdown.panelDidShow();
+                 sfzPanelRestored = true;
              }
+         }
+     }
+     else
+     {
+         // sfzPanelRestored is true but the program grid may have been opened
+         // with an empty preset list (race between setUiMode and FluidSynth
+         // finishing).  Re-call panelDidShow() once presets are available.
+         if (! sfzDropdown.isProgramGridOpen()
+             && processor.sfzPlayer.isLoaded()
+             && processor.sfzPlayer.getLoadedFile()
+                    .getFileExtension().toLowerCase() == ".sf2")
+         {
+             const auto presets = processor.sfzPlayer.getPresetList();
+             if (! presets.empty())
+                 sfzDropdown.panelDidShow();
          }
      }
  }

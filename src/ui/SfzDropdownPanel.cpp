@@ -545,8 +545,17 @@ void SfzDropdownPanel::resized()
     // ── Keyboard panel ────────────────────────────────────────────────────────
     const int kbY = kStripH;  // ADSR is now in the top strip, no extra row
     const int kbH = juce::jmax (60, h - kbY);
-    const bool isSf2Loaded = processor.sfzPlayer.isLoaded()
-                             && processor.sfzPlayer.getLoadedFile().getFileExtension().toLowerCase() == ".sf2";
+    // isSf2: true when an SF2 is loaded OR being loaded asynchronously.
+    // Checking getPendingFilePath() avoids the keysPanel flash during the
+    // window between loadFile() and isLoaded() becoming true (e.g. in VST3
+    // after setStateInformation fires before FluidSynth finishes).
+    const bool isSf2Loaded = [&]() -> bool {
+        if (processor.sfzPlayer.isLoaded())
+            return processor.sfzPlayer.getLoadedFile()
+                       .getFileExtension().toLowerCase() == ".sf2";
+        return processor.sfzPlayer.getPendingFilePath()
+                   .getFileExtension().toLowerCase() == ".sf2";
+    }();
     keysPanel.setVisible (kbH > 0 && ! browserOpen && ! programPickerOpen && ! isSf2Loaded);
     if (kbH > 0)
         keysPanel.setBounds (kPad, kbY, w - kPad * 2, kbH);
@@ -1384,19 +1393,23 @@ void SfzDropdownPanel::panelDidShow()
 
     if (processor.sfzPlayer.isLoaded())
     {
-        const auto f = processor.sfzPlayer.getLoadedFile();
+        const auto f   = processor.sfzPlayer.getLoadedFile();
+        const bool sf2 = f.getFileExtension().toLowerCase() == ".sf2";
         reloadZones (f);
-        if (f.getFileExtension().toLowerCase() == ".sf2" && ! programPickerOpen)
-            openProgramGrid();
+
+        // For SF2: only open the program grid once the preset list is populated.
+        // If presets are still empty (FluidSynth hasn't finished async loading),
+        // skip openProgramGrid() here — the PluginEditor timer will call
+        // panelDidShow() again once getPresetList() returns a non-empty list.
+        if (sf2 && ! programPickerOpen)
+        {
+            if (! presetList.empty())
+                openProgramGrid();
+            // else: timer retry will open the grid when presets arrive
+        }
     }
-    else if (processor.sfzPlayer.getPendingFilePath() == juce::File{})
-    {
-        // Only bootstrap the empty SFZ when there is truly nothing loading.
-        // If a file is pending (e.g. setStateInformation fired loadFile() but
-        // applyPendingLoad() hasn't run yet), skip initEmptySfz() — the timer's
-        // sfzPanelRestored path will call panelDidShow() again once loaded.
-        initEmptySfz();
-    }
+    else
+        initEmptySfz();   // bootstrap so [+ ZONE] is available and zones show immediately
     resized();
     repaint();
 }

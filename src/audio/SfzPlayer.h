@@ -113,17 +113,12 @@ public:
     float      getChorus()      const noexcept { return chorus.load(); }
     int        getCurrentPresetIndex() const noexcept { return presetIndex.load(); }
     juce::File getLoadedFile()  const;
-    bool       isLoaded()       const noexcept { return loaded.load(); }
 
-    /** Returns the path of the file most recently queued via loadFile(),
-     *  even before applyPendingLoad() has completed on the audio thread.
-     *  Safe to call from the UI thread. Empty when no load is pending or
-     *  the last load has already been applied. */
-    juce::File getPendingFilePath() const
-    {
-        juce::ScopedLock sl (pendingFilePathLock);
-        return pendingFilePath;
-    }
+    /** Returns the file most recently passed to loadFile(), even if the async
+     *  load hasn't finished yet.  Safe to call on the UI thread.
+     *  Returns an empty File if nothing has ever been queued. */
+    juce::File getPendingFilePath() const { return juce::File (pendingFilePath); }
+    bool       isLoaded()       const noexcept { return loaded.load(); }
 
     // ── SFZ ADSR (applied via sfizz OSC messages per region) ──────────────────
     //  Values are stored as atomics and flushed to sfizz at the start of each
@@ -187,11 +182,9 @@ private:
     };
     std::atomic<PendingLoad*> pendingLoad { nullptr };
 
-    // Path of the most recently queued file (set in loadFile, cleared after
-    // applyPendingLoad succeeds).  Guarded by pendingFilePathLock so the UI
-    // thread can safely read it via getPendingFilePath() without a data race.
-    mutable juce::CriticalSection pendingFilePathLock;
-    juce::File                    pendingFilePath;
+    // Stores the path of the most recently queued file (set by loadFile() on
+    // the UI thread; safe to read via getPendingFilePath() at any time).
+    juce::String pendingFilePath;
 
     // ── Pending preset list (audio → UI handoff) ──────────────────────────────
     mutable std::atomic<std::vector<Sf2PresetInfo>*> freshPresets { nullptr };
