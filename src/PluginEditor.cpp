@@ -275,7 +275,16 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  if (uiMode == 1)
  {
      sfzDropdown.setVisible (true);
-     // sfzPanelRestored starts false; the timerCallback will populate zones.
+     // If the SF2/SFZ is already loaded (e.g. setStateInformation completed
+     // before the editor was created), call panelDidShow() immediately so the
+     // Sf2ProgramGrid opens without waiting for the timer.  If the load is
+     // still in-flight, sfzPanelRestored stays false and the timerCallback
+     // will call panelDidShow() once isLoaded() becomes true.
+     if (processor.sfzPlayer.isLoaded())
+     {
+         sfzDropdown.panelDidShow();
+         sfzPanelRestored = true;
+     }
  }
 
  // Restore the correct MIDI route mode that matches the saved uiMode.
