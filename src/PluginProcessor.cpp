@@ -126,8 +126,10 @@ DysektProcessor::DysektProcessor()
                           // can route separate tracks/clips to each port independently.
                           // Hosts that don't support multiple MIDI inputs merge everything onto the
                           // first port; channel-based routing acts as the fallback in that case.
-                          .withInput  ("DYSEKT", juce::AudioChannelSet::disabled(), true)
-                          .withInput  ("DY-SFP", juce::AudioChannelSet::disabled(), true)
+                          // MIDI ports exposed via getNumMidiInputs() override (returns 2).
+                          // JUCE 8's VST3 wrapper creates the event buses automatically.
+                          // Do NOT add withInput(disabled) lines here — those are audio
+                          // buses; DAWs correctly ignore them as MIDI ports.
                           // ── Audio output buses ────────────────────────────────────────────────
                           .withOutput ("Main", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Out 2", juce::AudioChannelSet::stereo(), false)
@@ -203,9 +205,8 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
             return false;
     }
 
-    // MIDI input buses must be disabled (no audio channels) or absent.
-    // Hosts that expose our named ports (DYSEKT / DY-SFP) present them as
-    // disabled channel sets — accept any combination.
+    // No audio input buses declared (MIDI ports use getNumMidiInputs(), not
+    // BusesProperties). Reject any layout that somehow presents audio inputs.
     for (int i = 0; i < layouts.inputBuses.size(); ++i)
     {
         if (! layouts.inputBuses[i].isDisabled())
@@ -2867,21 +2868,16 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // ── SF2/SFZ live player — dedicated audio bus ("SF2 Player"), summed to main ──
     //
-    // MIDI routing — two named input ports declared in BusesProperties:
+    // MIDI routing — two ports exposed via getNumMidiInputs() == 2:
     //
-    //   DYSEKT port  (bus 0, default enabled)
-    //     → slicer + processMidi(); sfzPlayer's dedicated channel is skipped.
+    //   port 0 "DYSEKT"  → slicer / processMidi()
+    //   port 1 "DY-SFP"  → SF2/SFZ player
     //
-    //   DY-SFP port  (bus 1, optional — host must route a MIDI track to it)
-    //     → sfzPlayer exclusively, omni (all channels accepted).
-    //     This is the true multitimbral path: no channel filter needed because
-    //     the host has already isolated this stream to a separate port.
-    //
-    // Fallback for hosts that don't support multiple MIDI input buses (or where
-    // the DY-SFP port is left unconnected): messages on sf2Ch (default ch 16)
-    // in the main midi buffer are extracted and forwarded to sfzPlayer, while
-    // processMidi() continues to skip that channel for the slicer.  This gives
-    // identical behaviour to the old single-port model.
+    // IMPORTANT: JUCE 8's VST3 wrapper merges all MIDI event buses into the
+    // single MidiBuffer that arrives here — there is no per-bus split in
+    // processBlock.  Channel-based routing (sf2Ch / processMidi) is therefore
+    // the runtime split point for both the dedicated-port path AND the
+    // single-port fallback (hosts that route everything to port 0).
     if (buffer.getNumSamples() > 0)
     {
         const int numSamples = buffer.getNumSamples();
