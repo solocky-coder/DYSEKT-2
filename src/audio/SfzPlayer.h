@@ -115,11 +115,13 @@ public:
     juce::File getLoadedFile()  const;
     bool       isLoaded()       const noexcept { return loaded.load(); }
 
-    /** Returns the file most recently passed to loadFile(), even if the audio
-        thread hasn't applied it yet.  Empty if nothing is queued or loading. */
-    juce::File getPendingFilePath() const noexcept
+    /** Returns the path of the file most recently queued via loadFile(),
+     *  even before applyPendingLoad() has completed on the audio thread.
+     *  Safe to call from the UI thread. Empty when no load is pending or
+     *  the last load has already been applied. */
+    juce::File getPendingFilePath() const
     {
-        const juce::ScopedReadLock lk (pendingFilePathLock);
+        juce::ScopedLock sl (pendingFilePathLock);
         return pendingFilePath;
     }
 
@@ -185,10 +187,11 @@ private:
     };
     std::atomic<PendingLoad*> pendingLoad { nullptr };
 
-    // UI-readable shadow of the most recently queued file (set by loadFile(),
-    // cleared when applyPendingLoad() fully applies it).
-    mutable juce::ReadWriteLock pendingFilePathLock;
-    juce::File                  pendingFilePath;
+    // Path of the most recently queued file (set in loadFile, cleared after
+    // applyPendingLoad succeeds).  Guarded by pendingFilePathLock so the UI
+    // thread can safely read it via getPendingFilePath() without a data race.
+    mutable juce::CriticalSection pendingFilePathLock;
+    juce::File                    pendingFilePath;
 
     // ── Pending preset list (audio → UI handoff) ──────────────────────────────
     mutable std::atomic<std::vector<Sf2PresetInfo>*> freshPresets { nullptr };

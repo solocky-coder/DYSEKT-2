@@ -54,7 +54,7 @@ SfzPlayer::~SfzPlayer()
 void SfzPlayer::loadFile (const juce::File& f)
 {
     {
-        const juce::ScopedWriteLock lk (pendingFilePathLock);
+        juce::ScopedLock sl (pendingFilePathLock);
         pendingFilePath = f;
     }
     auto* pkg        = new PendingLoad();
@@ -764,7 +764,10 @@ void SfzPlayer::applyPendingLoad()
 
         activeFile = owner->file;
         loaded.store (true, std::memory_order_release);
-        { const juce::ScopedWriteLock lk (pendingFilePathLock); pendingFilePath = {}; }
+        {
+            juce::ScopedLock sl (pendingFilePathLock);
+            pendingFilePath = juce::File{};
+        }
 
         // Re-apply pan (sfizz responds to CC10)
         setPan (pan.load (std::memory_order_relaxed));
@@ -805,7 +808,10 @@ void SfzPlayer::applyPendingLoad()
 
     activeFile = owner->file;
     loaded.store (true, std::memory_order_release);
-    { const juce::ScopedWriteLock lk (pendingFilePathLock); pendingFilePath = {}; }
+    {
+        juce::ScopedLock sl (pendingFilePathLock);
+        pendingFilePath = juce::File{};
+    }
 
     // Re-apply user params that FluidSynth loses when synth is recreated.
     setPan      (pan.load      (std::memory_order_relaxed));

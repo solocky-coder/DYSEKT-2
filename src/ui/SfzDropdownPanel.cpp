@@ -547,13 +547,7 @@ void SfzDropdownPanel::resized()
     const int kbH = juce::jmax (60, h - kbY);
     const bool isSf2Loaded = processor.sfzPlayer.isLoaded()
                              && processor.sfzPlayer.getLoadedFile().getFileExtension().toLowerCase() == ".sf2";
-    // Also hide keysPanel while an SF2 is queued but not yet applied by the
-    // audio thread (isLoaded() is still false during async fluidsynth init).
-    const auto pendingFile = processor.sfzPlayer.getPendingFilePath();
-    const bool isSf2Pending = (pendingFile != juce::File())
-                              && pendingFile.getFileExtension().toLowerCase() == ".sf2";
-    keysPanel.setVisible (kbH > 0 && ! browserOpen && ! programPickerOpen
-                          && ! isSf2Loaded && ! isSf2Pending);
+    keysPanel.setVisible (kbH > 0 && ! browserOpen && ! programPickerOpen && ! isSf2Loaded);
     if (kbH > 0)
         keysPanel.setBounds (kPad, kbY, w - kPad * 2, kbH);
     else
@@ -1393,23 +1387,15 @@ void SfzDropdownPanel::panelDidShow()
         const auto f = processor.sfzPlayer.getLoadedFile();
         reloadZones (f);
         if (f.getFileExtension().toLowerCase() == ".sf2" && ! programPickerOpen)
-        {
-            // Only open the grid when presets have arrived from the audio thread.
-            // If the list is still empty (SF2 still building preset table),
-            // leave programPickerOpen=false; the PluginEditor timer will retry.
-            if (! presetList.empty())
-                openProgramGrid();
-        }
+            openProgramGrid();
     }
-    else
+    else if (processor.sfzPlayer.getPendingFilePath() == juce::File{})
     {
-        // A file may be queued but not yet applied by the audio thread.
-        // Don't call initEmptySfz() — that would clobber a pending SF2/SFZ
-        // load by overwriting the player with Custom.sfz.
-        const auto pending = processor.sfzPlayer.getPendingFilePath();
-        if (pending == juce::File())
-            initEmptySfz();   // nothing queued — bootstrap empty player
-        // else: leave UI blank; timer will retry once isLoaded() becomes true.
+        // Only bootstrap the empty SFZ when there is truly nothing loading.
+        // If a file is pending (e.g. setStateInformation fired loadFile() but
+        // applyPendingLoad() hasn't run yet), skip initEmptySfz() — the timer's
+        // sfzPanelRestored path will call panelDidShow() again once loaded.
+        initEmptySfz();
     }
     resized();
     repaint();

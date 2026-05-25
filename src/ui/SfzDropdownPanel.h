@@ -54,8 +54,10 @@ public:
 
     // ── Public API ────────────────────────────────────────────────────────────
     void panelDidShow();
-    bool isProgramPickerOpen() const noexcept { return programPickerOpen; }
     void initEmptySfz();
+
+    /** Returns true when the SF2 program grid overlay is currently open. */
+    bool isProgramPickerOpen() const noexcept { return programPickerOpen; }
 
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;

@@ -1369,23 +1369,19 @@ void DysektEditor::timerCallback()
 
              sfzDropdown.panelDidShow();
              sfzPanelRestored = true;
-         }
-     }
- }
 
- // SF2 late-preset guard: sfzPanelRestored is true but panelDidShow()
- // may have skipped openProgramGrid() because the SF2 preset table wasn't
- // ready yet (presets arrived between the timer's getPresetList() call and
- // panelDidShow()'s own call).  Keep polling until the grid is open.
- if (uiMode == 1 && sfzPanelRestored && ! sfzDropdown.isProgramPickerOpen())
- {
-     const auto loadedFile = processor.sfzPlayer.getLoadedFile();
-     if (loadedFile.getFileExtension().toLowerCase() == ".sf2"
-         && processor.sfzPlayer.isLoaded())
-     {
-         const auto presets = processor.sfzPlayer.getPresetList();
-         if (! presets.empty())
-             sfzDropdown.panelDidShow();   // idempotent — opens grid now presets are ready
+             // Late-preset guard: if panelDidShow() found an SF2 loaded but
+             // the program grid wasn't opened (because presets weren't ready
+             // on the first call), open it now that we have a non-empty list.
+             if (processor.sfzPlayer.isLoaded()
+                 && processor.sfzPlayer.getLoadedFile()
+                        .getFileExtension().toLowerCase() == ".sf2"
+                 && ! sfzDropdown.isProgramPickerOpen()
+                 && ! presets.empty())
+             {
+                 sfzDropdown.panelDidShow();  // retry now presets are available
+             }
+         }
      }
  }
 
