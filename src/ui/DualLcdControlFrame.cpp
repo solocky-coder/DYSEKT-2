@@ -442,13 +442,21 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
     {
         const int btnSz  = si (26);
         const int btnY   = (half - btnSz) / 2;
+#if DYSEKT_STANDALONE
         const int gap    = (w - 5 * btnSz) / 6;
-
         filIconArea        = { gap,                       btnY, btnSz, btnSz };
         waIconArea         = { gap * 2 + btnSz,           btnY, btnSz, btnSz };
         midiFollowIconArea = { gap * 3 + btnSz * 2,       btnY, btnSz, btnSz };
         bodeIconArea       = { gap * 4 + btnSz * 3,       btnY, btnSz, btnSz };
         seqIconArea        = { gap * 5 + btnSz * 4,       btnY, btnSz, btnSz };
+#else
+        const int gap    = (w - 4 * btnSz) / 5;
+        filIconArea        = { gap,                       btnY, btnSz, btnSz };
+        waIconArea         = { gap * 2 + btnSz,           btnY, btnSz, btnSz };
+        midiFollowIconArea = { gap * 3 + btnSz * 2,       btnY, btnSz, btnSz };
+        bodeIconArea       = { gap * 4 + btnSz * 3,       btnY, btnSz, btnSz };
+        seqIconArea        = {};   // hidden in VST3
+#endif
         eqIconArea         = {};
         sfzIconArea        = {};
 
@@ -456,7 +464,9 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
         drawIcon (g, waIconArea        .toFloat(), 1, waveMode != 0);
         drawIcon (g, midiFollowIconArea.toFloat(), 2, midiFollowActive);
         drawIcon (g, bodeIconArea      .toFloat(), 3, bodeActive);
+#if DYSEKT_STANDALONE
         drawIcon (g, seqIconArea       .toFloat(), 6, seqActive);
+#endif
 
         // ── Hover tooltip label ──────────────────────────────────────
         if (hoveredIcon >= 0)

@@ -2500,15 +2500,11 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── SF2/SFZ keyboard UI note injection ───────────────────────────────────
+    // SF2 is omni (sf2Ch==0): inject on ch 1 — the fan-out source channel inside
+    // SfzPlayer::process.  SFZ: use its dedicated channel.
     {
         const int sf2Ch   = sfzPlayer.getMidiChannel();
-#if DYSEKT_STANDALONE
-        // Standalone: SF2 is omni — inject on ch 1 for fan-out inside SfzPlayer.
         const int ch      = (sf2Ch > 0 && sf2Ch <= 16) ? sf2Ch : 1;
-#else
-        // VST3: inject on the dedicated channel (or 16 as fallback).
-        const int ch      = (sf2Ch > 0 && sf2Ch <= 16) ? sf2Ch : 16;
-#endif
         const int noteOn  = sfzUiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
         const int noteOff = sfzUiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
         if (noteOn  >= 0 && noteOn  <= 127)
@@ -2542,13 +2538,10 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── Snoop note messages to update active-note bitmask for keyboard display ──
+    // SF2 omni (sf2Ch==0): snoop ch 1 (the fan-out source).  SFZ: dedicated ch.
     {
         const int sf2Ch   = sfzPlayer.getMidiChannel();
-#if DYSEKT_STANDALONE
-        const int snoopCh = (sf2Ch > 0) ? sf2Ch : 1;  // SF2 omni: snoop ch 1
-#else
-        const int snoopCh = (sf2Ch > 0) ? sf2Ch : 16; // VST3: snoop dedicated ch
-#endif
+        const int snoopCh = (sf2Ch > 0) ? sf2Ch : 1;
         if (true)
         {
             for (const auto metadata : midi)
@@ -2895,10 +2888,9 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int sf2Ch      = sfzPlayer.getMidiChannel(); // 0=omni, 1-16=dedicated
 
         // ── Build sfzMidiBuf ─────────────────────────────────────────────────────
+        // SF2 loads as omni (sf2Ch==0): pass all MIDI — FluidSynth routes internally.
+        // SFZ uses a dedicated channel filter.
         juce::MidiBuffer sfzMidiBuf;
-#if DYSEKT_STANDALONE
-        // Standalone: SF2 runs omni (sf2Ch==0) — pass all MIDI through.
-        // SFZ runs on its dedicated channel.
         if (sf2Ch == 0)
         {
             sfzMidiBuf = midi;
@@ -2912,24 +2904,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     sfzMidiBuf.addEvent (msg, meta.samplePosition);
             }
         }
-#else
-        // VST3: use dedicated channel + ch-1 live fan-out (DAW routes explicitly).
-        if (sf2Ch == 0)
-        {
-            sfzMidiBuf = midi;
-        }
-        else
-        {
-            const uint16_t liveMask = sfzPlayer.getLiveInputChannelMask();
-            for (const auto meta : midi)
-            {
-                const auto& msg = meta.getMessage();
-                const int   ch  = msg.getChannel();
-                if (ch == sf2Ch || (ch == 1 && liveMask != 0))
-                    sfzMidiBuf.addEvent (msg, meta.samplePosition);
-            }
-        }
-#endif
 
         // Render into a clean temp buffer — never overwrite main directly
         juce::AudioBuffer<float> sfzBuf (2, numSamples);

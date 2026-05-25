@@ -831,12 +831,11 @@ void SfzPlayer::applyPendingLoad()
     applyPendingChannelChanges();  // all slots are -1 at this point; no-op but clears dirty flag
     setPresetByIndex (0);          // triggers applyProgramChange() on next process() tick
 
-#if DYSEKT_STANDALONE
-    // Standalone only: switch to omni so all incoming MIDI reaches FluidSynth
-    // without needing a DAW to route on a specific channel.
-    // VST3: keep the dedicated channel (default 16) — the DAW routes explicitly.
+    // Switch to omni so all incoming MIDI reaches FluidSynth without needing
+    // the host to route on a specific channel.  In VST3, processMidi() already
+    // blocks the slicer/VoicePool when SF-Player mode is active, so omni is
+    // safe in both standalone and plugin builds.
     midiChannel.store (0, std::memory_order_relaxed);
-#endif
 
 #else
     juce::ignoreUnused (owner);

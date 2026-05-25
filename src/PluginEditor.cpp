@@ -259,7 +259,11 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar.onWaveToggle = [this] { toggleSoftWave(); };
  headerBar.onMidiFollowToggle = [this] { toggleMidiFollow(); };
  headerBar.onShortcutsToggle = [this] { toggleShortcutsPanel(); };
+#if DYSEKT_STANDALONE
     headerBar.onSeqToggle   = [this] { toggleSeqPanel(); };
+#else
+    headerBar.onSeqToggle   = nullptr;   // sequencer not present in VST3
+#endif
 
  ensureDefaultThemes();
  loadUserSettings();
