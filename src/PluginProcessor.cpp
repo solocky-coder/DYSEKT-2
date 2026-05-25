@@ -2499,10 +2499,16 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             midi.addEvent (juce::MidiMessage::noteOff (1, noteOff, (juce::uint8) 0),   0);
     }
 
-    // ── SF2/SFZ keyboard UI note injection (routed on sf2Ch, skipped by slicer) ──
+    // ── SF2/SFZ keyboard UI note injection ───────────────────────────────────
     {
         const int sf2Ch   = sfzPlayer.getMidiChannel();
+#if DYSEKT_STANDALONE
+        // Standalone: SF2 is omni — inject on ch 1 for fan-out inside SfzPlayer.
+        const int ch      = (sf2Ch > 0 && sf2Ch <= 16) ? sf2Ch : 1;
+#else
+        // VST3: inject on the dedicated channel (or 16 as fallback).
         const int ch      = (sf2Ch > 0 && sf2Ch <= 16) ? sf2Ch : 16;
+#endif
         const int noteOn  = sfzUiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
         const int noteOff = sfzUiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
         if (noteOn  >= 0 && noteOn  <= 127)
@@ -2535,15 +2541,20 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    // ── Snoop sf2Ch messages from DAW/hardware to update active-note bitmask ──
+    // ── Snoop note messages to update active-note bitmask for keyboard display ──
     {
-        const int sf2Ch = sfzPlayer.getMidiChannel();
-        if (sf2Ch > 0)
+        const int sf2Ch   = sfzPlayer.getMidiChannel();
+#if DYSEKT_STANDALONE
+        const int snoopCh = (sf2Ch > 0) ? sf2Ch : 1;  // SF2 omni: snoop ch 1
+#else
+        const int snoopCh = (sf2Ch > 0) ? sf2Ch : 16; // VST3: snoop dedicated ch
+#endif
+        if (true)
         {
             for (const auto metadata : midi)
             {
                 const auto msg = metadata.getMessage();
-                if (msg.getChannel() != sf2Ch) continue;
+                if (msg.getChannel() != snoopCh) continue;
                 const int n = msg.getNoteNumber();
                 if (n < 0 || n > 127) continue;
                 const int w = n < 64 ? 0 : 1;
@@ -2883,37 +2894,42 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int numSamples = buffer.getNumSamples();
         const int sf2Ch      = sfzPlayer.getMidiChannel(); // 0=omni, 1-16=dedicated
 
-        // ── Build sfzMidiBuf: prefer DY-SFP port; fall back to channel filter ──
-        // getBusBuffer() returns the audio buffer for a given bus — MIDI buses
-        // declared with disabled() carry no audio, so we can't read "bus 1" audio.
-        // Instead, JUCE merges all MIDI input buses into the single MidiBuffer
-        // passed to processBlock.  When a host routes DY-SFP separately, its
-        // messages still arrive here but on whatever channel the user configured.
-        // We therefore always use the channel-based split, which correctly serves
-        // both the single-port (channel-tagged) and multi-port (same channel tag,
-        // different physical port) DAW routing models.
+        // ── Build sfzMidiBuf ─────────────────────────────────────────────────────
         juce::MidiBuffer sfzMidiBuf;
+#if DYSEKT_STANDALONE
+        // Standalone: SF2 runs omni (sf2Ch==0) — pass all MIDI through.
+        // SFZ runs on its dedicated channel.
         if (sf2Ch == 0)
         {
-            // Omni: sfzPlayer takes everything — only valid when running on the
-            // DY-SFP port with nothing routed to DYSEKT.  Rare; usually sf2Ch > 0.
             sfzMidiBuf = midi;
         }
         else
         {
-            // Extract the sfzPlayer's dedicated channel, PLUS ch-1 messages when
-            // a live mask is active (multi-timbral: keyboard on ch 1 gets fan-out
-            // routed inside SfzPlayer to whichever FluidSynth channel is selected).
+            for (const auto meta : midi)
+            {
+                const auto& msg = meta.getMessage();
+                if (msg.getChannel() == sf2Ch)
+                    sfzMidiBuf.addEvent (msg, meta.samplePosition);
+            }
+        }
+#else
+        // VST3: use dedicated channel + ch-1 live fan-out (DAW routes explicitly).
+        if (sf2Ch == 0)
+        {
+            sfzMidiBuf = midi;
+        }
+        else
+        {
             const uint16_t liveMask = sfzPlayer.getLiveInputChannelMask();
             for (const auto meta : midi)
             {
                 const auto& msg = meta.getMessage();
                 const int   ch  = msg.getChannel();
-                if (ch == sf2Ch
-                    || (ch == 1 && liveMask != 0))
+                if (ch == sf2Ch || (ch == 1 && liveMask != 0))
                     sfzMidiBuf.addEvent (msg, meta.samplePosition);
             }
         }
+#endif
 
         // Render into a clean temp buffer — never overwrite main directly
         juce::AudioBuffer<float> sfzBuf (2, numSamples);
