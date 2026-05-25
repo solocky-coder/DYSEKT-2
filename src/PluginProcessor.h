@@ -275,15 +275,6 @@ public:
     bool acceptsMidi()  const override           { return true; }
     bool producesMidi() const override           { return false; }
     bool isMidiEffect() const override           { return false; }
-
-    // Expose two VST3 MIDI input event buses so hosts show them as named ports:
-    //   bus 0 → "DYSEKT"  (slicer / main MIDI)
-    //   bus 1 → "DY-SFP" (SF2/SFZ player dedicated port)
-    // JUCE 8's VST3 wrapper reads this and creates the correct number of
-    // IComponent event input buses.  Events from both buses are merged into
-    // the single MidiBuffer passed to processBlock; channel-based routing
-    // (sf2Ch / processMidi) handles the split at runtime.
-    int getNumMidiInputs()  const override { return 2; }
     double getTailLengthSeconds() const override { return 0.0; }
 
     int  getNumPrograms()    override { return 1; }

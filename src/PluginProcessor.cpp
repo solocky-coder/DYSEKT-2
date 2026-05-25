@@ -126,10 +126,12 @@ DysektProcessor::DysektProcessor()
                           // can route separate tracks/clips to each port independently.
                           // Hosts that don't support multiple MIDI inputs merge everything onto the
                           // first port; channel-based routing acts as the fallback in that case.
-                          // MIDI ports exposed via getNumMidiInputs() override (returns 2).
-                          // JUCE 8's VST3 wrapper creates the event buses automatically.
-                          // Do NOT add withInput(disabled) lines here — those are audio
-                          // buses; DAWs correctly ignore them as MIDI ports.
+                          // NOTE: JUCE 8 does not expose a getNumMidiInputs() API.
+                          // A single MIDI input port is created by NEEDS_MIDI_INPUT=TRUE
+                          // in CMakeLists.txt. Channel-based routing (sf2Ch / processMidi)
+                          // is the split between the slicer and SFZ player at runtime.
+                          // Do NOT add withInput(disabled) buses — they are audio buses
+                          // and DAWs correctly ignore them as MIDI ports.
                           // ── Audio output buses ────────────────────────────────────────────────
                           .withOutput ("Main", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Out 2", juce::AudioChannelSet::stereo(), false)
