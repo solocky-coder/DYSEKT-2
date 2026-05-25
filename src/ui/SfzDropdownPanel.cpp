@@ -547,7 +547,13 @@ void SfzDropdownPanel::resized()
     const int kbH = juce::jmax (60, h - kbY);
     const bool isSf2Loaded = processor.sfzPlayer.isLoaded()
                              && processor.sfzPlayer.getLoadedFile().getFileExtension().toLowerCase() == ".sf2";
-    keysPanel.setVisible (kbH > 0 && ! browserOpen && ! programPickerOpen && ! isSf2Loaded);
+    // Also hide keysPanel while an SF2 is queued but not yet applied by the
+    // audio thread (isLoaded() is still false during async fluidsynth init).
+    const auto pendingFile = processor.sfzPlayer.getPendingFilePath();
+    const bool isSf2Pending = (pendingFile != juce::File())
+                              && pendingFile.getFileExtension().toLowerCase() == ".sf2";
+    keysPanel.setVisible (kbH > 0 && ! browserOpen && ! programPickerOpen
+                          && ! isSf2Loaded && ! isSf2Pending);
     if (kbH > 0)
         keysPanel.setBounds (kPad, kbY, w - kPad * 2, kbH);
     else
@@ -1387,10 +1393,24 @@ void SfzDropdownPanel::panelDidShow()
         const auto f = processor.sfzPlayer.getLoadedFile();
         reloadZones (f);
         if (f.getFileExtension().toLowerCase() == ".sf2" && ! programPickerOpen)
-            openProgramGrid();
+        {
+            // Only open the grid when presets have arrived from the audio thread.
+            // If the list is still empty (SF2 still building preset table),
+            // leave programPickerOpen=false; the PluginEditor timer will retry.
+            if (! presetList.empty())
+                openProgramGrid();
+        }
     }
     else
-        initEmptySfz();   // bootstrap so [+ ZONE] is available and zones show immediately
+    {
+        // A file may be queued but not yet applied by the audio thread.
+        // Don't call initEmptySfz() — that would clobber a pending SF2/SFZ
+        // load by overwriting the player with Custom.sfz.
+        const auto pending = processor.sfzPlayer.getPendingFilePath();
+        if (pending == juce::File())
+            initEmptySfz();   // nothing queued — bootstrap empty player
+        // else: leave UI blank; timer will retry once isLoaded() becomes true.
+    }
     resized();
     repaint();
 }

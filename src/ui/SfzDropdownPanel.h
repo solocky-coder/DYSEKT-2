@@ -54,6 +54,7 @@ public:
 
     // ── Public API ────────────────────────────────────────────────────────────
     void panelDidShow();
+    bool isProgramPickerOpen() const noexcept { return programPickerOpen; }
     void initEmptySfz();
 
     /** Called after a new SF2/SFZ file has been accepted (any path). */

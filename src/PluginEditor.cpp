@@ -1373,6 +1373,22 @@ void DysektEditor::timerCallback()
      }
  }
 
+ // SF2 late-preset guard: sfzPanelRestored is true but panelDidShow()
+ // may have skipped openProgramGrid() because the SF2 preset table wasn't
+ // ready yet (presets arrived between the timer's getPresetList() call and
+ // panelDidShow()'s own call).  Keep polling until the grid is open.
+ if (uiMode == 1 && sfzPanelRestored && ! sfzDropdown.isProgramPickerOpen())
+ {
+     const auto loadedFile = processor.sfzPlayer.getLoadedFile();
+     if (loadedFile.getFileExtension().toLowerCase() == ".sf2"
+         && processor.sfzPlayer.isLoaded())
+     {
+         const auto presets = processor.sfzPlayer.getPresetList();
+         if (! presets.empty())
+             sfzDropdown.panelDidShow();   // idempotent — opens grid now presets are ready
+     }
+ }
+
  sliceLcd.repaintLcd();
  sliceWaveformLcd.repaintLcd();
 

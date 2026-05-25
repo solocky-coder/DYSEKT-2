@@ -115,6 +115,14 @@ public:
     juce::File getLoadedFile()  const;
     bool       isLoaded()       const noexcept { return loaded.load(); }
 
+    /** Returns the file most recently passed to loadFile(), even if the audio
+        thread hasn't applied it yet.  Empty if nothing is queued or loading. */
+    juce::File getPendingFilePath() const noexcept
+    {
+        const juce::ScopedReadLock lk (pendingFilePathLock);
+        return pendingFilePath;
+    }
+
     // ── SFZ ADSR (applied via sfizz OSC messages per region) ──────────────────
     //  Values are stored as atomics and flushed to sfizz at the start of each
     //  processBlock() call when dirty.  Call from any thread; sfizz update is RT.
@@ -176,6 +184,11 @@ private:
         bool       shouldUnload { false };
     };
     std::atomic<PendingLoad*> pendingLoad { nullptr };
+
+    // UI-readable shadow of the most recently queued file (set by loadFile(),
+    // cleared when applyPendingLoad() fully applies it).
+    mutable juce::ReadWriteLock pendingFilePathLock;
+    juce::File                  pendingFilePath;
 
     // ── Pending preset list (audio → UI handoff) ──────────────────────────────
     mutable std::atomic<std::vector<Sf2PresetInfo>*> freshPresets { nullptr };
