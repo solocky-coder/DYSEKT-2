@@ -80,6 +80,10 @@ public:
     // ── Keyboard sub-component ────────────────────────────────────────────────
     KeysPanel keysPanel;
 
+    // ── SF2 channel-FX public API ─────────────────────────────────────────────
+    /** Called by PluginEditor whenever a preset<->channel mapping changes. */
+    void notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based);
+
 private:
     // ── Header-strip drawing ──────────────────────────────────────────────────
     void drawHeaderStrip (juce::Graphics& g) const;
@@ -209,10 +213,6 @@ private:
     std::vector<AssignedPreset> sf2Presets;
     int selectedSf2Ch { -1 };  ///< 0-based FluidSynth channel, -1 = none
     std::unique_ptr<juce::ComboBox> sf2ChCombo;
-
-    /** Called by PluginEditor whenever a preset<->channel mapping changes. */
-    void notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based);
-    void buildSf2Combo();
 
     DysektProcessor& processor;
 

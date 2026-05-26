@@ -1042,15 +1042,11 @@ void DysektEditor::resized()
  else
  {
      // For SF2 files, reserve a strip at the bottom for the per-channel FX panel.
-     const bool isSf2 = processor.sfzPlayer.isSf2Loaded();
      const int fxStripH = 0;  // Sf2ChannelFxPanel removed — panel is now in sfzDropdown
      const int sfzH = juce::jmax (si (80), waveH - fxStripH);
 
      sfzDropdown.setVisible (true);
      sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, sfzH));
-
-     if (isSf2)
-     else
 
      waveformView.setVisible (false);
      waveformView.setBounds ({});
