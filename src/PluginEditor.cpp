@@ -1372,6 +1372,17 @@ void DysektEditor::timerCallback()
  {
      if (! sfzPanelRestored)
      {
+         // While FluidSynth is loading asynchronously, pendingFilePath is already
+         // set but isLoaded() is still false.  Call resized() each tick so that
+         // keysPanel hides immediately (isSf2Loaded checks pendingFilePath) rather
+         // than staying visible until panelDidShow() eventually fires.
+         if (! processor.sfzPlayer.isLoaded()
+             && processor.sfzPlayer.getPendingFilePath()
+                    .getFileExtension().toLowerCase() == ".sf2")
+         {
+             sfzDropdown.resized();
+         }
+
          if (processor.sfzPlayer.isLoaded())
          {
              // getPresetList() drains freshPresets; first call after load

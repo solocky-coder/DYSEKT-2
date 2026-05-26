@@ -1778,8 +1778,12 @@ void SfzDropdownPanel::reloadZones (const juce::File& f)
 
     if (isSf2)
     {
-        // SF2: keysPanel is hidden for SF2 files — Sf2ProgramGrid handles everything.
-        // Nothing to do here.
+        // SF2: keysPanel is hidden — Sf2ProgramGrid handles everything.
+        // Explicitly clear any stale sf2PresetListMode state and hide keysPanel
+        // so it doesn't show through if resized() fires before the program grid opens.
+        keysPanel.setSf2PresetListMode (false);
+        keysPanel.setVisible (false);
+        resized();
         return;
     }
     else
