@@ -952,6 +952,29 @@ void DysektProcessor::handleCommand (const Command& cmd)
         case CmdSetSliceParam:
         {
             int sel = sliceManager.selectedSlice;
+
+            // ── Per-channel (per-preset) SF2 FX ─────────────────────────────
+            // These fields use intParam2 as the FluidSynth channel index (0-15)
+            // and floatParam1 as the value.  They do NOT touch slice state.
+            {
+                const int field = cmd.intParam1;
+                if (field >= FieldSfzChReverbMix && field <= FieldSfzChGain)
+                {
+                    const int   fxCh = juce::jlimit (0, 15, cmd.intParam2);
+                    const float val  = cmd.floatParam1;
+                    switch (field)
+                    {
+                        case FieldSfzChReverbMix:  sfzPlayer.setChannelReverbMix  (fxCh, val); break;
+                        case FieldSfzChReverbSize: sfzPlayer.setChannelReverbSize (fxCh, val); break;
+                        case FieldSfzChReverbDamp: sfzPlayer.setChannelReverbDamp (fxCh, val); break;
+                        case FieldSfzChGain:       sfzPlayer.setChannelGain       (fxCh, val); break;
+                        default: break;
+                    }
+                    uiSnapshotDirty.store (true, std::memory_order_release);
+                    goto doneSetSliceParam;   // skip slice-state handling entirely
+                }
+            }
+
             if (sel >= 0 && sel < sliceManager.getNumSlices())
             {
                 auto& s = sliceManager.getSlice (sel);
@@ -1009,6 +1032,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 }
             }
             uiSnapshotDirty.store (true, std::memory_order_release);
+            doneSetSliceParam:;   // goto target for early-exit from per-channel FX path
             break;
         }
 
@@ -1579,6 +1603,49 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
                         case FieldSfzReverbWidth:  sfzPlayer.setReverbWidth (val);         break;
                         case FieldSfzReverbMix:    sfzPlayer.setReverbMix   (val);         break;
                         case FieldSfzReverbFreeze: sfzPlayer.setReverbFreeze (val > 50.0f); break;
+                        default: break;
+                    }
+                    uiSnapshotDirty.store (true, std::memory_order_release);
+                    continue;
+                }
+
+                // ── Per-channel (per-preset) SF2 FX — Ch Reverb / Gain ────────
+                // intParam1 of the command carries the FluidSynth channel index (0-15).
+                // For MIDI CC, the channel index comes from the mapped field's intParam1.
+                if (outFieldId >= FieldSfzChReverbMix && outFieldId <= FieldSfzChGain)
+                {
+                    const int fxCh = juce::jlimit (0, 15, cmd.intParam1);
+
+                    auto getCurChFx = [&] (int fid, int ch) -> float
+                    {
+                        switch (fid)
+                        {
+                            case FieldSfzChReverbMix:  return sfzPlayer.getChannelReverbMix  (ch) / 100.0f;
+                            case FieldSfzChReverbSize: return sfzPlayer.getChannelReverbSize (ch) / 100.0f;
+                            case FieldSfzChReverbDamp: return sfzPlayer.getChannelReverbDamp (ch) / 100.0f;
+                            case FieldSfzChGain:       return sfzPlayer.getChannelGain       (ch) / 200.0f;
+                            default:                   return 0.0f;
+                        }
+                    };
+
+                    float normVal;
+                    if (outIsRelative)
+                    {
+                        const float cur  = getCurChFx (outFieldId, fxCh);
+                        const float sens = 0.01f;  // 1 % of range per CC click
+                        normVal = juce::jlimit (0.0f, 1.0f, cur + outNorm * sens);
+                    }
+                    else
+                    {
+                        normVal = outNorm;
+                    }
+
+                    switch (outFieldId)
+                    {
+                        case FieldSfzChReverbMix:  sfzPlayer.setChannelReverbMix  (fxCh, normVal * 100.0f); break;
+                        case FieldSfzChReverbSize: sfzPlayer.setChannelReverbSize (fxCh, normVal * 100.0f); break;
+                        case FieldSfzChReverbDamp: sfzPlayer.setChannelReverbDamp (fxCh, normVal * 100.0f); break;
+                        case FieldSfzChGain:       sfzPlayer.setChannelGain       (fxCh, normVal * 200.0f); break;
                         default: break;
                     }
                     uiSnapshotDirty.store (true, std::memory_order_release);
@@ -2997,7 +3064,7 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::MemoryOutputStream stream (destData, false);
 
     // Version
-    stream.writeInt (24);
+    stream.writeInt (25);
 
     // APVTS state
     auto state = apvts.copyState();
@@ -3096,6 +3163,15 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     stream.writeFloat (sfzPlayer.getFineTune());
     stream.writeInt   (sfzPlayer.getMidiChannel());
 
+    // v25: per-channel (per-preset) FX — 16 channels × 4 floats
+    for (int ch = 0; ch < SfzPlayer::kNumChannels; ++ch)
+    {
+        stream.writeFloat (sfzPlayer.getChannelReverbMix  (ch));
+        stream.writeFloat (sfzPlayer.getChannelReverbSize (ch));
+        stream.writeFloat (sfzPlayer.getChannelReverbDamp (ch));
+        stream.writeFloat (sfzPlayer.getChannelGain       (ch));
+    }
+
     // Sequencer state
 #if DYSEKT_STANDALONE
     sequencer.writeToStream (stream);
@@ -3107,7 +3183,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
 
     int version = stream.readInt();
-    if (version < 16 || version > 24)
+    if (version < 16 || version > 25)
         return;
 
     // APVTS state
@@ -3258,6 +3334,22 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             sfzPlayer.setPan        (stream.readFloat());
             sfzPlayer.setFineTune   (stream.readFloat());
             sfzPlayer.setMidiChannel(stream.readInt());
+        }
+
+        // v25: per-channel (per-preset) FX
+        if (version >= 25 && ! stream.isExhausted())
+        {
+            for (int ch = 0; ch < SfzPlayer::kNumChannels; ++ch)
+            {
+                const float rvMix  = stream.readFloat();
+                const float rvSize = stream.readFloat();
+                const float rvDamp = stream.readFloat();
+                const float gain   = stream.readFloat();
+                sfzPlayer.setChannelReverbMix  (ch, rvMix);
+                sfzPlayer.setChannelReverbSize (ch, rvSize);
+                sfzPlayer.setChannelReverbDamp (ch, rvDamp);
+                sfzPlayer.setChannelGain       (ch, gain);
+            }
         }
 
         // Restore the SF2/SFZ file — this is async; the editor polls isLoaded()
