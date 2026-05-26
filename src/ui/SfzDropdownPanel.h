@@ -213,6 +213,7 @@ private:
     std::vector<AssignedPreset> sf2Presets;
     int selectedSf2Ch { -1 };  ///< 0-based FluidSynth channel, -1 = none
     std::unique_ptr<juce::ComboBox> sf2ChCombo;
+    void buildSf2Combo();
 
     DysektProcessor& processor;
 
