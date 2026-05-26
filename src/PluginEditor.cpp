@@ -54,6 +54,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  sfzDropdown.setVisible (false);
  addChildComponent (sfzDropdown);
+ sf2FxPanel.setVisible (false);
+ addChildComponent (sf2FxPanel);
 
  addChildComponent (padGridView);
  padGridView.onRenameRequest = [this] (int sliceIdx, const juce::String& currentName)
@@ -115,6 +117,12 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      };
      const int colIdx = (preset.bank * 128 + preset.preset) % 6;
      pianoRollPanel.addOrUpdateSfPresetTrack (preset, midiChannel1Based, kPalette[colIdx]);
+
+     // Keep sf2FxPanel in sync: update mask and label for this channel.
+     const int ch = juce::jlimit (0, 15, midiChannel1Based - 1);
+     sf2FxPanel.setChannelLabel (ch, preset.name);
+     sf2FxPanel.setActiveChannelMask (processor.sequencer.getAllSfPlayerChannelMask());
+     resized();
  };
 
  // Track-header right-click on an SF track → change MIDI channel.
@@ -1005,6 +1013,7 @@ void DysektEditor::resized()
      // Mixer or normal browser is open — hide all main views
      waveformView.setVisible (false);   waveformView.setBounds ({});
      sfzDropdown.setVisible  (false);   sfzDropdown.setBounds  ({});
+     sf2FxPanel.setVisible   (false);   sf2FxPanel.setBounds   ({});
      padGridView.setVisible  (false);   padGridView.setBounds  ({});
  }
  else if (initBrowserOpen && uiMode != 1)
@@ -1014,6 +1023,7 @@ void DysektEditor::resized()
      browserPanel.setBounds (screenX, y, screenW, h);
      waveformView.setVisible (false);   waveformView.setBounds ({});
      sfzDropdown.setVisible  (false);   sfzDropdown.setBounds  ({});
+     sf2FxPanel.setVisible   (false);   sf2FxPanel.setBounds   ({});
      padGridView.setVisible  (false);   padGridView.setBounds  ({});
  }
  else if (uiMode == 0 || trimActive)
@@ -1031,12 +1041,24 @@ void DysektEditor::resized()
 
      sfzDropdown.setVisible (false);
      sfzDropdown.setBounds ({});
+     sf2FxPanel.setVisible (false);
+     sf2FxPanel.setBounds ({});
  }
  else
  {
-     // SFZ player layout
+     // For SF2 files, reserve a strip at the bottom for the per-channel FX panel.
+     const bool isSf2 = processor.sfzPlayer.isSf2Loaded();
+     const int fxStripH = isSf2 ? si (72) : 0;
+     const int sfzH = juce::jmax (si (80), waveH - fxStripH);
+
      sfzDropdown.setVisible (true);
-     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
+     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, sfzH));
+
+     sf2FxPanel.setVisible (isSf2);
+     if (isSf2)
+         sf2FxPanel.setBounds (screenX, y + sfzH, screenW, fxStripH);
+     else
+         sf2FxPanel.setBounds ({});
 
      waveformView.setVisible (false);
      waveformView.setBounds ({});

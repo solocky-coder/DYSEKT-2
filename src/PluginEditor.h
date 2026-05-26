@@ -22,6 +22,7 @@
 #include "ui/SliceWaveformLcd.h"
 #include "ui/WaveformOverview.h"
 #include "ui/SfzDropdownPanel.h"
+#include "ui/Sf2ChannelFxPanel.h"
 #include "ui/GlobalEqPanel.h"
 #include "ui/PadGridView.h"
 #if DYSEKT_STANDALONE
@@ -138,7 +139,8 @@ private:
     FileBrowserPanel browserPanel;
     MixerPanel       mixerPanel;
     PadGridView      padGridView;
-    SfzDropdownPanel sfzDropdown;
+    SfzDropdownPanel   sfzDropdown;
+    Sf2ChannelFxPanel  sf2FxPanel;
     ShortcutsPanel   shortcutsPanel { processor };
     GlobalEqPanel    eqPanel;
 #if DYSEKT_STANDALONE

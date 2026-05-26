@@ -119,6 +119,7 @@ public:
      *  Returns an empty File if nothing has ever been queued. */
     juce::File getPendingFilePath() const { return juce::File (pendingFilePath); }
     bool       isLoaded()       const noexcept { return loaded.load(); }
+    bool       isSf2Loaded()    const noexcept { return loaded.load() && !isSfzFile; }
 
     // ── SFZ ADSR (applied via sfizz OSC messages per region) ──────────────────
     //  Values are stored as atomics and flushed to sfizz at the start of each
