@@ -105,7 +105,8 @@ private:
 
     // ── Drag state for knobs ──────────────────────────────────────────────────
     enum class ActiveKnob { None, Volume, Transpose, Pan, FineTune, ReverbMix, ReverbSize,
-                            AdsrAttack, AdsrDecay, AdsrSustain, AdsrRelease };
+                            AdsrAttack, AdsrDecay, AdsrSustain, AdsrRelease,
+                            ChReverbMix, ChReverbSize, ChReverbDamp, ChGain };
     ActiveKnob activeKnob  { ActiveKnob::None };
     int        dragStartY  { 0 };
     float      dragStartVal{ 0.f };
@@ -202,6 +203,16 @@ private:
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove   (const juce::MouseEvent&,
                            const juce::MouseWheelDetails&) override;
+
+    // ── SF2 per-channel FX state ──────────────────────────────────────────────
+    struct AssignedPreset { juce::String name; int ch; };  ///< ch is 1-based
+    std::vector<AssignedPreset> sf2Presets;
+    int selectedSf2Ch { -1 };  ///< 0-based FluidSynth channel, -1 = none
+    std::unique_ptr<juce::ComboBox> sf2ChCombo;
+
+    /** Called by PluginEditor whenever a preset<->channel mapping changes. */
+    void notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based);
+    void buildSf2Combo();
 
     DysektProcessor& processor;
 
