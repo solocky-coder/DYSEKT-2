@@ -1609,49 +1609,6 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
                     continue;
                 }
 
-                // ── Per-channel (per-preset) SF2 FX — Ch Reverb / Gain ────────
-                // intParam1 of the command carries the FluidSynth channel index (0-15).
-                // For MIDI CC, the channel index comes from the mapped field's intParam1.
-                if (outFieldId >= FieldSfzChReverbMix && outFieldId <= FieldSfzChGain)
-                {
-                    const int fxCh = juce::jlimit (0, 15, cmd.intParam1);
-
-                    auto getCurChFx = [&] (int fid, int ch) -> float
-                    {
-                        switch (fid)
-                        {
-                            case FieldSfzChReverbMix:  return sfzPlayer.getChannelReverbMix  (ch) / 100.0f;
-                            case FieldSfzChReverbSize: return sfzPlayer.getChannelReverbSize (ch) / 100.0f;
-                            case FieldSfzChReverbDamp: return sfzPlayer.getChannelReverbDamp (ch) / 100.0f;
-                            case FieldSfzChGain:       return sfzPlayer.getChannelGain       (ch) / 200.0f;
-                            default:                   return 0.0f;
-                        }
-                    };
-
-                    float normVal;
-                    if (outIsRelative)
-                    {
-                        const float cur  = getCurChFx (outFieldId, fxCh);
-                        const float sens = 0.01f;  // 1 % of range per CC click
-                        normVal = juce::jlimit (0.0f, 1.0f, cur + outNorm * sens);
-                    }
-                    else
-                    {
-                        normVal = outNorm;
-                    }
-
-                    switch (outFieldId)
-                    {
-                        case FieldSfzChReverbMix:  sfzPlayer.setChannelReverbMix  (fxCh, normVal * 100.0f); break;
-                        case FieldSfzChReverbSize: sfzPlayer.setChannelReverbSize (fxCh, normVal * 100.0f); break;
-                        case FieldSfzChReverbDamp: sfzPlayer.setChannelReverbDamp (fxCh, normVal * 100.0f); break;
-                        case FieldSfzChGain:       sfzPlayer.setChannelGain       (fxCh, normVal * 200.0f); break;
-                        default: break;
-                    }
-                    uiSnapshotDirty.store (true, std::memory_order_release);
-                    continue;
-                }
-
                 // ── SFZ master knobs CC — Vol / Transpose / Pan / FineTune ───
                 if (outFieldId == FieldSfzVol      || outFieldId == FieldSfzTranspose ||
                     outFieldId == FieldSfzPan       || outFieldId == FieldSfzFineTune)
