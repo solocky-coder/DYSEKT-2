@@ -69,7 +69,7 @@ public:
         if (numActive == 0)
         {
             g.setColour (theme.foreground.withAlpha (0.4f));
-            g.setFont (DysektLookAndFeel::barlowCondensed (13.f));
+            g.setFont (DysektLookAndFeel::makeFont(13.f));
             g.drawText ("No SF2 channels active", getLocalBounds(), juce::Justification::centred);
             return;
         }
@@ -139,7 +139,7 @@ private:
     static constexpr float kLabelH   = 18.f;   // preset name label
     static constexpr float kPadding  =  4.f;
 
-    struct KnobInfo { int ch { -1 }; Knob knob { Knob::None }; };
+    struct DragState { int ch { -1 }; Knob knob { Knob::None }; };
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -239,7 +239,7 @@ private:
         }
     }
 
-    KnobInfo findKnobAt (juce::Point<int> pt) const
+    DragState findKnobAt (juce::Point<int> pt) const
     {
         const juce::Point<float> fpt = pt.toFloat();
         for (int ch = 0; ch < 16; ++ch)
@@ -267,7 +267,7 @@ private:
 
         // Preset label
         g.setColour (theme.accent);
-        g.setFont (DysektLookAndFeel::barlowCondensedSemiBold (12.f));
+        g.setFont (DysektLookAndFeel::makeFont(12.f, true));
         const auto labelRect = col.withHeight (kLabelH).reduced (kPadding, 1.f);
         g.drawText (channelLabels[ch].isEmpty() ? ("CH " + juce::String (ch + 1))
                                                  : channelLabels[ch],
@@ -313,7 +313,7 @@ private:
         g.drawLine (cx, cy, px, py, 1.5f);
 
         // Label and value
-        g.setFont (DysektLookAndFeel::barlowCondensed (10.f));
+        g.setFont (DysektLookAndFeel::makeFont(10.f));
         g.setColour (theme.foreground.withAlpha (0.6f));
 
         const auto topLabel = kr.withHeight (12.f);
@@ -327,7 +327,7 @@ private:
         }
 
         g.setColour (theme.foreground);
-        g.setFont (DysektLookAndFeel::barlowCondensedSemiBold (11.f));
+        g.setFont (DysektLookAndFeel::makeFont(11.f, true));
         const auto botLabel = kr.withY (kr.getBottom() - 13.f).withHeight (13.f);
         g.drawText (valStr, botLabel.toNearestInt(), juce::Justification::centred);
     }
@@ -338,7 +338,6 @@ private:
     uint16_t         activeMask  { 0xFFFF };   // show all 16 until told otherwise
     juce::String     channelLabels[16];
 
-    struct DragState { int ch { -1 }; Knob knob { Knob::None }; };
     DragState dragState;
     int       dragStartY   { 0 };
     float     dragStartVal { 0.f };
