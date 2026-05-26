@@ -27,6 +27,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  mixerPanel (p),
       eqPanel (p),
  sfzDropdown (p),
+ sf2FxPanel (p),
  padGridView (p),
  shortcutsPanel (p)
 {
