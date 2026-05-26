@@ -6,6 +6,7 @@
 #include "../PluginProcessor.h"
 #include "../PluginEditor.h"
 #include <set>
+#include <algorithm>
 
 // ── Layout constants (header strip) ──────────────────────────────────────────
 static constexpr int kPickerW      = 160;   // narrowed to fit ADSR knobs in strip
@@ -474,6 +475,18 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
         // Pure audition: load onto ch15 and route live input there.
         processor.sfzPlayer.previewPreset (info.bank, info.preset);
     };
+
+    programGrid.onAssignedPresetClicked = [this] (int idx)
+    {
+        // Sync combo selection to the channel of the clicked preset
+        if (idx < 0 || idx >= (int) presetList.size()) return;
+        const auto& chMap = programGrid.getPresetChannels();
+        if (! chMap.count (idx)) return;
+        const int ch = chMap.at (idx);
+        if (sf2ChCombo != nullptr)
+            sf2ChCombo->setSelectedId (ch, juce::sendNotification);
+    };
+
     addChildComponent (programGrid);
 
     // SF2 channel-preset dropdown (only visible when SF2 is loaded)
@@ -483,7 +496,17 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     {
         const int selId = sf2ChCombo->getSelectedId();
         if (selId > 0)
+        {
             selectedSf2Ch = selId - 1;  // ComboBox id == 1-based ch
+            // Find the preset index for this channel and mark it as editing
+            const auto& chMap = programGrid.getPresetChannels();
+            int editIdx = -1;
+            for (const auto& [pidx, pch] : chMap)
+            {
+                if (pch == selId) { editIdx = pidx; break; }
+            }
+            programGrid.setEditingIndex (editIdx);
+        }
         repaint();
     };
     addChildComponent (*sf2ChCombo);
@@ -544,32 +567,6 @@ void SfzDropdownPanel::resized()
     strip.removeFromRight (kKnobGap);
     adsrAtkZone = strip.removeFromRight (kKnobW);
 
-    // SF2 combo — occupies whatever strip space remains left of ADSR knobs
-    {
-        const bool isSf2 = [&]() -> bool {
-            if (processor.sfzPlayer.isLoaded())
-                return processor.sfzPlayer.getLoadedFile()
-                           .getFileExtension().toLowerCase() == ".sf2";
-            return processor.sfzPlayer.getPendingFilePath()
-                       .getFileExtension().toLowerCase() == ".sf2";
-        }();
-        if (sf2ChCombo)
-        {
-            if (isSf2 && strip.getWidth() > 10)
-            {
-                const auto comboR = strip.withHeight (kStripH - 8)
-                                         .withY (strip.getY() + 4);
-                sf2ChCombo->setBounds (comboR);
-                sf2ChCombo->setVisible (true);
-            }
-            else
-            {
-                sf2ChCombo->setVisible (false);
-                sf2ChCombo->setBounds ({});
-            }
-        }
-    }
-
     // Sub-divide nameZone:
     //   [< arrow] [folder icon] [label] [> arrow]
     {
@@ -622,6 +619,24 @@ void SfzDropdownPanel::resized()
     {
         programGrid.setVisible (false);
         programGrid.setBounds ({});
+    }
+
+    // ── SF2 channel-FX combo (shown below strip when SF2 has assigned presets) ─
+    if (sf2ChCombo != nullptr)
+    {
+        const bool showCombo = ! sf2Presets.empty() && ! programPickerOpen && ! browserOpen;
+        if (showCombo)
+        {
+            const int comboH = 22;
+            const int comboY = kStripH + kAdsrH + 4;
+            sf2ChCombo->setBounds (kPad, comboY, w - kPad * 2, comboH);
+            sf2ChCombo->setVisible (true);
+        }
+        else
+        {
+            sf2ChCombo->setVisible (false);
+            sf2ChCombo->setBounds ({});
+        }
     }
 }
 
@@ -703,6 +718,73 @@ void SfzDropdownPanel::closeProgramGrid()
     repaint();
 }
 
+// =============================================================================
+//  SF2 channel combo helpers
+// =============================================================================
+void SfzDropdownPanel::buildSf2Combo()
+{
+    if (sf2ChCombo == nullptr) return;
+    const int prevId = sf2ChCombo->getSelectedId();
+    sf2ChCombo->clear (juce::dontSendNotification);
+
+    for (const auto& ap : sf2Presets)
+    {
+        const juce::String label = ap.name + "  (CH" + juce::String (ap.ch) + ")";
+        sf2ChCombo->addItem (label, ap.ch);   // itemId == 1-based MIDI ch
+    }
+
+    if (prevId > 0 && sf2ChCombo->indexOfItemId (prevId) >= 0)
+        sf2ChCombo->setSelectedId (prevId, juce::dontSendNotification);
+    else if (! sf2Presets.empty())
+        sf2ChCombo->setSelectedId (sf2Presets[0].ch, juce::sendNotification);
+
+    // Sync editingIndex in grid to match current combo selection
+    const int selId = sf2ChCombo->getSelectedId();
+    if (selId > 0)
+    {
+        const auto& chMap = programGrid.getPresetChannels();
+        int editIdx = -1;
+        for (const auto& [pidx, pch] : chMap)
+        {
+            if (pch == selId) { editIdx = pidx; break; }
+        }
+        programGrid.setEditingIndex (editIdx);
+    }
+}
+
+void SfzDropdownPanel::notifyPresetChannelChanged (const juce::String& presetName,
+                                                    int midiCh1Based)
+{
+    // midiCh1Based == 0 means the mapping was removed
+    if (midiCh1Based == 0)
+    {
+        sf2Presets.erase (std::remove_if (sf2Presets.begin(), sf2Presets.end(),
+            [&] (const AssignedPreset& ap) { return ap.name == presetName; }),
+            sf2Presets.end());
+
+        // If the removed channel was selected, clear selection
+        const bool stillValid = std::any_of (sf2Presets.begin(), sf2Presets.end(),
+            [&] (const AssignedPreset& ap) { return ap.ch == selectedSf2Ch + 1; });
+        if (! stillValid) selectedSf2Ch = -1;
+    }
+    else
+    {
+        // Add or update
+        bool found = false;
+        for (auto& ap : sf2Presets)
+        {
+            if (ap.name == presetName) { ap.ch = midiCh1Based; found = true; break; }
+        }
+        if (! found)
+            sf2Presets.push_back ({ presetName, midiCh1Based });
+        if (selectedSf2Ch < 0)
+            selectedSf2Ch = midiCh1Based - 1;
+    }
+    buildSf2Combo();
+    resized();
+    repaint();
+}
+
 void SfzDropdownPanel::onFileChosen (const juce::File& f)
 {
     if (fileBrowser.getMode() == SfzFileBrowser::Mode::kAddZone)
@@ -779,61 +861,29 @@ void SfzDropdownPanel::paint (juce::Graphics& g)
 
 void SfzDropdownPanel::drawAdsrStrip (juce::Graphics& g) const
 {
-    const bool isSf2 = processor.sfzPlayer.isLoaded() &&
-                       processor.sfzPlayer.getLoadedFile()
-                           .getFileExtension().toLowerCase() == ".sf2";
+    // Attack: 0-30 s, normalised
+    drawKnob (g, adsrAtkZone,
+              juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzAttack()  / 30.0f),
+              "ATK",
+              juce::String (processor.sfzPlayer.getSfzAttack(), 2) + "s");
 
-    if (isSf2)
-    {
-        const int ch = selectedSf2Ch;  // 0-based; -1 == none
+    // Decay: 0-30 s
+    drawKnob (g, adsrDecZone,
+              juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzDecay()   / 30.0f),
+              "DEC",
+              juce::String (processor.sfzPlayer.getSfzDecay(), 2) + "s");
 
-        drawKnob (g, adsrAtkZone,
-                  ch >= 0 ? processor.sfzPlayer.getChannelReverbMix (ch) / 100.f : 0.f,
-                  "R.MIX",
-                  ch >= 0 ? juce::String (juce::roundToInt (
-                                processor.sfzPlayer.getChannelReverbMix (ch))) + "%" : "-");
+    // Sustain: 0-100 %
+    drawKnob (g, adsrSusZone,
+              juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzSustain() / 100.0f),
+              "SUS",
+              juce::String (juce::roundToInt (processor.sfzPlayer.getSfzSustain())) + "%");
 
-        drawKnob (g, adsrDecZone,
-                  ch >= 0 ? processor.sfzPlayer.getChannelReverbSize (ch) / 100.f : 0.f,
-                  "R.SZ",
-                  ch >= 0 ? juce::String (juce::roundToInt (
-                                processor.sfzPlayer.getChannelReverbSize (ch))) + "%" : "-");
-
-        drawKnob (g, adsrSusZone,
-                  ch >= 0 ? processor.sfzPlayer.getChannelReverbDamp (ch) / 100.f : 0.f,
-                  "R.DMP",
-                  ch >= 0 ? juce::String (juce::roundToInt (
-                                processor.sfzPlayer.getChannelReverbDamp (ch))) + "%" : "-");
-
-        drawKnob (g, adsrRelZone,
-                  ch >= 0 ? processor.sfzPlayer.getChannelGain (ch) / 200.f : 0.5f,
-                  "GAIN",
-                  ch >= 0 ? juce::String (juce::roundToInt (
-                                processor.sfzPlayer.getChannelGain (ch))) + "%" : "-");
-    }
-    else
-    {
-        // SFZ mode — standard ADSR
-        drawKnob (g, adsrAtkZone,
-                  juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzAttack()  / 30.0f),
-                  "ATK",
-                  juce::String (processor.sfzPlayer.getSfzAttack(), 2) + "s");
-
-        drawKnob (g, adsrDecZone,
-                  juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzDecay()   / 30.0f),
-                  "DEC",
-                  juce::String (processor.sfzPlayer.getSfzDecay(), 2) + "s");
-
-        drawKnob (g, adsrSusZone,
-                  juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzSustain() / 100.0f),
-                  "SUS",
-                  juce::String (juce::roundToInt (processor.sfzPlayer.getSfzSustain())) + "%");
-
-        drawKnob (g, adsrRelZone,
-                  juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzRelease() / 60.0f),
-                  "REL",
-                  juce::String (processor.sfzPlayer.getSfzRelease(), 2) + "s");
-    }
+    // Release: 0-60 s
+    drawKnob (g, adsrRelZone,
+              juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzRelease() / 60.0f),
+              "REL",
+              juce::String (processor.sfzPlayer.getSfzRelease(), 2) + "s");
 }
 
 // =============================================================================
@@ -1296,62 +1346,28 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     }
 
     // ── Knob drag start ───────────────────────────────────────────────────────
-    const bool isSf2md = processor.sfzPlayer.isLoaded() &&
-                         processor.sfzPlayer.getLoadedFile()
-                             .getFileExtension().toLowerCase() == ".sf2";
-
-    if (isSf2md)
+    struct { juce::Rectangle<int>& zone; ActiveKnob id; float val; } knobs[] =
     {
-        const int ch = selectedSf2Ch;
-        struct { juce::Rectangle<int>& zone; ActiveKnob id; float val; } sf2knobs[] =
-        {
-            { volZone,    ActiveKnob::Volume,     volToNorm   (processor.sfzPlayer.getVolume()) },
-            { transZone,  ActiveKnob::Transpose,  transToNorm (processor.sfzPlayer.getTranspose()) },
-            { panZone,    ActiveKnob::Pan,        panToNorm   (processor.sfzPlayer.getPan()) },
-            { fineZone,   ActiveKnob::FineTune,   fineToNorm  (processor.sfzPlayer.getFineTune()) },
-            { rvMixZone,  ActiveKnob::ReverbMix,  processor.sfzPlayer.getReverbMix()  / 100.0f },
-            { rvSizeZone, ActiveKnob::ReverbSize, processor.sfzPlayer.getReverbSize() / 100.0f },
-            { adsrAtkZone, ActiveKnob::ChReverbMix,  ch >= 0 ? processor.sfzPlayer.getChannelReverbMix (ch)  / 100.f : 0.f },
-            { adsrDecZone, ActiveKnob::ChReverbSize, ch >= 0 ? processor.sfzPlayer.getChannelReverbSize (ch) / 100.f : 0.f },
-            { adsrSusZone, ActiveKnob::ChReverbDamp, ch >= 0 ? processor.sfzPlayer.getChannelReverbDamp (ch) / 100.f : 0.f },
-            { adsrRelZone, ActiveKnob::ChGain,        ch >= 0 ? processor.sfzPlayer.getChannelGain (ch) / 200.f : 0.5f },
-        };
-        for (auto& k : sf2knobs)
-        {
-            if (k.zone.contains (pos))
-            {
-                activeKnob   = k.id;
-                dragStartY   = pos.y;
-                dragStartVal = k.val;
-                return;
-            }
-        }
-    }
-    else
-    {
-        struct { juce::Rectangle<int>& zone; ActiveKnob id; float val; } knobs[] =
-        {
-            { volZone,    ActiveKnob::Volume,      volToNorm   (processor.sfzPlayer.getVolume()) },
-            { transZone,  ActiveKnob::Transpose,   transToNorm (processor.sfzPlayer.getTranspose()) },
-            { panZone,    ActiveKnob::Pan,         panToNorm   (processor.sfzPlayer.getPan()) },
-            { fineZone,   ActiveKnob::FineTune,    fineToNorm  (processor.sfzPlayer.getFineTune()) },
-            { rvMixZone,  ActiveKnob::ReverbMix,   processor.sfzPlayer.getReverbMix()  / 100.0f },
-            { rvSizeZone, ActiveKnob::ReverbSize,  processor.sfzPlayer.getReverbSize() / 100.0f },
-            { adsrAtkZone, ActiveKnob::AdsrAttack,  juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzAttack()  / 30.0f) },
-            { adsrDecZone, ActiveKnob::AdsrDecay,   juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzDecay()   / 30.0f) },
-            { adsrSusZone, ActiveKnob::AdsrSustain, juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzSustain() / 100.0f) },
-            { adsrRelZone, ActiveKnob::AdsrRelease, juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzRelease() / 60.0f) },
-        };
+        { volZone,    ActiveKnob::Volume,      volToNorm   (processor.sfzPlayer.getVolume()) },
+        { transZone,  ActiveKnob::Transpose,   transToNorm (processor.sfzPlayer.getTranspose()) },
+        { panZone,    ActiveKnob::Pan,         panToNorm   (processor.sfzPlayer.getPan()) },
+        { fineZone,   ActiveKnob::FineTune,    fineToNorm  (processor.sfzPlayer.getFineTune()) },
+        { rvMixZone,  ActiveKnob::ReverbMix,   processor.sfzPlayer.getReverbMix()  / 100.0f },
+        { rvSizeZone, ActiveKnob::ReverbSize,  processor.sfzPlayer.getReverbSize() / 100.0f },
+        { adsrAtkZone, ActiveKnob::AdsrAttack,  juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzAttack()  / 30.0f) },
+        { adsrDecZone, ActiveKnob::AdsrDecay,   juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzDecay()   / 30.0f) },
+        { adsrSusZone, ActiveKnob::AdsrSustain, juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzSustain() / 100.0f) },
+        { adsrRelZone, ActiveKnob::AdsrRelease, juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzRelease() / 60.0f) },
+    };
 
-        for (auto& k : knobs)
+    for (auto& k : knobs)
+    {
+        if (k.zone.contains (pos))
         {
-            if (k.zone.contains (pos))
-            {
-                activeKnob   = k.id;
-                dragStartY   = pos.y;
-                dragStartVal = k.val;
-                return;
-            }
+            activeKnob   = k.id;
+            dragStartY   = pos.y;
+            dragStartVal = k.val;
+            return;
         }
     }
 }
@@ -1374,14 +1390,6 @@ void SfzDropdownPanel::mouseDrag (const juce::MouseEvent& e)
         case ActiveKnob::AdsrDecay:   processor.sfzPlayer.setSfzDecay   (newNorm * 30.0f);      break;
         case ActiveKnob::AdsrSustain: processor.sfzPlayer.setSfzSustain (newNorm * 100.0f);     break;
         case ActiveKnob::AdsrRelease: processor.sfzPlayer.setSfzRelease (newNorm * 60.0f);      break;
-        case ActiveKnob::ChReverbMix:
-            if (selectedSf2Ch >= 0) processor.sfzPlayer.setChannelReverbMix  (selectedSf2Ch, newNorm * 100.f); break;
-        case ActiveKnob::ChReverbSize:
-            if (selectedSf2Ch >= 0) processor.sfzPlayer.setChannelReverbSize (selectedSf2Ch, newNorm * 100.f); break;
-        case ActiveKnob::ChReverbDamp:
-            if (selectedSf2Ch >= 0) processor.sfzPlayer.setChannelReverbDamp (selectedSf2Ch, newNorm * 100.f); break;
-        case ActiveKnob::ChGain:
-            if (selectedSf2Ch >= 0) processor.sfzPlayer.setChannelGain       (selectedSf2Ch, newNorm * 200.f); break;
         default: break;
     }
     repaint();
@@ -1401,29 +1409,11 @@ void SfzDropdownPanel::mouseDoubleClick (const juce::MouseEvent& e)
     if (fineZone.contains   (pos)) { processor.sfzPlayer.setFineTune  (0.0f);  repaint(); }
     if (rvMixZone.contains  (pos)) { processor.sfzPlayer.setReverbMix  (0.0f);  repaint(); }
     if (rvSizeZone.contains (pos)) { processor.sfzPlayer.setReverbSize (50.0f);  repaint(); }
-    // ADSR defaults — split by mode
-    {
-        const bool isSf2dbl = processor.sfzPlayer.isLoaded() &&
-                              processor.sfzPlayer.getLoadedFile()
-                                  .getFileExtension().toLowerCase() == ".sf2";
-        if (isSf2dbl)
-        {
-            if (selectedSf2Ch >= 0)
-            {
-                if (adsrAtkZone.contains (pos)) { processor.sfzPlayer.setChannelReverbMix  (selectedSf2Ch, 0.f);   repaint(); }
-                if (adsrDecZone.contains (pos)) { processor.sfzPlayer.setChannelReverbSize (selectedSf2Ch, 50.f);  repaint(); }
-                if (adsrSusZone.contains (pos)) { processor.sfzPlayer.setChannelReverbDamp (selectedSf2Ch, 50.f);  repaint(); }
-                if (adsrRelZone.contains (pos)) { processor.sfzPlayer.setChannelGain       (selectedSf2Ch, 100.f); repaint(); }
-            }
-        }
-        else
-        {
-            if (adsrAtkZone.contains (pos)) { processor.sfzPlayer.setSfzAttack  (0.005f);  repaint(); }
-            if (adsrDecZone.contains (pos)) { processor.sfzPlayer.setSfzDecay   (0.1f);    repaint(); }
-            if (adsrSusZone.contains (pos)) { processor.sfzPlayer.setSfzSustain (100.0f);  repaint(); }
-            if (adsrRelZone.contains (pos)) { processor.sfzPlayer.setSfzRelease (0.05f);   repaint(); }
-        }
-    }
+    // ADSR defaults
+    if (adsrAtkZone.contains (pos)) { processor.sfzPlayer.setSfzAttack  (0.005f);  repaint(); }
+    if (adsrDecZone.contains (pos)) { processor.sfzPlayer.setSfzDecay   (0.1f);    repaint(); }
+    if (adsrSusZone.contains (pos)) { processor.sfzPlayer.setSfzSustain (100.0f);  repaint(); }
+    if (adsrRelZone.contains (pos)) { processor.sfzPlayer.setSfzRelease (0.05f);   repaint(); }
 }
 
 void SfzDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
@@ -1908,12 +1898,8 @@ void SfzDropdownPanel::reloadZones (const juce::File& f)
 
     if (isSf2)
     {
-        // SF2: keysPanel is hidden — Sf2ProgramGrid handles everything.
-        // Explicitly clear any stale sf2PresetListMode state and hide keysPanel
-        // so it doesn't show through if resized() fires before the program grid opens.
-        keysPanel.setSf2PresetListMode (false);
-        keysPanel.setVisible (false);
-        resized();
+        // SF2: keysPanel is hidden for SF2 files — Sf2ProgramGrid handles everything.
+        // Nothing to do here.
         return;
     }
     else
@@ -2254,60 +2240,4 @@ void SfzDropdownPanel::hideOverlays()
             p->removeChildComponent (saveSfzOverlay.get());
         saveSfzOverlay.reset();
     }
-}
-
-// =============================================================================
-//  SF2 preset-channel dropdown helpers
-// =============================================================================
-
-void SfzDropdownPanel::notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based)
-{
-    if (midiCh1Based == 0)
-    {
-        // Remove
-        sf2Presets.erase (std::remove_if (sf2Presets.begin(), sf2Presets.end(),
-                          [&] (const AssignedPreset& ap) { return ap.name == presetName; }),
-                          sf2Presets.end());
-        // If the selected channel was the one removed, reset
-        bool stillValid = false;
-        for (auto& ap : sf2Presets)
-            if (ap.ch - 1 == selectedSf2Ch) { stillValid = true; break; }
-        if (! stillValid) selectedSf2Ch = -1;
-    }
-    else
-    {
-        // Add or update
-        bool found = false;
-        for (auto& ap : sf2Presets)
-        {
-            if (ap.name == presetName) { ap.ch = midiCh1Based; found = true; break; }
-        }
-        if (! found)
-            sf2Presets.push_back ({ presetName, midiCh1Based });
-        if (selectedSf2Ch < 0)
-            selectedSf2Ch = midiCh1Based - 1;
-    }
-    buildSf2Combo();
-    resized();
-    repaint();
-}
-
-void SfzDropdownPanel::buildSf2Combo()
-{
-    if (sf2ChCombo == nullptr) return;
-    const int prevId = sf2ChCombo->getSelectedId();
-    sf2ChCombo->clear (juce::dontSendNotification);
-
-    for (const auto& ap : sf2Presets)
-    {
-        const juce::String label = ap.name + "  (CH" + juce::String (ap.ch) + ")";
-        sf2ChCombo->addItem (label, ap.ch);   // itemId == 1-based MIDI ch
-    }
-
-    if (prevId > 0 && sf2ChCombo->indexOfItemId (prevId) >= 0)
-        sf2ChCombo->setSelectedId (prevId, juce::dontSendNotification);
-    else if (! sf2Presets.empty())
-        sf2ChCombo->setSelectedId (sf2Presets[0].ch, juce::sendNotification);
-    else
-        selectedSf2Ch = -1;
 }

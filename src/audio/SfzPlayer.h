@@ -119,7 +119,6 @@ public:
      *  Returns an empty File if nothing has ever been queued. */
     juce::File getPendingFilePath() const { return juce::File (pendingFilePath); }
     bool       isLoaded()       const noexcept { return loaded.load(); }
-    bool       isSf2Loaded()    const noexcept { return loaded.load() && !isSfzFile; }
 
     // ── SFZ ADSR (applied via sfizz OSC messages per region) ──────────────────
     //  Values are stored as atomics and flushed to sfizz at the start of each
@@ -153,30 +152,6 @@ public:
     float getReverbWidth()  const noexcept { return reverbWidth .load (std::memory_order_relaxed); }
     float getReverbMix()    const noexcept { return reverbMix   .load (std::memory_order_relaxed); }
     bool  getReverbFreeze() const noexcept { return reverbFreeze.load (std::memory_order_relaxed); }
-
-    // ── Per-channel (per-preset) FX — SF2 multi-timbral only ─────────────────
-    // Each FluidSynth channel (0-15) has independent reverb and gain.
-    // Values are written from the UI thread (atomics) and applied on the audio
-    // thread at the top of each block — no synchronisation primitive needed.
-
-    static constexpr int kNumChannels = 16;  ///< Number of FluidSynth MIDI channels
-
-    /** Set reverb mix (0-100 %) for a specific FluidSynth channel (0-15). */
-    void setChannelReverbMix  (int ch, float pct) noexcept;
-    /** Set reverb room size (0-100 %) for a specific FluidSynth channel. */
-    void setChannelReverbSize (int ch, float pct) noexcept;
-    /** Set reverb damping (0-100 %) for a specific FluidSynth channel. */
-    void setChannelReverbDamp (int ch, float pct) noexcept;
-    /** Set reverb width (0-100 %) for a specific FluidSynth channel. */
-    void setChannelReverbWidth(int ch, float pct) noexcept;
-    /** Set volume gain (0-200 %, 100 = unity) for a specific FluidSynth channel. */
-    void setChannelGain       (int ch, float pct) noexcept;
-
-    float getChannelReverbMix  (int ch) const noexcept;
-    float getChannelReverbSize (int ch) const noexcept;
-    float getChannelReverbDamp (int ch) const noexcept;
-    float getChannelReverbWidth(int ch) const noexcept;
-    float getChannelGain       (int ch) const noexcept;
 
     /**
      * Returns the cached preset list for the currently loaded SF2.
@@ -268,46 +243,6 @@ private:
     // receive fan-out of incoming MIDI ch-1 controller input.
     // Written from UI thread via setLiveInputChannelMask(); read on audio thread.
     std::atomic<uint16_t> liveInputChannelMask { 0 };
-
-    // ── Per-channel FX state (SF2 multi-timbral only) ─────────────────────────
-    // One reverb + gain per FluidSynth channel (0-15).  Allocated in prepare().
-    // Audio thread reads parameters from atomics and updates reverb params when dirty.
-
-    struct ChannelFx
-    {
-        juce::dsp::Reverb   reverb;
-
-        // Atomics written from UI thread, read on audio thread.
-        std::atomic<float>  reverbMix   { 0.0f   };  // 0-100 %
-        std::atomic<float>  reverbSize  { 50.0f  };  // 0-100 %
-        std::atomic<float>  reverbDamp  { 50.0f  };  // 0-100 %
-        std::atomic<float>  reverbWidth { 50.0f  };  // 0-100 %
-        std::atomic<float>  gain        { 100.0f };  // 0-200 % (100=unity)
-
-        // Audio-thread-only cache — set to NaN to force first-block update.
-        float cachedMix   { -1.f };
-        float cachedSize  { -1.f };
-        float cachedDamp  { -1.f };
-        float cachedWidth { -1.f };
-
-        // Per-channel render scratch (filled by fluid_synth_process audio groups).
-        std::vector<float> bufL, bufR;
-
-        ChannelFx() = default;
-        ChannelFx(const ChannelFx&) = delete;
-        ChannelFx& operator=(const ChannelFx&) = delete;
-    };
-
-    // Array is default-constructed; reverbs are prepared in prepare().
-    ChannelFx channelFx[kNumChannels];
-
-    /** Apply reverb parameters for one channel if any have changed. Audio thread only. */
-    void updateChannelReverbParams (int ch) noexcept;
-
-    // Pointer array used when calling fluid_synth_process with 16 audio groups.
-    // Populated in prepare(); contains pointers into channelFx[ch].buf{L,R}.
-    // 32 entries: [ch0L, ch0R, ch1L, ch1R, …, ch15L, ch15R]
-    float* channelPlanes[kNumChannels * 2];
 
     // ── Scratch buffer for FluidSynth interleaved → planar conversion ─────────
     std::vector<float> scratchL, scratchR;

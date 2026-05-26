@@ -138,7 +138,7 @@ private:
     FileBrowserPanel browserPanel;
     MixerPanel       mixerPanel;
     PadGridView      padGridView;
-    SfzDropdownPanel   sfzDropdown;
+    SfzDropdownPanel sfzDropdown;
     ShortcutsPanel   shortcutsPanel { processor };
     GlobalEqPanel    eqPanel;
 #if DYSEKT_STANDALONE

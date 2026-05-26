@@ -25,12 +25,20 @@ public:
      *  index >= 0   → preset at that index is now being previewed. */
     std::function<void (int index)> onPreviewToggled;
 
+    /** Fired when the user clicks an already-assigned preset cell to select it
+     *  for per-channel FX editing.  index is the preset index in presets[]. */
+    std::function<void (int index)> onAssignedPresetClicked;
+
     Sf2ProgramGrid();
     ~Sf2ProgramGrid() override;
 
     void setPresets  (const std::vector<Sf2PresetInfo>& list, int currentIndex,
                       int currentMidiChannel);
     void setCurrentIndex (int idx);
+
+    /** Marks a preset as the one currently being edited for per-channel FX.
+     *  Pass -1 to clear.  Triggers a repaint. */
+    void setEditingIndex (int idx);
 
     /** Read-only access to the current per-preset channel assignments. */
     const std::unordered_map<int,int>& getPresetChannels() const noexcept { return presetChannels; }
@@ -62,6 +70,7 @@ private:
 
     std::vector<Sf2PresetInfo> presets;
     int   currentIdx     { -1 };
+    int   editingIdx     { -1 };  ///< preset being edited for per-channel FX, or -1
     // Maps preset index → assigned MIDI channel (1-16). 0/absent = not assigned.
     std::unordered_map<int,int> presetChannels;
     int   hoveredCell    { -1 };

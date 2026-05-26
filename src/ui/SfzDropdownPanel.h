@@ -73,16 +73,16 @@ public:
     /** Reload zone display for the given file — public so PluginEditor can call it directly. */
     void reloadZones (const juce::File& f);
 
+    // ── SF2 channel-FX public API ─────────────────────────────────────────────
+    /** Called by PluginEditor whenever a preset<->channel mapping changes. */
+    void notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based);
+
     // ── Layout constants ──────────────────────────────────────────────────────
     static constexpr int kStripH  = 36;
     static constexpr int kAdsrH   = 34;   ///< height of the ADSR knob row
 
     // ── Keyboard sub-component ────────────────────────────────────────────────
     KeysPanel keysPanel;
-
-    // ── SF2 channel-FX public API ─────────────────────────────────────────────
-    /** Called by PluginEditor whenever a preset<->channel mapping changes. */
-    void notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based);
 
 private:
     // ── Header-strip drawing ──────────────────────────────────────────────────
@@ -130,6 +130,14 @@ private:
     // ── SF2 program grid ──────────────────────────────────────────────────────
     Sf2ProgramGrid programGrid;
     bool           programPickerOpen { false };
+
+    // ── SF2 per-channel FX state ───────────────────────────────────────────────
+    struct AssignedPreset { juce::String name; int ch { 0 }; };
+    std::vector<AssignedPreset>            sf2Presets;   ///< presets that have a MIDI ch assigned
+    int                                    selectedSf2Ch { -1 };  ///< 0-based ch index into sf2Presets
+    std::unique_ptr<juce::ComboBox>        sf2ChCombo;
+
+    void buildSf2Combo();
 
 
     void openProgramGrid();
@@ -207,13 +215,6 @@ private:
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove   (const juce::MouseEvent&,
                            const juce::MouseWheelDetails&) override;
-
-    // ── SF2 per-channel FX state ──────────────────────────────────────────────
-    struct AssignedPreset { juce::String name; int ch; };  ///< ch is 1-based
-    std::vector<AssignedPreset> sf2Presets;
-    int selectedSf2Ch { -1 };  ///< 0-based FluidSynth channel, -1 = none
-    std::unique_ptr<juce::ComboBox> sf2ChCombo;
-    void buildSf2Combo();
 
     DysektProcessor& processor;
 

@@ -283,102 +283,6 @@ void SfzPlayer::updateReverbParams()
     dspReverb.setParameters (p);
 }
 
-// =============================================================================
-//  Per-channel FX — setters (UI thread), getters (any thread)
-// =============================================================================
-
-void SfzPlayer::setChannelReverbMix  (int ch, float pct) noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return;
-    channelFx[ch].reverbMix.store  (juce::jlimit (0.0f, 100.0f, pct), std::memory_order_relaxed);
-}
-
-void SfzPlayer::setChannelReverbSize (int ch, float pct) noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return;
-    channelFx[ch].reverbSize.store (juce::jlimit (0.0f, 100.0f, pct), std::memory_order_relaxed);
-}
-
-void SfzPlayer::setChannelReverbDamp (int ch, float pct) noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return;
-    channelFx[ch].reverbDamp.store (juce::jlimit (0.0f, 100.0f, pct), std::memory_order_relaxed);
-}
-
-void SfzPlayer::setChannelReverbWidth(int ch, float pct) noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return;
-    channelFx[ch].reverbWidth.store(juce::jlimit (0.0f, 100.0f, pct), std::memory_order_relaxed);
-}
-
-void SfzPlayer::setChannelGain       (int ch, float pct) noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return;
-    channelFx[ch].gain.store       (juce::jlimit (0.0f, 200.0f, pct), std::memory_order_relaxed);
-}
-
-float SfzPlayer::getChannelReverbMix  (int ch) const noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return 0.0f;
-    return channelFx[ch].reverbMix.load  (std::memory_order_relaxed);
-}
-
-float SfzPlayer::getChannelReverbSize (int ch) const noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return 50.0f;
-    return channelFx[ch].reverbSize.load (std::memory_order_relaxed);
-}
-
-float SfzPlayer::getChannelReverbDamp (int ch) const noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return 50.0f;
-    return channelFx[ch].reverbDamp.load (std::memory_order_relaxed);
-}
-
-float SfzPlayer::getChannelReverbWidth(int ch) const noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return 50.0f;
-    return channelFx[ch].reverbWidth.load(std::memory_order_relaxed);
-}
-
-float SfzPlayer::getChannelGain       (int ch) const noexcept
-{
-    if (ch < 0 || ch >= kNumChannels) return 100.0f;
-    return channelFx[ch].gain.load       (std::memory_order_relaxed);
-}
-
-void SfzPlayer::updateChannelReverbParams (int ch) noexcept
-{
-    // Only push new parameters to juce::dsp::Reverb when something changed.
-    // Reads atomics written by UI thread; all operations are relaxed — the
-    // reverb state machine tolerates slightly stale reads (< 1 block latency).
-    auto& fx = channelFx[ch];
-    const float mix   = fx.reverbMix  .load (std::memory_order_relaxed);
-    const float size  = fx.reverbSize .load (std::memory_order_relaxed);
-    const float damp  = fx.reverbDamp .load (std::memory_order_relaxed);
-    const float width = fx.reverbWidth.load (std::memory_order_relaxed);
-
-    if (mix == fx.cachedMix && size == fx.cachedSize
-        && damp == fx.cachedDamp && width == fx.cachedWidth)
-        return;
-
-    fx.cachedMix   = mix;
-    fx.cachedSize  = size;
-    fx.cachedDamp  = damp;
-    fx.cachedWidth = width;
-
-    juce::dsp::Reverb::Parameters p;
-    p.roomSize   = size  * 0.01f;
-    p.damping    = damp  * 0.01f;
-    p.width      = width * 0.01f;
-    // wetLevel / dryLevel — we do our own blend in process() to get a proper
-    // parallel wet/dry mix, so run the reverb fully wet here.
-    p.wetLevel   = 1.0f;
-    p.dryLevel   = 0.0f;
-    p.freezeMode = 0.0f;
-    fx.reverb.setParameters (p);
-}
-
 void SfzPlayer::setPresetByIndex (int idx)
 {
     presetIndex.store (idx, std::memory_order_relaxed);
@@ -486,7 +390,7 @@ void SfzPlayer::prepare (double sampleRate, int maxBlockSize)
     scratchL.assign ((size_t) maxBlockSize, 0.0f);
     scratchR.assign ((size_t) maxBlockSize, 0.0f);
 
-    // ── Prepare global post-processing reverb (SFZ / legacy SF2) ─────────────
+    // ── Prepare post-processing reverb ────────────────────────────────────────
     {
         juce::dsp::ProcessSpec spec;
         spec.sampleRate       = sampleRate;
@@ -494,29 +398,6 @@ void SfzPlayer::prepare (double sampleRate, int maxBlockSize)
         spec.numChannels      = 2;
         dspReverb.prepare (spec);
         updateReverbParams();
-    }
-
-    // ── Prepare per-channel FX (SF2 multi-timbral) ────────────────────────────
-    {
-        juce::dsp::ProcessSpec spec;
-        spec.sampleRate       = sampleRate;
-        spec.maximumBlockSize = static_cast<juce::uint32> (maxBlockSize);
-        spec.numChannels      = 2;
-
-        for (int ch = 0; ch < kNumChannels; ++ch)
-        {
-            channelFx[ch].reverb.prepare (spec);
-            channelFx[ch].bufL.assign ((size_t) maxBlockSize, 0.0f);
-            channelFx[ch].bufR.assign ((size_t) maxBlockSize, 0.0f);
-            // Force reverb param flush on next block.
-            channelFx[ch].cachedMix   = -1.f;
-            channelFx[ch].cachedSize  = -1.f;
-            channelFx[ch].cachedDamp  = -1.f;
-            channelFx[ch].cachedWidth = -1.f;
-            // Wire plane pointers
-            channelPlanes[ch * 2    ] = channelFx[ch].bufL.data();
-            channelPlanes[ch * 2 + 1] = channelFx[ch].bufR.data();
-        }
     }
 
 #if DYSEKT_HAS_FLUIDSYNTH
@@ -775,80 +656,35 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         }
     }
 
-    // ── Render FluidSynth — 16 audio groups (one per MIDI channel) ───────────
-    // fluid_synth_process() with nout=kNumChannels*2 fills each channel pair
-    // independently.  channelPlanes[] was wired to channelFx[ch].buf{L,R} in
-    // prepare() so we pass it directly — no extra allocation on the audio thread.
+    // ── Render FluidSynth ─────────────────────────────────────────────────────
+    // fluid_synth_process ACCUMULATES — must zero before every call.
+    std::fill (scratchL.begin(), scratchL.begin() + numSamples, 0.0f);
+    std::fill (scratchR.begin(), scratchR.begin() + numSamples, 0.0f);
 
-    // Ensure per-channel buffers are large enough (only grows; never shrinks).
-    for (int ch = 0; ch < kNumChannels; ++ch)
+    float* planes[2] = { scratchL.data(), scratchR.data() };
+    fluid_synth_process (synth, numSamples, 0, nullptr, 2, planes);
+
+    // Apply volume
+    for (int i = 0; i < numSamples; ++i)
     {
-        if ((int) channelFx[ch].bufL.size() < numSamples)
-        {
-            // This branch executes only if prepareToPlay was called with a
-            // smaller block than we're now receiving — very rare in practice.
-            channelFx[ch].bufL.assign ((size_t) numSamples, 0.0f);
-            channelFx[ch].bufR.assign ((size_t) numSamples, 0.0f);
-            channelPlanes[ch * 2    ] = channelFx[ch].bufL.data();
-            channelPlanes[ch * 2 + 1] = channelFx[ch].bufR.data();
-        }
-        std::fill (channelFx[ch].bufL.begin(), channelFx[ch].bufL.begin() + numSamples, 0.0f);
-        std::fill (channelFx[ch].bufR.begin(), channelFx[ch].bufR.begin() + numSamples, 0.0f);
+        scratchL[(size_t) i] *= vol;
+        scratchR[(size_t) i] *= vol;
     }
 
-    // fluid_synth_process accumulates — buffers already zeroed above.
-    fluid_synth_process (synth, numSamples,
-                         0, nullptr,
-                         kNumChannels * 2, channelPlanes);
-
-    // ── Apply per-channel gain + reverb, then sum into outL/R ────────────────
-    for (int ch = 0; ch < kNumChannels; ++ch)
+    // Apply post-processing reverb
+    updateReverbParams();
     {
-        float* chL = channelFx[ch].bufL.data();
-        float* chR = channelFx[ch].bufR.data();
+        float* planes[2] = { scratchL.data(), scratchR.data() };
+        juce::dsp::AudioBlock<float> block (planes, 2, (size_t) numSamples);
+        juce::dsp::ProcessContextReplacing<float> ctx (block);
+        dspReverb.process (ctx);
+    }
 
-        const float chGain = channelFx[ch].gain.load (std::memory_order_relaxed) * 0.01f;
-
-        // Apply master volume and per-channel gain together.
-        const float combinedGain = vol * chGain;
-        for (int i = 0; i < numSamples; ++i)
-        {
-            chL[i] *= combinedGain;
-            chR[i] *= combinedGain;
-        }
-
-        // Update reverb params if they changed (cheap atomic reads; no-op if unchanged).
-        updateChannelReverbParams (ch);
-
-        const float mix = channelFx[ch].cachedMix * 0.01f;  // 0-1
-        if (mix > 0.0f)
-        {
-            // Keep a dry copy, process reverb in-place, then blend wet in.
-            // We use scratchL/R as the temp dry copy to avoid allocation.
-            jassert ((int) scratchL.size() >= numSamples);
-            std::copy (chL, chL + numSamples, scratchL.data());
-            std::copy (chR, chR + numSamples, scratchR.data());
-
-            float* rvPlanes[2] = { chL, chR };
-            juce::dsp::AudioBlock<float> block (rvPlanes, 2, (size_t) numSamples);
-            juce::dsp::ProcessContextReplacing<float> ctx (block);
-            channelFx[ch].reverb.process (ctx);
-
-            // Blend: out = dry*(1-mix) + wet*mix
-            const float dryGain = 1.0f - mix;
-            for (int i = 0; i < numSamples; ++i)
-            {
-                chL[i] = scratchL[i] * dryGain + chL[i] * mix;
-                chR[i] = scratchR[i] * dryGain + chR[i] * mix;
-            }
-        }
-
-        // Accumulate into master output.
-        for (int i = 0; i < numSamples; ++i)
-        {
-            outL[i] += chL[i];
-            outR[i] += chR[i];
-        }
+    // Mix into output
+    for (int i = 0; i < numSamples; ++i)
+    {
+        outL[i] += scratchL[(size_t) i];
+        outR[i] += scratchR[(size_t) i];
     }
 #else
     juce::ignoreUnused (midiIn, outL, outR, numSamples);
@@ -948,11 +784,6 @@ void SfzPlayer::applyPendingLoad()
 
     fluid_settings_setint (settings, "synth.reverb.active", 1);
     fluid_settings_setint (settings, "synth.chorus.active", 1);
-
-    // Enable 16 audio output groups so fluid_synth_process() can render each
-    // MIDI channel (0-15) into its own independent stereo buffer pair.
-    // This is what makes per-preset independent FX possible.
-    fluid_settings_setint (settings, "synth.audio-groups", kNumChannels);
 
     synth = new_fluid_synth (settings);
     fluid_synth_set_sample_rate (synth, (float) currentSR);

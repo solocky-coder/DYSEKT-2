@@ -174,13 +174,6 @@ public:
         FieldEqMidFreq    = 47,  // Hz  200..8000
         FieldEqMidQ       = 48,  // Q   0.5..4.0
         FieldEqHighGain   = 49,  // dB  -18..+18
-
-        // Per-SF2-channel (per-preset) FX — slots 50-53
-        // intParam1 = FluidSynth channel index (0-15) in the CmdSetSliceParam command.
-        FieldSfzChReverbMix   = 50,  // per-channel reverb wet/dry  (0-100 %)
-        FieldSfzChReverbSize  = 51,  // per-channel reverb room size (0-100 %)
-        FieldSfzChReverbDamp  = 52,  // per-channel reverb damping   (0-100 %)
-        FieldSfzChGain        = 53,  // per-channel volume gain      (0-200 %)
     };
 
     // ── Command types ────────────────────────────────────────────────────────

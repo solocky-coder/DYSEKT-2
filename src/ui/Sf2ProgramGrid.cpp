@@ -51,6 +51,15 @@ void Sf2ProgramGrid::setCurrentIndex (int idx)
     repaint();
 }
 
+void Sf2ProgramGrid::setEditingIndex (int idx)
+{
+    if (editingIdx == idx) return;
+    editingIdx = idx;
+    repaint();
+}
+    repaint();
+}
+
 void Sf2ProgramGrid::clearPreviewState()
 {
     previewIdx = -1;
@@ -183,9 +192,12 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 
                 const juce::Rectangle<int> cell (kPad + c * cellW, y, cellW - 2, kCellH - 2);
 
-                const bool isSelected  = (idx == currentIdx);
+                const bool isSelected   = (idx == currentIdx);
                 const bool isPreviewing = (idx == previewIdx);
-                const bool isHovered   = (idx == hoveredCell) && ! isSelected && ! isPreviewing;
+                const bool isHovered    = (idx == hoveredCell) && ! isSelected && ! isPreviewing;
+                const int  assignedCh   = presetChannels.count (idx) ? presetChannels.at (idx) : 0;
+                const bool isAssigned   = (assignedCh > 0);
+                const bool isEditing    = (idx == editingIdx);
 
                 // Cell background
                 if (isPreviewing)
@@ -202,6 +214,22 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                         (float)(cell.getRight() - 7), (float)(cell.getY() + 3), 4.f, 4.f);
                     g.setColour (theme.accent);
                     g.fillEllipse (dot);
+                }
+                else if (isEditing)
+                {
+                    // Assigned + currently selected for per-channel FX editing: bright solid border
+                    g.setColour (theme.accent.withAlpha (0.25f));
+                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (theme.accent.withAlpha (1.0f));
+                    g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.5f);
+                }
+                else if (isAssigned)
+                {
+                    // Assigned but not currently editing: subtle tinted fill + accent border
+                    g.setColour (theme.accent.withAlpha (0.12f));
+                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (theme.accent.withAlpha (0.50f));
+                    g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
                 else if (isSelected)
                 {
@@ -229,6 +257,8 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                                            .withX (cell.getX() + 2).withY (cell.getY() + 2);
                     g.setFont (DysektLookAndFeel::makeFont (9.5f));
                     g.setColour (isPreviewing ? theme.accent.brighter (0.3f)
+                                 : isEditing  ? theme.accent.brighter (0.3f)
+                                 : isAssigned ? theme.accent.brighter (0.1f)
                                  : isSelected ? theme.accent.brighter (0.2f)
                                              : theme.foreground.withAlpha (0.30f));
                     g.drawText (juce::String (info.preset), badge,
@@ -236,14 +266,13 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 }
 
                 // MIDI channel badge (bottom-right corner) — only when assigned
-                const int assignedCh = presetChannels.count (idx) ? presetChannels.at (idx) : 0;
-                if (assignedCh > 0)
+                if (isAssigned)
                 {
                     const juce::String chLabel = "ch" + juce::String (assignedCh);
                     const int bw = 22, bh = 11;
                     const auto badgeR = juce::Rectangle<int> (
                         cell.getRight() - bw - 2, cell.getBottom() - bh - 2, bw, bh);
-                    g.setColour (theme.accent.withAlpha (0.85f));
+                    g.setColour (isEditing ? theme.accent : theme.accent.withAlpha (0.85f));
                     g.fillRoundedRectangle (badgeR.toFloat(), 2.f);
                     g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
                     g.setColour (theme.darkBar);
@@ -254,11 +283,13 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 {
                     g.setFont (DysektLookAndFeel::makeFont (12.0f));
                     g.setColour (isPreviewing ? theme.foreground.brighter (0.2f).withAlpha (0.95f)
+                                 : isEditing  ? theme.foreground.brighter (0.2f)
+                                 : isAssigned ? theme.foreground.brighter (0.05f).withAlpha (0.90f)
                                  : isSelected ? theme.foreground.brighter (0.1f)
                                              : theme.foreground.withAlpha (0.78f));
                     // Shrink name area if channel badge is showing
-                    const auto nameRect = assignedCh > 0 ? cell.reduced (3, 0).withTrimmedBottom (12)
-                                                         : cell.reduced (3, 0);
+                    const auto nameRect = isAssigned ? cell.reduced (3, 0).withTrimmedBottom (12)
+                                                     : cell.reduced (3, 0);
                     g.drawText (info.name, nameRect, juce::Justification::centred, true);
                 }
             }
@@ -349,6 +380,16 @@ void Sf2ProgramGrid::mouseDown (const juce::MouseEvent& e)
     }
     else
     {
+        // Left-click on an already-assigned cell → select it for per-channel FX editing.
+        const int assignedCh = presetChannels.count (idx) ? presetChannels.at (idx) : 0;
+        if (assignedCh > 0)
+        {
+            editingIdx = idx;
+            if (onAssignedPresetClicked) onAssignedPresetClicked (idx);
+            repaint();
+            return;
+        }
+
         // Radio-button preview toggle — left-click auditions, click again to deactivate.
         // currentIdx is only set via right-click channel assignment, never on left-click.
         if (idx == previewIdx)
