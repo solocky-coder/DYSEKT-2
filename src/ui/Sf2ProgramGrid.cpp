@@ -173,10 +173,13 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
             const auto hdrBounds = juce::Rectangle<int> (kPad, y, w, kHdrH);
             g.setColour (theme.accent.withAlpha (0.12f));
             g.fillRect (hdrBounds);
+            // Accent left-rule
+            g.setColour (theme.accent.withAlpha (0.75f));
+            g.fillRect (juce::Rectangle<int> (kPad, y, 2, kHdrH));
             g.setFont (DysektLookAndFeel::makeFont (11.0f, true));
             g.setColour (theme.accent.withAlpha (0.65f));
             g.drawText ("BANK " + juce::String (row.bank),
-                        hdrBounds.reduced (4, 0),
+                        hdrBounds.reduced (4, 0).withTrimmedLeft (4),
                         juce::Justification::centredLeft, false);
             y += kHdrH;
         }
@@ -245,8 +248,10 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 }
                 else
                 {
-                    g.setColour (theme.darkBar.brighter (0.06f));
+                    g.setColour (juce::Colour (0xff16161F));
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (juce::Colour (0xff222230));
+                    g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
 
                 // Preset number badge (top-left)
@@ -279,7 +284,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 
                 // Preset name (centred)
                 {
-                    g.setFont (DysektLookAndFeel::makeFont (12.0f));
+                    g.setFont (DysektLookAndFeel::makeFont (13.0f));
                     g.setColour (isPreviewing ? theme.foreground.brighter (0.2f).withAlpha (0.95f)
                                  : isEditing  ? theme.foreground.brighter (0.2f)
                                  : isAssigned ? theme.foreground.brighter (0.05f).withAlpha (0.90f)
