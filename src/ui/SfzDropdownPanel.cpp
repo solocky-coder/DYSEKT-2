@@ -716,6 +716,7 @@ void SfzDropdownPanel::openProgramGrid()
     programGrid.setPresets (presetList,
                             processor.sfzPlayer.getCurrentPresetIndex(),
                             processor.sfzPlayer.getMidiChannel());
+    restoreGridChannelAssignments();
     resized();
     repaint();
 }
@@ -731,6 +732,26 @@ void SfzDropdownPanel::closeProgramGrid()
 
     resized();
     repaint();
+}
+
+void SfzDropdownPanel::restoreGridChannelAssignments()
+{
+    // Rebuild programGrid.presetChannels from sf2Presets (which survives reloads).
+    // Without this, presets that were assigned in a previous session have current==0
+    // in the grid, causing "Deactivate" to be permanently greyed out.
+    std::unordered_map<int, int> chMap;
+    for (const auto& ap : sf2Presets)
+    {
+        for (int i = 0; i < (int) presetList.size(); ++i)
+        {
+            if (presetList[(size_t) i].name == ap.name)
+            {
+                chMap[i] = ap.ch;
+                break;
+            }
+        }
+    }
+    programGrid.setPresetChannels (chMap);
 }
 
 // =============================================================================
@@ -1619,6 +1640,7 @@ void SfzDropdownPanel::panelDidShow()
         programGrid.setPresets (presetList,
                                 processor.sfzPlayer.getCurrentPresetIndex(),
                                 processor.sfzPlayer.getMidiChannel());
+        restoreGridChannelAssignments();
     }
 
     if (processor.sfzPlayer.isLoaded())

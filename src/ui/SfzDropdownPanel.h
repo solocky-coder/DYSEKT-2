@@ -150,6 +150,7 @@ private:
 
     void openProgramGrid();
     void closeProgramGrid();
+    void restoreGridChannelAssignments();
 
     // State held between openAddZoneChooser() and onFileChosen() in kAddZone mode
     juce::File     addZoneTargetSfz;

@@ -43,6 +43,15 @@ public:
     /** Read-only access to the current per-preset channel assignments. */
     const std::unordered_map<int,int>& getPresetChannels() const noexcept { return presetChannels; }
 
+    /** Restore channel assignments from persisted state (e.g. after plugin reload).
+     *  Must be called on the message thread after setPresets().
+     *  Key = preset index in the list, value = 1-based MIDI channel. */
+    void setPresetChannels (const std::unordered_map<int,int>& channels)
+    {
+        presetChannels = channels;
+        repaint();
+    }
+
     /** Clear the preview toggle without firing onPreviewToggled.
      *  Called by SfzDropdownPanel when the grid is closed or a real
      *  channel is assigned so the visual state stays consistent. */
