@@ -88,6 +88,7 @@ private:
     // ── Header-strip drawing ──────────────────────────────────────────────────
     void drawHeaderStrip (juce::Graphics& g) const;
     void drawAdsrStrip   (juce::Graphics& g) const;
+    void drawSf2ChStrip  (juce::Graphics& g) const;
     void drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
                    float normalised, const juce::String& label,
                    const juce::String& valueStr) const;
@@ -103,6 +104,13 @@ private:
 
     // ADSR knob zones (second row, below header strip)
     juce::Rectangle<int> adsrAtkZone, adsrDecZone, adsrSusZone, adsrRelZone;
+
+    // Per-channel SF2 FX zones — overlap the ADSR slots when SF2 is loaded
+    juce::Rectangle<int> chComboZone;   ///< combo fits where TRN+FINE slots are
+    juce::Rectangle<int> chMixZone;     ///< reuse adsrAtkZone slot
+    juce::Rectangle<int> chSizeZone;    ///< reuse adsrDecZone slot
+    juce::Rectangle<int> chDampZone;    ///< reuse adsrSusZone slot
+    juce::Rectangle<int> chGainZone;    ///< reuse adsrRelZone slot
 
     // Sub-zones inside nameZone
     juce::Rectangle<int> presetDecBtn, presetLabel, presetIncBtn, folderIconZone;

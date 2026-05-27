@@ -57,6 +57,8 @@ void Sf2ProgramGrid::setEditingIndex (int idx)
     editingIdx = idx;
     repaint();
 }
+    repaint();
+}
 
 void Sf2ProgramGrid::clearPreviewState()
 {

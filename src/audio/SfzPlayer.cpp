@@ -21,15 +21,6 @@ SfzPlayer::SfzPlayer()
     for (auto& slot : pendingChannelAssignment)
         slot.store (-1, std::memory_order_relaxed);
 
-    // Initialise per-channel FX defaults
-    for (int i = 0; i < 16; ++i)
-    {
-        chReverbMix [i].store (  0.0f, std::memory_order_relaxed);
-        chReverbSize[i].store ( 50.0f, std::memory_order_relaxed);
-        chReverbDamp[i].store ( 50.0f, std::memory_order_relaxed);
-        chGain      [i].store (100.0f, std::memory_order_relaxed);
-    }
-
 #if DYSEKT_HAS_FLUIDSYNTH
     // Prevent FluidSynth from spawning its own audio driver thread.
     // We only use it as an offline render engine inside processBlock.
@@ -278,117 +269,6 @@ void SfzPlayer::setReverbMix (float pct) noexcept
 void SfzPlayer::setReverbFreeze (bool on) noexcept
 {
     reverbFreeze.store (on, std::memory_order_relaxed);
-}
-
-// ── Per-channel SF2 FX ────────────────────────────────────────────────────────
-
-void SfzPlayer::setChannelReverbMix (int ch, float pct) noexcept
-{
-    if (ch < 0 || ch > 15) return;
-    chReverbMix[ch].store (juce::jlimit (0.0f, 100.0f, pct), std::memory_order_relaxed);
-    chFxDirty.fetch_or ((uint16_t)(1u << ch), std::memory_order_release);
-}
-
-void SfzPlayer::setChannelReverbSize (int ch, float pct) noexcept
-{
-    if (ch < 0 || ch > 15) return;
-    chReverbSize[ch].store (juce::jlimit (0.0f, 100.0f, pct), std::memory_order_relaxed);
-    chFxDirty.fetch_or ((uint16_t)(1u << ch), std::memory_order_release);
-}
-
-void SfzPlayer::setChannelReverbDamp (int ch, float pct) noexcept
-{
-    if (ch < 0 || ch > 15) return;
-    chReverbDamp[ch].store (juce::jlimit (0.0f, 100.0f, pct), std::memory_order_relaxed);
-    chFxDirty.fetch_or ((uint16_t)(1u << ch), std::memory_order_release);
-}
-
-void SfzPlayer::setChannelGain (int ch, float pct) noexcept
-{
-    if (ch < 0 || ch > 15) return;
-    chGain[ch].store (juce::jlimit (0.0f, 200.0f, pct), std::memory_order_relaxed);
-    chFxDirty.fetch_or ((uint16_t)(1u << ch), std::memory_order_release);
-}
-
-float SfzPlayer::getChannelReverbMix  (int ch) const noexcept
-{
-    return (ch >= 0 && ch < 16) ? chReverbMix [ch].load (std::memory_order_relaxed) : 0.0f;
-}
-
-float SfzPlayer::getChannelReverbSize (int ch) const noexcept
-{
-    return (ch >= 0 && ch < 16) ? chReverbSize[ch].load (std::memory_order_relaxed) : 50.0f;
-}
-
-float SfzPlayer::getChannelReverbDamp (int ch) const noexcept
-{
-    return (ch >= 0 && ch < 16) ? chReverbDamp[ch].load (std::memory_order_relaxed) : 50.0f;
-}
-
-float SfzPlayer::getChannelGain (int ch) const noexcept
-{
-    return (ch >= 0 && ch < 16) ? chGain[ch].load (std::memory_order_relaxed) : 100.0f;
-}
-
-// ── applyPendingChannelFx ─────────────────────────────────────────────────────
-// Called from the audio thread at the top of process() when chFxDirty != 0.
-// Maps per-channel FX values to FluidSynth MIDI CCs:
-//   CC7  (volume)       ← chGain:       0–200 % mapped to CC 0–127 at unity = CC 100
-//   CC91 (reverb send)  ← chReverbMix:  0–100 % mapped to CC 0–127
-// Room size and damping adjust the global FluidSynth reverb unit scoped to the
-// channel with the highest reverb-send value (approximation — FluidSynth does
-// not expose per-channel reverb parameters in its stable public API).
-
-void SfzPlayer::applyPendingChannelFx()
-{
-#if DYSEKT_HAS_FLUIDSYNTH
-    if (synth == nullptr) return;
-
-    const uint16_t dirty = chFxDirty.exchange (0, std::memory_order_acq_rel);
-    if (dirty == 0) return;
-
-    // Track the channel with the highest reverb send so we can apply its
-    // size/damp to the global FluidSynth reverb unit.
-    int   dominantCh   = -1;
-    float dominantMix  = -1.0f;
-
-    for (int ch = 0; ch < 16; ++ch)
-    {
-        if (! (dirty & (1u << ch))) continue;
-
-        // CC7: volume.  0–127 maps to 0–200 %; unity (100 %) = CC 100.
-        const float gainPct = chGain[ch].load (std::memory_order_relaxed);
-        const int   cc7     = juce::jlimit (0, 127,
-                                  juce::roundToInt (gainPct * 127.0f / 200.0f));
-        fluid_synth_cc (synth, ch, 7, cc7);
-
-        // CC91: reverb send.  0–100 % → 0–127.
-        const float mixPct = chReverbMix[ch].load (std::memory_order_relaxed);
-        const int   cc91   = juce::jlimit (0, 127,
-                                  juce::roundToInt (mixPct * 127.0f / 100.0f));
-        fluid_synth_cc (synth, ch, 91, cc91);
-
-        if (mixPct > dominantMix)
-        {
-            dominantMix = mixPct;
-            dominantCh  = ch;
-        }
-    }
-
-    // Apply the dominant channel's size/damp to the FluidSynth reverb unit.
-    // (Best approximation without per-channel reverb room parameters.)
-    if (dominantCh >= 0)
-    {
-        const double size = chReverbSize[dominantCh].load (std::memory_order_relaxed) * 0.01;
-        const double damp = chReverbDamp[dominantCh].load (std::memory_order_relaxed) * 0.01;
-        const double mix  = dominantMix * 0.01;
-        fluid_synth_set_reverb (synth,
-            size,   // room size  0.0–1.0
-            damp,   // damping    0.0–1.0
-            0.5,    // width      (fixed)
-            mix);   // level      0.0–1.0
-    }
-#endif
 }
 
 void SfzPlayer::updateReverbParams()
@@ -691,10 +571,6 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     if (programChangePending.load (std::memory_order_acquire))
         applyProgramChange();
 
-    // Apply any per-channel FX (gain / reverb send) changes from the UI.
-    if (chFxDirty.load (std::memory_order_acquire))
-        applyPendingChannelFx();
-
     // ── Forward MIDI to FluidSynth ────────────────────────────────────────────
     // Multi-timbral mode: route each message to its own FluidSynth channel (0-based).
     // No channel filtering — every channel passes through so each sequencer track
@@ -860,16 +736,6 @@ void SfzPlayer::applyPendingLoad()
 
     // Clear any stale per-channel preset assignments from a previous load.
     clearChannelPresets();
-
-    // Reset per-channel FX to defaults for the new file.
-    for (int i = 0; i < 16; ++i)
-    {
-        chReverbMix [i].store (  0.0f, std::memory_order_relaxed);
-        chReverbSize[i].store ( 50.0f, std::memory_order_relaxed);
-        chReverbDamp[i].store ( 50.0f, std::memory_order_relaxed);
-        chGain      [i].store (100.0f, std::memory_order_relaxed);
-    }
-    chFxDirty.store (0, std::memory_order_relaxed);
 
     if (owner->shouldUnload)
         return;
