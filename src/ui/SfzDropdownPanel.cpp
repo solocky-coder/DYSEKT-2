@@ -923,7 +923,7 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
     {
         // No channel assigned yet — draw a subtle hint label across the ADSR area
         const auto hintRect = chMixZone.getUnion (chGainZone);
-        const auto& theme = DysektLookAndFeel::getTheme();
+        const auto& theme = getTheme();
         g.setColour (theme.foreground.withAlpha (0.25f));
         g.setFont (DysektLookAndFeel::makeFont (10.f));
         g.drawText ("assign a preset to a channel", hintRect,
@@ -932,10 +932,10 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
     }
 
     // Retrieve per-channel FX values from the processor
-    const float chMix  = processor.sfzPlayer.getChReverbMix  (selCh) / 100.0f;
-    const float chSize = processor.sfzPlayer.getChReverbSize  (selCh) / 100.0f;
-    const float chDamp = processor.sfzPlayer.getChReverbDamp  (selCh) / 100.0f;
-    const float chGain = processor.sfzPlayer.getChGain        (selCh);   // 0-2 linear → norm 0-1
+    const float chMix  = processor.sfzPlayer.getReverbMix() / 100.0f;
+    const float chSize = processor.sfzPlayer.getReverbSize() / 100.0f;
+    const float chDamp = processor.sfzPlayer.getReverbDamp() / 100.0f;
+    const float chGain = processor.sfzPlayer.getVolume();   // 0-2 linear → norm 0-1
 
     drawKnob (g, chMixZone,  chMix,
               "MIX",
@@ -1437,10 +1437,10 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
             { adsrSusZone, ActiveKnob::AdsrSustain, juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzSustain() / 100.0f) },
             { adsrRelZone, ActiveKnob::AdsrRelease, juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzRelease() / 60.0f) },
             // Per-channel SF2 FX knobs (only active when a ch is selected)
-            { chMixZone,  ActiveKnob::ChReverbMix,  selCh > 0 ? processor.sfzPlayer.getChReverbMix  (selCh) / 100.0f : 0.f },
-            { chSizeZone, ActiveKnob::ChReverbSize, selCh > 0 ? processor.sfzPlayer.getChReverbSize (selCh) / 100.0f : 0.f },
-            { chDampZone, ActiveKnob::ChReverbDamp, selCh > 0 ? processor.sfzPlayer.getChReverbDamp (selCh) / 100.0f : 0.f },
-            { chGainZone, ActiveKnob::ChGain,       selCh > 0 ? juce::jlimit (0.f, 1.f, processor.sfzPlayer.getChGain (selCh) / 2.0f) : 0.5f },
+            { chMixZone,  ActiveKnob::ChReverbMix,  selCh > 0 ? processor.sfzPlayer.getReverbMix() / 100.0f : 0.f },
+            { chSizeZone, ActiveKnob::ChReverbSize, selCh > 0 ? processor.sfzPlayer.getReverbSize() / 100.0f : 0.f },
+            { chDampZone, ActiveKnob::ChReverbDamp, selCh > 0 ? processor.sfzPlayer.getReverbDamp() / 100.0f : 0.f },
+            { chGainZone, ActiveKnob::ChGain,       selCh > 0 ? juce::jlimit (0.f, 1.f, processor.sfzPlayer.getVolume() / 2.0f) : 0.5f },
         };
 
         for (auto& k : knobs)
@@ -1482,10 +1482,10 @@ void SfzDropdownPanel::mouseDrag (const juce::MouseEvent& e)
             const int selCh = sf2ChCombo != nullptr ? sf2ChCombo->getSelectedId() : 0;
             if (selCh > 0)
             {
-                if      (activeKnob == ActiveKnob::ChReverbMix)  processor.sfzPlayer.setChReverbMix  (selCh, newNorm * 100.0f);
-                else if (activeKnob == ActiveKnob::ChReverbSize) processor.sfzPlayer.setChReverbSize (selCh, newNorm * 100.0f);
-                else if (activeKnob == ActiveKnob::ChReverbDamp) processor.sfzPlayer.setChReverbDamp (selCh, newNorm * 100.0f);
-                else if (activeKnob == ActiveKnob::ChGain)       processor.sfzPlayer.setChGain       (selCh, newNorm * 2.0f);
+                if      (activeKnob == ActiveKnob::ChReverbMix)  processor.sfzPlayer.setReverbMix  (newNorm * 100.0f);
+                else if (activeKnob == ActiveKnob::ChReverbSize) processor.sfzPlayer.setReverbSize (newNorm * 100.0f);
+                else if (activeKnob == ActiveKnob::ChReverbDamp) processor.sfzPlayer.setReverbDamp (newNorm * 100.0f);
+                else if (activeKnob == ActiveKnob::ChGain)       processor.sfzPlayer.setVolume     (newNorm * 2.0f);
             }
             break;
         }
@@ -1518,10 +1518,10 @@ void SfzDropdownPanel::mouseDoubleClick (const juce::MouseEvent& e)
         const int selCh = sf2ChCombo != nullptr ? sf2ChCombo->getSelectedId() : 0;
         if (selCh > 0)
         {
-            if (chMixZone.contains  (pos)) { processor.sfzPlayer.setChReverbMix  (selCh, 0.0f);   repaint(); }
-            if (chSizeZone.contains (pos)) { processor.sfzPlayer.setChReverbSize (selCh, 50.0f);  repaint(); }
-            if (chDampZone.contains (pos)) { processor.sfzPlayer.setChReverbDamp (selCh, 50.0f);  repaint(); }
-            if (chGainZone.contains (pos)) { processor.sfzPlayer.setChGain       (selCh, 1.0f);   repaint(); }
+            if (chMixZone.contains  (pos)) { processor.sfzPlayer.setReverbMix  (0.0f);   repaint(); }
+            if (chSizeZone.contains (pos)) { processor.sfzPlayer.setReverbSize (50.0f);  repaint(); }
+            if (chDampZone.contains (pos)) { processor.sfzPlayer.setReverbDamp (50.0f);  repaint(); }
+            if (chGainZone.contains (pos)) { processor.sfzPlayer.setVolume     (1.0f);   repaint(); }
         }
     }
 }
