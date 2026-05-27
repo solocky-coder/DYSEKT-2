@@ -70,13 +70,29 @@ public:
     void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override;
 
 private:
-    // Layout
-    static constexpr int kCols     = 8;
-    static constexpr int kCellH    = 36;
-    static constexpr int kHdrH     = 18;   // bank section header
-    static constexpr int kScrollW  = 10;
-    static constexpr int kPad      = 4;
-    static constexpr int kMaxCellW = 160; // cap so cells don't balloon on wide panels
+    // Layout — column count and scroll-bar width are fixed; all pixel heights
+    // scale with the component so the grid stays proportional at any UI scale.
+    static constexpr int kCols      = 8;
+    static constexpr int kScrollW   = 10;
+    static constexpr int kPad       = 4;
+    static constexpr int kMaxCellW  = 160; // cap so cells don't balloon on wide panels
+
+    // Base heights (logical pixels at 1× / default UI scale).
+    static constexpr int kBaseCellH = 36;
+    static constexpr int kBaseHdrH  = 18;
+
+    // Scale factor derived from the component's current height relative to
+    // a reference height of 400 px (a typical grid height at 1× scale).
+    // Clamped to [0.5, 4] so nothing goes pathologically tiny or huge.
+    static constexpr int kRefH = 400;
+    float scaleFactor() const noexcept
+    {
+        const float h = (float) getHeight();
+        return (h > 0.f) ? juce::jlimit (0.5f, 4.0f, h / (float) kRefH) : 1.0f;
+    }
+
+    int cellH() const noexcept { return juce::roundToInt ((float) kBaseCellH * scaleFactor()); }
+    int hdrH()  const noexcept { return juce::roundToInt ((float) kBaseHdrH  * scaleFactor()); }
 
     std::vector<Sf2PresetInfo> presets;
     int   currentIdx     { -1 };

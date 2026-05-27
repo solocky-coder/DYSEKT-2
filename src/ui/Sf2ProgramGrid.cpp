@@ -117,10 +117,12 @@ void Sf2ProgramGrid::rebuildLayout()
     }
     flushRow();
 
-    // Compute totalH
+    // Compute totalH using scale-aware row heights
+    const int ch = cellH();
+    const int hh = hdrH();
     totalH = kPad;
     for (auto& r : rows)
-        totalH += r.isHeader ? kHdrH : kCellH;
+        totalH += r.isHeader ? hh : ch;
     totalH += kPad;
 }
 
@@ -166,23 +168,26 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 
     int y = kPad - scrollY;
 
+    const int ch = cellH();
+    const int hh = hdrH();
+
     for (auto& row : rows)
     {
         if (row.isHeader)
         {
             // Bank header
-            const auto hdrBounds = juce::Rectangle<int> (kPad, y, gridW, kHdrH);
+            const auto hdrBounds = juce::Rectangle<int> (kPad, y, gridW, hh);
             g.setColour (theme.accent.withAlpha (0.12f));
             g.fillRect (hdrBounds);
             // Accent left-rule
             g.setColour (theme.accent.withAlpha (0.75f));
-            g.fillRect (juce::Rectangle<int> (kPad, y, 2, kHdrH));
+            g.fillRect (juce::Rectangle<int> (kPad, y, 2, hh));
             g.setFont (DysektLookAndFeel::makeFont (11.0f, true));
             g.setColour (theme.accent.withAlpha (0.65f));
             g.drawText ("BANK " + juce::String (row.bank),
                         hdrBounds.reduced (4, 0).withTrimmedLeft (4),
                         juce::Justification::centredLeft, false);
-            y += kHdrH;
+            y += hh;
         }
         else
         {
@@ -192,7 +197,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 const int idx = row.firstIdx + c;
                 const auto& info = presets[(size_t) idx];
 
-                const juce::Rectangle<int> cell (kPad + c * cellW, y, cellW - 2, kCellH - 2);
+                const juce::Rectangle<int> cell (kPad + c * cellW, y, cellW - 2, ch - 2);
 
                 const bool isSelected   = (idx == currentIdx);
                 const bool isPreviewing = (idx == previewIdx);
@@ -297,7 +302,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                     g.drawText (info.name, nameRect, juce::Justification::centred, true);
                 }
             }
-            y += kCellH;
+            y += ch;
         }
     }
 
@@ -335,22 +340,25 @@ int Sf2ProgramGrid::cellIndexAt (juce::Point<int> pt) const
 
     int y = kPad - scrollY;
 
+    const int ch = cellH();
+    const int hh = hdrH();
+
     for (const auto& row : rows)
     {
         if (row.isHeader)
         {
-            y += kHdrH;
+            y += hh;
         }
         else
         {
-            const juce::Rectangle<int> rowBounds (kPad, y, gridW, kCellH);
+            const juce::Rectangle<int> rowBounds (kPad, y, gridW, ch);
             if (rowBounds.contains (pt))
             {
                 const int col = (pt.x - kPad) / cellW;
                 if (col >= 0 && col < row.count)
                     return row.firstIdx + col;
             }
-            y += kCellH;
+            y += ch;
         }
     }
     return -1;
