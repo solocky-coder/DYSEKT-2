@@ -28,6 +28,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
       eqPanel (p),
  sfzDropdown (p),
  padGridView (p),
+ sf2FxPanel  (p),
  shortcutsPanel (p)
 {
  juce::LookAndFeel::setDefaultLookAndFeel (&lnf);
@@ -54,6 +55,9 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  sfzDropdown.setVisible (false);
  addChildComponent (sfzDropdown);
+
+ sf2FxPanel.setVisible (false);
+ addChildComponent (sf2FxPanel);
 
  addChildComponent (padGridView);
  padGridView.onRenameRequest = [this] (int sliceIdx, const juce::String& currentName)
@@ -109,6 +113,13 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  {
      // Keep the inline channel-FX panel in sync
      sfzDropdown.notifyPresetChannelChanged (preset.name, midiChannel1Based);
+
+     // Update the SF2 per-channel FX panel with the new preset label
+     sf2FxPanel.setChannelLabel (midiChannel1Based - 1, preset.name);
+     // Activate this channel in the FX panel's display mask
+     const uint16_t cur = processor.sfzPlayer.getLiveInputChannelMask();
+     sf2FxPanel.setActiveChannelMask (cur | (uint16_t)(1u << (midiChannel1Based - 1)));
+     resized();
 
      // Pick a colour based on the preset number (bank*128 + program).
      static const juce::Colour kPalette[] = {
@@ -1004,6 +1015,7 @@ void DysektEditor::resized()
      // Mixer or normal browser is open — hide all main views
      waveformView.setVisible (false);   waveformView.setBounds ({});
      sfzDropdown.setVisible  (false);   sfzDropdown.setBounds  ({});
+     sf2FxPanel.setVisible   (false);   sf2FxPanel.setBounds   ({});
      padGridView.setVisible  (false);   padGridView.setBounds  ({});
  }
  else if (initBrowserOpen)
@@ -1012,6 +1024,7 @@ void DysektEditor::resized()
      browserPanel.setBounds (screenX, y, screenW, h);
      waveformView.setVisible (false);   waveformView.setBounds ({});
      sfzDropdown.setVisible  (false);   sfzDropdown.setBounds  ({});
+     sf2FxPanel.setVisible   (false);   sf2FxPanel.setBounds   ({});
      padGridView.setVisible  (false);   padGridView.setBounds  ({});
  }
  else if (uiMode == 0 || trimActive)
@@ -1029,12 +1042,25 @@ void DysektEditor::resized()
 
      sfzDropdown.setVisible (false);
      sfzDropdown.setBounds ({});
+     sf2FxPanel.setVisible  (false);
+     sf2FxPanel.setBounds   ({});
  }
  else
  {
-     // SFZ player layout
-     sfzDropdown.setVisible (true);
-     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
+     // SFZ/SF2 player layout
+    const bool isSf2 = processor.sfzPlayer.isLoaded() &&
+                       processor.sfzPlayer.getLoadedFile()
+                           .getFileExtension().toLowerCase() == ".sf2";
+    const int fxPanelH = isSf2 ? juce::jmax (si (180), waveH / 3) : 0;
+    const int sfzH     = juce::jmax (si (80), waveH - fxPanelH);
+
+    sfzDropdown.setVisible (true);
+    sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, sfzH));
+
+    sf2FxPanel.setVisible (isSf2);
+    sf2FxPanel.setBounds (isSf2
+        ? juce::Rectangle<int> (screenX, y + sfzH, screenW, fxPanelH)
+        : juce::Rectangle<int>());
 
      waveformView.setVisible (false);
      waveformView.setBounds ({});

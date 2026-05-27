@@ -140,6 +140,25 @@ public:
     float getSfzSustain() const noexcept { return sfzSustainPct.load (std::memory_order_relaxed); }
     float getSfzRelease() const noexcept { return sfzReleaseSec.load (std::memory_order_relaxed); }
 
+    // ── Per-channel SF2 FX (FluidSynth CC — SF2 only) ────────────────────────
+    /** Set reverb send level for a single FluidSynth channel (0-15).
+     *  Uses CC91 (reverb send).  0–100 %.  No-op for SFZ files. */
+    void setChannelReverbMix  (int ch, float pct) noexcept;
+    /** Set reverb room-size for a single channel.  Stored per-channel and
+     *  applied via fluid_synth_set_reverb() scoped to that channel if the
+     *  FluidSynth version supports it; otherwise falls back to global size.
+     *  0–100 %. */
+    void setChannelReverbSize (int ch, float pct) noexcept;
+    /** Set reverb damping for a single channel.  0–100 %. */
+    void setChannelReverbDamp (int ch, float pct) noexcept;
+    /** Set channel volume (gain).  Uses CC7.  0–200 % (100 = unity). */
+    void setChannelGain       (int ch, float pct) noexcept;
+
+    float getChannelReverbMix  (int ch) const noexcept;
+    float getChannelReverbSize (int ch) const noexcept;
+    float getChannelReverbDamp (int ch) const noexcept;
+    float getChannelGain       (int ch) const noexcept;
+
     // ── Post-processing Reverb EFX (JUCE DSP — works for both SF2 & SFZ) ──
     void setReverbSize   (float pct) noexcept;   ///< 0–100 %
     void setReverbDamp   (float pct) noexcept;   ///< 0–100 %
@@ -257,6 +276,20 @@ private:
      *  samples) using linear interpolation.  srcLen/dstLen == ratio == 2^(semi/12). */
     static void pitchShiftBlock (const float* src, float* dst,
                                   int srcLen, int dstLen) noexcept;
+
+    // ── Per-channel SF2 FX atomics (written UI thread, read audio thread) ────
+    // Dirty bits are set by setters; the audio thread flushes them to FluidSynth
+    // via CC91 (reverb mix) and CC7 (gain) at the top of each process() call.
+    std::atomic<float> chReverbMix [16];   // 0–100 %, default 0
+    std::atomic<float> chReverbSize[16];   // 0–100 %, default 50
+    std::atomic<float> chReverbDamp[16];   // 0–100 %, default 50
+    std::atomic<float> chGain      [16];   // 0–200 %, default 100
+
+    // Bitmask: bit N set means channel N has at least one dirty FX value.
+    std::atomic<uint16_t> chFxDirty { 0 };
+
+    /** Flush any dirty per-channel FX values to FluidSynth.  Audio thread only. */
+    void applyPendingChannelFx();
 
     // ── Post-processing Reverb EFX (juce::dsp::Reverb) ───────────────────────
     juce::dsp::Reverb dspReverb;

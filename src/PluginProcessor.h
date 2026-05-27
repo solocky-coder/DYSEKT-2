@@ -168,6 +168,12 @@ public:
         FieldSfzTranspose = 42,  // 42 - transpose       (-24..+24 semitones)
         FieldSfzPan       = 43,  // 43 - pan             (-1..+1)
         FieldSfzFineTune  = 44,  // 44 - fine tune       (-100..+100 cents)
+        // v25: per-channel SF2 FX — slots 50-53
+        // intParam2 = channel index (0-15), floatParam1 = raw value
+        FieldSfzChReverbMix  = 50,  // 50 - channel reverb send  (0-100 %)
+        FieldSfzChReverbSize = 51,  // 51 - channel reverb size  (0-100 %)
+        FieldSfzChReverbDamp = 52,  // 52 - channel reverb damp  (0-100 %)
+        FieldSfzChGain       = 53,  // 53 - channel gain         (0-200 %)
         // v24: per-slice EQ
         FieldEqLowGain    = 45,  // dB  -18..+18
         FieldEqMidGain    = 46,  // dB  -18..+18
