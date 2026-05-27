@@ -389,13 +389,9 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     // Right-click on a cell calls this with the preset index and the chosen
     // MIDI channel (1-16), or ch==0 to deactivate.
     //
-    // For each assigned preset:
-    //   • Load it onto its FluidSynth channel (ch-1) via setPresetOnChannel()
-    //   • Add its bit to liveInputChannelMask so a ch-1 controller fans out to it
-    //
-    // On deactivate:
-    //   • Clear the FluidSynth channel (load GM piano / silence)
-    //   • Remove its bit from liveInputChannelMask
+    // Routing is strictly 1:1: incoming MIDI ch N plays FluidSynth channel N-1.
+    // setPresetOnChannel() loads the correct preset onto each FluidSynth channel.
+    // No fan-out mask is needed — each MIDI channel has exactly one destination.
     programGrid.onChannelChanged = [this] (int presetIdx, int ch)
     {
         if (presetIdx < 0 || presetIdx >= (int) presetList.size()) return;
@@ -403,24 +399,13 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
 
         if (ch == 0)
         {
-            // Deactivate — find which FluidSynth channel this preset was on
-            // by scanning the grid's presetChannels map (we don't store it here,
-            // so we rebuild the live mask from scratch from whatever remains).
-            // Simplest: just rebuild the full mask from the grid's current map.
-            uint16_t newMask = 0;
-            const auto& chMap = programGrid.getPresetChannels();
-            for (auto& kv : chMap)
-            {
-                if (kv.first == presetIdx) continue;  // this one is being removed
-                if (kv.second >= 1 && kv.second <= 16)
-                    newMask |= uint16_t(1) << (kv.second - 1);
-            }
-            // Silence all 16 FluidSynth channels, then reload only the
+            // Deactivate — silence all FluidSynth channels, then reload only the
             // still-assigned presets.  This is the safest way to remove one
             // entry without needing to track which channel it was on here.
             for (int c = 0; c < 16; ++c)
                 processor.sfzPlayer.setPresetOnChannel (c, 0, 0);
 
+            const auto& chMap = programGrid.getPresetChannels();
             for (auto& kv : chMap)
             {
                 if (kv.first == presetIdx) continue;
@@ -429,22 +414,17 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
                                                             presetList[(size_t)kv.first].bank,
                                                             presetList[(size_t)kv.first].preset);
             }
-            processor.sfzPlayer.setLiveInputChannelMask (newMask);
 
             if (onPresetChannelAssigned)
                 onPresetChannelAssigned (info, 0);
         }
         else
         {
-            // Assign: load preset onto FluidSynth channel (ch-1, 0-based)
+            // Assign: load preset onto FluidSynth channel (ch-1, 0-based).
+            // A controller transmitting on MIDI ch N will route 1:1 to FluidSynth
+            // channel N-1, so this preset will be played when the controller
+            // sends on the assigned MIDI channel.
             processor.sfzPlayer.setPresetOnChannel (ch - 1, info.bank, info.preset);
-
-            // Add this channel to the live fan-out mask
-            uint16_t mask = processor.sfzPlayer.getLiveInputChannelMask();
-            mask |= uint16_t(1) << (ch - 1);
-            // Remove ch15 (preview slot) — real assignment supersedes it
-            mask &= ~(uint16_t(1) << 15);
-            processor.sfzPlayer.setLiveInputChannelMask (mask);
 
             if (onPresetChannelAssigned)
                 onPresetChannelAssigned (info, ch);
