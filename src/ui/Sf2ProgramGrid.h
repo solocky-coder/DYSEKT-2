@@ -76,6 +76,7 @@ private:
     static constexpr int kHdrH     = 18;   // bank section header
     static constexpr int kScrollW  = 10;
     static constexpr int kPad      = 4;
+    static constexpr int kMaxCellW = 160; // cap so cells don't balloon on wide panels
 
     std::vector<Sf2PresetInfo> presets;
     int   currentIdx     { -1 };

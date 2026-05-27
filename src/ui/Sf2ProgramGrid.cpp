@@ -153,7 +153,8 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 {
     const auto& theme = gridTheme();
     const int   w     = getWidth() - (scrollBar.isVisible() ? kScrollW : 0) - kPad * 2;
-    const int   cellW = w / kCols;
+    const int   cellW = juce::jmin (w / kCols, kMaxCellW);
+    const int   gridW = cellW * kCols; // actual used width (may be less than w)
 
     // Background
     g.setColour (theme.darkBar.darker (0.45f));
@@ -170,7 +171,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
         if (row.isHeader)
         {
             // Bank header
-            const auto hdrBounds = juce::Rectangle<int> (kPad, y, w, kHdrH);
+            const auto hdrBounds = juce::Rectangle<int> (kPad, y, gridW, kHdrH);
             g.setColour (theme.accent.withAlpha (0.12f));
             g.fillRect (hdrBounds);
             // Accent left-rule
@@ -329,7 +330,8 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 int Sf2ProgramGrid::cellIndexAt (juce::Point<int> pt) const
 {
     const int w     = getWidth() - (scrollBar.isVisible() ? kScrollW : 0) - kPad * 2;
-    const int cellW = w / kCols;
+    const int cellW = juce::jmin (w / kCols, kMaxCellW);
+    const int gridW = cellW * kCols;
 
     int y = kPad - scrollY;
 
@@ -341,7 +343,7 @@ int Sf2ProgramGrid::cellIndexAt (juce::Point<int> pt) const
         }
         else
         {
-            const juce::Rectangle<int> rowBounds (kPad, y, w, kCellH);
+            const juce::Rectangle<int> rowBounds (kPad, y, gridW, kCellH);
             if (rowBounds.contains (pt))
             {
                 const int col = (pt.x - kPad) / cellW;
