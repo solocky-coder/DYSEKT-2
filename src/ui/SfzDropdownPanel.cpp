@@ -623,7 +623,13 @@ void SfzDropdownPanel::resized()
     // ── SF2 program grid overlay ──────────────────────────────────────────────
     if (programPickerOpen)
     {
-        programGrid.setBounds (kPad, kStripH + 1, w - kPad * 2, h - kStripH - 1);
+        // Cap the grid height so it never balloons to fill the entire panel.
+        // kMaxGridH is in logical pixels; because Sf2ProgramGrid::cellH() already
+        // inverts the UI scale, this cap stays a consistent physical pixel budget
+        // (≈ 400 physical px at any zoom level).
+        static constexpr int kMaxGridH = 400;
+        const int gridH = juce::jmin (h - kStripH - 1, kMaxGridH);
+        programGrid.setBounds (kPad, kStripH + 1, w - kPad * 2, gridH);
         programGrid.setVisible (true);
     }
     else

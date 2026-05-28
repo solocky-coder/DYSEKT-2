@@ -8,6 +8,31 @@
 static const ThemeData& gridTheme() { return getTheme(); }
 
 // =============================================================================
+// cellH / hdrH — scale-compensated cell heights
+// =============================================================================
+// The PluginEditor applies setTransform(AffineTransform::scale(uiScale)) to
+// the entire plugin UI.  At large UI scales the grid cells would grow
+// proportionally — showing fewer but larger cells.  We invert the scale here
+// so that cells stay a constant PHYSICAL pixel size, and the grid shows more
+// rows as the window grows.
+//
+//   logical px = kBaseCellH / uiScale
+//   physical px = logical px × uiScale = kBaseCellH   (constant ✓)
+//
+// Minimum: 14 logical pixels so cells never collapse to nothing at extreme scales.
+int Sf2ProgramGrid::cellH() const noexcept
+{
+    const float scale = DysektLookAndFeel::getMenuScale();
+    return juce::jmax (14, juce::roundToInt ((float) kBaseCellH / scale));
+}
+
+int Sf2ProgramGrid::hdrH() const noexcept
+{
+    const float scale = DysektLookAndFeel::getMenuScale();
+    return juce::jmax (8, juce::roundToInt ((float) kBaseHdrH / scale));
+}
+
+// =============================================================================
 Sf2ProgramGrid::Sf2ProgramGrid()
 {
     scrollBar.addListener (this);
