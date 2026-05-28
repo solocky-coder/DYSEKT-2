@@ -24,7 +24,6 @@ namespace ParamIds
     inline const juce::String defaultOneShot      { "defaultOneShot" };
     inline const juce::String defaultCentsDetune  { "defaultCentsDetune" };
     inline const juce::String maxVoices           { "maxVoices" };
-    inline const juce::String uiScale             { "uiScale" };
 
     // Selected slice boundary controls — normalised 0..1 position within sample
     inline const juce::String sliceStart          { "sliceStart" };

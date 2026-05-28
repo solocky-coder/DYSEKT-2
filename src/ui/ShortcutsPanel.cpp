@@ -33,46 +33,6 @@ ShortcutsPanel::ShortcutsPanel (DysektProcessor& proc)
     themeBtn.onClick = [this] { if (onThemeRequest) onThemeRequest(); };
     addAndMakeVisible (themeBtn);
 
-    // ── Scale buttons ─────────────────────────────────────────────────────────
-    auto styleScaleBtn = [this] (juce::TextButton& btn)
-    {
-        btn.setColour (juce::TextButton::buttonColourId,  getTheme().button);
-        btn.setColour (juce::TextButton::textColourOffId, getTheme().foreground);
-    };
-
-    styleScaleBtn (scaleDownBtn);
-    scaleDownBtn.onClick = [this]
-    {
-        if (auto* p = processor.apvts.getParameter (ParamIds::uiScale))
-        {
-            float cur = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
-            float nxt = juce::jlimit (0.5f, 3.0f, cur - 0.25f);
-            p->setValueNotifyingHost (p->convertTo0to1 (nxt));
-            updateScaleLcd();
-        }
-    };
-    addAndMakeVisible (scaleDownBtn);
-
-    styleScaleBtn (scaleUpBtn);
-    scaleUpBtn.onClick = [this]
-    {
-        if (auto* p = processor.apvts.getParameter (ParamIds::uiScale))
-        {
-            float cur = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
-            float nxt = juce::jlimit (0.5f, 3.0f, cur + 0.25f);
-            p->setValueNotifyingHost (p->convertTo0to1 (nxt));
-            updateScaleLcd();
-        }
-    };
-    addAndMakeVisible (scaleUpBtn);
-
-    scaleLcd.setFont (DysektLookAndFeel::makeMonoFont (11.0f));
-    scaleLcd.setColour (juce::Label::textColourId,       getTheme().foreground);
-    scaleLcd.setColour (juce::Label::backgroundColourId, getTheme().background.withAlpha (0.6f));
-    scaleLcd.setJustificationType (juce::Justification::centred);
-    updateScaleLcd();
-    addAndMakeVisible (scaleLcd);
-
     // ── Search box ────────────────────────────────────────────────────────────
     searchBox.setTextToShowWhenEmpty ("Search shortcuts...", getTheme().foreground.withAlpha (0.4f));
     searchBox.setFont (DysektLookAndFeel::makeFont (11.0f));
@@ -121,18 +81,6 @@ void ShortcutsPanel::openManualPdf()
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-void ShortcutsPanel::updateScaleLcd()
-{
-    float cur = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
-    scaleLcd.setText (juce::String (cur, 2) + "x", juce::dontSendNotification);
-}
-
-void ShortcutsPanel::drawScaleSection (juce::Graphics& /*g*/, juce::Rectangle<int>& area)
-{
-    area.removeFromTop (24);
-    area.removeFromTop (4);
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // buildShortcutData
@@ -367,12 +315,6 @@ void ShortcutsPanel::paint (juce::Graphics& g)
     auto leftCol   = content.removeFromLeft (colW);
     auto rightCol  = content;
 
-    // UI Scale
-    g.setFont (DysektLookAndFeel::makeFont (10.5f, true));
-    g.setColour (getTheme().accent);
-    g.drawText ("UI SCALE", leftCol.removeFromTop (18), juce::Justification::centredLeft);
-    drawScaleSection (g, leftCol);
-
     // Trim prefs
     drawTrimPrefsSection (g, leftCol);
 
@@ -459,19 +401,4 @@ void ShortcutsPanel::resized()
     // ── Search box ────────────────────────────────────────────────────────────
     searchBox.setBounds (header.removeFromTop (26));
     header.removeFromTop (10);
-
-    // ── Scale controls ────────────────────────────────────────────────────────
-    auto content = panel.reduced (14, 6);
-    content.removeFromTop (30 + 8 + 26 + 10);   // match paint() offset
-    auto leftCol = content.removeFromLeft (content.getWidth() / 2);
-
-    leftCol.removeFromTop (18);  // "UI SCALE" heading
-
-    auto scaleRow = leftCol.removeFromTop (24);
-    const int btnW = 26;
-    scaleDownBtn.setBounds (scaleRow.removeFromLeft (btnW));
-    scaleRow.removeFromLeft (4);
-    scaleLcd    .setBounds (scaleRow.removeFromLeft (52));
-    scaleRow.removeFromLeft (4);
-    scaleUpBtn  .setBounds (scaleRow.removeFromLeft (btnW));
 }

@@ -81,14 +81,13 @@ private:
     static constexpr int kBaseCellH = 36;
     static constexpr int kBaseHdrH  = 18;
 
-    // Scale factor derived from the component's current height relative to
-    // a reference height of 400 px (a typical grid height at 1× scale).
-    // Clamped to [0.5, 4] so nothing goes pathologically tiny or huge.
-    static constexpr int kRefH = 400;
+    // Scale factor: mirrors the live UI scale set on the editor via setTransform().
+    // DysektLookAndFeel::getMenuScale() is updated to userScale*hostScale every
+    // time the editor calls setTransform(), so it always reflects current scale.
+    // Clamped to [0.5, 4] to guard against pathological values.
     float scaleFactor() const noexcept
     {
-        const float h = (float) getHeight();
-        return (h > 0.f) ? juce::jlimit (0.5f, 4.0f, h / (float) kRefH) : 1.0f;
+        return juce::jlimit (0.5f, 4.0f, DysektLookAndFeel::getMenuScale());
     }
 
     int cellH() const noexcept { return juce::roundToInt ((float) kBaseCellH * scaleFactor()); }

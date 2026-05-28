@@ -154,16 +154,6 @@ void HeaderBar::mouseDoubleClick (const juce::MouseEvent& /*e*/) {}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-void HeaderBar::adjustScale (float delta)
-{
-    if (auto* p = processor.apvts.getParameter (ParamIds::uiScale))
-    {
-        float current = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
-        float newScale = juce::jlimit (0.5f, 3.0f, current + delta);
-        p->setValueNotifyingHost (p->convertTo0to1 (newScale));
-    }
-}
-
 void HeaderBar::showThemePopup()
 {
     auto* editor = dynamic_cast<DysektEditor*> (getParentComponent());
@@ -173,13 +163,6 @@ void HeaderBar::showThemePopup()
     auto currentName = getTheme().name;
 
     juce::PopupMenu menu;
-
-    float currentScale = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
-    menu.addSectionHeader ("Scale " + juce::String (currentScale, 2) + "x");
-    menu.addItem (100, "- 0.25");
-    menu.addItem (101, "+ 0.25");
-    menu.addSeparator();
-
     menu.addSectionHeader ("Theme");
     for (int i = 0; i < themes.size(); ++i)
         menu.addItem (i + 1, themes[i], true, themes[i] == currentName);
@@ -190,9 +173,7 @@ void HeaderBar::showThemePopup()
                                                   .withParentComponent (topLevel)
                                                   .withStandardItemHeight ((int) (24 * ms2)),
         [this, editor, themes] (int result) {
-            if      (result == 100) adjustScale (-0.25f);
-            else if (result == 101) adjustScale ( 0.25f);
-            else if (result > 0 && result <= themes.size())
+            if (result > 0 && result <= themes.size())
                 editor->applyTheme (themes[result - 1]);
         });
 }

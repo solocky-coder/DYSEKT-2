@@ -134,12 +134,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout ParamLayout::createLayout()
         "Max Voices",
         1, 31, 16));
 
-    params.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { ParamIds::uiScale, 1 },
-        "UI Scale",
-        juce::NormalisableRange<float> (0.5f, 2.0f, 0.25f),
-        1.0f));
-
     // ── v17: Pan, Filter ──────────────────────────────────────────────────────
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { ParamIds::defaultPan, 1 },

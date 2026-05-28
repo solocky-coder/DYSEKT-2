@@ -1,6 +1,9 @@
 #pragma once
 
 constexpr int kBaseW      = 1130;
+// Default window size: 1.5× the design unit — the scale the UI was authored at.
+// kBaseW/kTotalH remain as logical design units for sf = getWidth()/kBaseW scaling.
+constexpr int kInitW      = 1695;  // kBaseW * 1.5
 constexpr int kLogoH      = 52;
 // kLcdRowH depends on SliceLcdDisplay::kPreferredHeight — must include SliceLcdDisplay.h first
 constexpr int kLcdRowH    = SliceLcdDisplay::kPreferredHeight + 12;
@@ -24,6 +27,7 @@ constexpr int kBtnRowH    = 50;
 constexpr int kBaseHCore  = kLogoH + kLcdRowH + kSliceLaneH + kScrollbarH
                            + kSliceCtrlH + kActionH + 120;
 constexpr int kTotalH     = kBaseHCore + kPanelSlotH + 16;
+constexpr int kInitH      = 1317;  // kTotalH * 1.5 — matches kInitW
 constexpr int kMargin     = 8;
 
 // SFZ instrument strip — stacks below the waveform/pad frame when open.

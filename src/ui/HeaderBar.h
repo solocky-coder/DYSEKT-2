@@ -53,7 +53,6 @@ public:
     void showThemePopup();
 
 private:
-    void adjustScale (float delta);
     void openRelinkBrowser();
 
     DysektProcessor& processor;
