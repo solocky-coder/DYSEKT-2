@@ -8,31 +8,6 @@
 static const ThemeData& gridTheme() { return getTheme(); }
 
 // =============================================================================
-// cellH / hdrH — scale-compensated cell heights
-// =============================================================================
-// The PluginEditor applies setTransform(AffineTransform::scale(uiScale)) to
-// the entire plugin UI.  At large UI scales the grid cells would grow
-// proportionally — showing fewer but larger cells.  We invert the scale here
-// so that cells stay a constant PHYSICAL pixel size, and the grid shows more
-// rows as the window grows.
-//
-//   logical px = kBaseCellH / uiScale
-//   physical px = logical px × uiScale = kBaseCellH   (constant ✓)
-//
-// Minimum: 14 logical pixels so cells never collapse to nothing at extreme scales.
-int Sf2ProgramGrid::cellH() const noexcept
-{
-    const float scale = DysektLookAndFeel::getMenuScale();
-    return juce::jmax (14, juce::roundToInt ((float) kBaseCellH / scale));
-}
-
-int Sf2ProgramGrid::hdrH() const noexcept
-{
-    const float scale = DysektLookAndFeel::getMenuScale();
-    return juce::jmax (8, juce::roundToInt ((float) kBaseHdrH / scale));
-}
-
-// =============================================================================
 Sf2ProgramGrid::Sf2ProgramGrid()
 {
     scrollBar.addListener (this);
@@ -183,9 +158,50 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
     const int   cellW = juce::jmin (w / kCols, kMaxCellW);
     const int   gridW = cellW * kCols; // actual used width (may be less than w)
 
-    // Background
-    g.setColour (theme.darkBar.darker (0.45f));
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
+    // ── CRT frame background + border ────────────────────────────────────────
+    // Matches the recipe used by FileBrowserPanel and the editor's paintOverChildren
+    // for the waveform / SFZ panel borders (outer glow → accent ring → inner ring).
+    const auto  ac = theme.accent;
+    const auto  b  = getLocalBounds().toFloat();
+
+    // Outer shell fill
+    juce::ColourGradient outerGrad (juce::Colour (0xFF131313), 0, 0,
+                                    juce::Colour (0xFF0E0E0E), 0, b.getHeight(), false);
+    g.setGradientFill (outerGrad);
+    g.fillRoundedRectangle (b, 4.0f);
+
+    // Outer glow stroke
+    g.setColour (ac.withAlpha (0.18f));
+    g.drawRoundedRectangle (b.expanded (1.0f), 5.0f, 1.0f);
+
+    // Main accent border
+    g.setColour (ac.withAlpha (0.60f));
+    g.drawRoundedRectangle (b.reduced (0.5f), 4.0f, 1.5f);
+
+    // Inner screen area fill + inner ring
+    const auto screen = b.reduced (4.0f);
+    g.setColour (theme.darkBar.darker (0.55f));
+    g.fillRoundedRectangle (screen, 2.0f);
+
+    // Scanlines
+    g.setColour (juce::Colours::black.withAlpha (0.18f));
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        g.reduceClipRegion (screen.toNearestInt());
+        for (int sy = screen.getSmallestIntegerContainer().getY();
+             sy < screen.getSmallestIntegerContainer().getBottom(); sy += 2)
+            g.drawHorizontalLine (sy, screen.getX(), screen.getRight());
+    }
+
+    // Top glow
+    juce::ColourGradient glow (ac.withAlpha (0.06f), 0, screen.getY(),
+                                juce::Colours::transparentBlack, 0,
+                                screen.getY() + 20.0f, false);
+    g.setGradientFill (glow);
+    g.fillRoundedRectangle (screen, 2.0f);
+
+    g.setColour (ac.withAlpha (0.12f));
+    g.drawRoundedRectangle (screen.expanded (0.5f), 2.0f, 1.0f);
 
     // Clip to grid area
     g.saveState();
