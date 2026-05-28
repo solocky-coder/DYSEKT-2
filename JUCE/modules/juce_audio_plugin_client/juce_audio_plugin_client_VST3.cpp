@@ -3146,8 +3146,8 @@ public:
            #if JucePlugin_WantsMidiInput
             if (dir == Vst::kInput && index == 0)
             {
-                info.mediaType = Vst::kEvent;
-                info.direction = dir;
+                info.mediaType    = Vst::kEvent;
+                info.direction    = dir;
 
                #ifdef JucePlugin_VSTNumMidiInputs
                 info.channelCount = JucePlugin_VSTNumMidiInputs;
@@ -3157,6 +3157,7 @@ public:
 
                 toString128 (info.name, "Slicer");
                 info.busType = Vst::kMain;
+                info.flags   = Vst::BusInfo::kDefaultActive;
                 return kResultTrue;
             }
 
@@ -3167,8 +3168,8 @@ public:
                 info.direction    = dir;
                 info.channelCount = 16;
                 toString128 (info.name, "DY-SFP");
-                info.busType      = Vst::kAux;
-                info.flags        = Vst::BusInfo::kDefaultActive;
+                info.busType = Vst::kMain;           // kMain so Nuendo shows it in MIDI routing
+                info.flags   = Vst::BusInfo::kDefaultActive;
                 return kResultTrue;
             }
            #endif
