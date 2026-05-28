@@ -3,9 +3,34 @@
 #include "audio/GrainEngine.h"
 #include "audio/AudioAnalysis.h"
 #include "audio/SoundFontLoader.h"
+#include "DysektMidi2Port.h"   // DYSEKT PATCH: two-port MIDI side channel
 #include <BinaryData.h>
 #include <functional>
 #include <memory>
+
+// =============================================================================
+// DYSEKT PATCH: VST3 two-port MIDI side channel
+//
+// The patched juce_audio_plugin_client_VST3.cpp advertises two MIDI input buses:
+//   Port 0 "DYSEKT"  →  Slicer (processMidi / VoicePool)
+//   Port 1 "DY-SFP"  →  SF2/SFZ Player
+//
+// Events from each bus are split by Steinberg::Vst::Event::busIndex inside the
+// wrapper.  Port-1 events are stored in a MidiBuffer member of JuceVST3Component
+// and injected into processBlock via this thread_local pointer, which is set by
+// the wrapper immediately before the processBlock call and cleared after.
+// =============================================================================
+static thread_local juce::MidiBuffer* gDysektSfPlayerPort = nullptr;
+
+extern "C" void dysektSetSfPlayerMidiPort (juce::MidiBuffer* buf) noexcept
+{
+    gDysektSfPlayerPort = buf;
+}
+
+extern "C" juce::MidiBuffer* dysektGetSfPlayerMidiPort() noexcept
+{
+    return gDysektSfPlayerPort;
+}
 
 namespace
 {
@@ -1363,7 +1388,11 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 
     // If the SF2 player is locked to a specific MIDI channel, exclude those
     // messages from the slicer so the DY-SFP port acts as a dedicated input.
-    const int sf2Ch = sfzPlayer.getMidiChannel();  // 0 = omni, 1-16 = dedicated
+    // When the VST3 two-port patch is active the wrapper has already split
+    // events by busIndex, so the midi buffer arriving here is Port-0 only —
+    // no channel filtering is needed and we skip it to avoid false exclusions.
+    const bool usingPortSplit = (dysektGetSfPlayerMidiPort() != nullptr);
+    const int  sf2Ch          = usingPortSplit ? 0 : sfzPlayer.getMidiChannel();
 
     for (const auto metadata : midi)
     {
@@ -1371,6 +1400,7 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 
         // Skip messages on the SF2 player's dedicated channel — they belong
         // exclusively to DY-SFP and should not trigger slices or MIDI learn.
+        // (sf2Ch is 0 when port-split is active, so this branch is never taken.)
         if (sf2Ch != 0 && msg.getChannel() == sf2Ch)
             continue;
 
@@ -2503,16 +2533,24 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── SF2/SFZ keyboard UI note injection ───────────────────────────────────
-    // SF2 is omni (sf2Ch==0): inject on ch 1 — the fan-out source channel inside
-    // SfzPlayer::process.  SFZ: use its dedicated channel.
+    // When the two-port patch is active, inject UI-triggered notes directly into
+    // the Port-1 (DY-SFP) side-channel buffer so they reach sfzPlayer instead of
+    // the slicer.  In fallback mode, inject on the dedicated MIDI channel in the
+    // main buffer (sf2Ch > 0) or ch 1 for omni/FluidSynth fan-out (sf2Ch == 0).
     {
         const int sf2Ch   = sfzPlayer.getMidiChannel();
         const int ch      = (sf2Ch > 0 && sf2Ch <= 16) ? sf2Ch : 1;
         const int noteOn  = sfzUiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
         const int noteOff = sfzUiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
+
+        // Target: side-channel (Port 1) when available, else Port-0 main buffer.
+        juce::MidiBuffer* sfTarget = dysektGetSfPlayerMidiPort();
+        juce::MidiBuffer& injectBuf = (sfTarget != nullptr) ? *sfTarget : midi;
+        const int injectCh = (sfTarget != nullptr) ? 1 : ch; // Port-1 is all-channel; ch 1 is fine
+
         if (noteOn  >= 0 && noteOn  <= 127)
         {
-            midi.addEvent (juce::MidiMessage::noteOn  (ch, noteOn,  (juce::uint8) 100), 0);
+            injectBuf.addEvent (juce::MidiMessage::noteOn  (injectCh, noteOn,  (juce::uint8) 100), 0);
             const int w = noteOn < 64 ? 0 : 1;
             const int b = noteOn < 64 ? noteOn : noteOn - 64;
             sfzActiveNotes[w].fetch_or ((uint64_t)1 << b, std::memory_order_relaxed);
@@ -2525,7 +2563,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const int offSample = (noteOn == noteOff)
                                 ? juce::jmax (0, buffer.getNumSamples() - 1)
                                 : 0;
-            midi.addEvent (juce::MidiMessage::noteOff (ch, noteOff, (juce::uint8) 0), offSample);
+            injectBuf.addEvent (juce::MidiMessage::noteOff (injectCh, noteOff, (juce::uint8) 0), offSample);
             // Only clear the active-note bit when this is a standalone note-off
             // (not paired with a note-on for the same note in the same buffer).
             // If they're the same note the release tail is still active — the
@@ -2541,16 +2579,16 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── Snoop note messages to update active-note bitmask for keyboard display ──
-    // SF2 omni (sf2Ch==0): snoop ch 1 (the fan-out source).  SFZ: dedicated ch.
+    // When the two-port patch is active Port-1 events arrive in the side-channel
+    // (all channels visible); when falling back to single-port mode we filter by
+    // sf2Ch (0 = omni → snoop ch 1, the FluidSynth fan-out source channel).
     {
-        const int sf2Ch   = sfzPlayer.getMidiChannel();
-        const int snoopCh = (sf2Ch > 0) ? sf2Ch : 1;
-        if (true)
+        auto snoopBuffer = [this](const juce::MidiBuffer& buf, int channelFilter)
         {
-            for (const auto metadata : midi)
+            for (const auto metadata : buf)
             {
                 const auto msg = metadata.getMessage();
-                if (msg.getChannel() != snoopCh) continue;
+                if (channelFilter > 0 && msg.getChannel() != channelFilter) continue;
                 const int n = msg.getNoteNumber();
                 if (n < 0 || n > 127) continue;
                 const int w = n < 64 ? 0 : 1;
@@ -2560,6 +2598,20 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 else if (msg.isNoteOff())
                     sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
             }
+        };
+
+        if (auto* sfPort = dysektGetSfPlayerMidiPort(); sfPort != nullptr)
+        {
+            // Port-split active: Port-1 buffer contains exactly SF-player events,
+            // no channel filter needed.
+            snoopBuffer (*sfPort, 0 /*all channels*/);
+        }
+        else
+        {
+            // Fallback: snoop Port-0 buffer using the dedicated channel.
+            const int sf2Ch   = sfzPlayer.getMidiChannel();
+            const int snoopCh = (sf2Ch > 0) ? sf2Ch : 1;
+            snoopBuffer (midi, snoopCh);
         }
     }
 
@@ -2870,36 +2922,49 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // ── SF2/SFZ live player — dedicated audio bus ("SF2 Player"), summed to main ──
     //
-    // MIDI routing — two ports exposed via getNumMidiInputs() == 2:
+    // MIDI routing — two VST3 MIDI input ports (requires JUCE wrapper patch):
     //
-    //   port 0 "DYSEKT"  → slicer / processMidi()
-    //   port 1 "DY-SFP"  → SF2/SFZ player
+    //   Port 0 "DYSEKT"  →  Slicer / processMidi() / VoicePool  (full 16-ch)
+    //   Port 1 "DY-SFP"  →  SF2/SFZ Player                      (full 16-ch)
     //
-    // IMPORTANT: JUCE 8's VST3 wrapper merges all MIDI event buses into the
-    // single MidiBuffer that arrives here — there is no per-bus split in
-    // processBlock.  Channel-based routing (sf2Ch / processMidi) is therefore
-    // the runtime split point for both the dedicated-port path AND the
-    // single-port fallback (hosts that route everything to port 0).
+    // The patched juce_audio_plugin_client_VST3.cpp splits events by
+    // Steinberg::Vst::Event::busIndex and injects Port-1 events via the
+    // dysektGetSfPlayerMidiPort() thread_local side-channel before calling
+    // processBlock.  When the side-channel is nullptr (DAW does not support
+    // multi-port MIDI, or the wrapper patch is not applied), we fall back to the
+    // legacy single-channel dedicated sf2Ch routing so the plugin still works.
     if (buffer.getNumSamples() > 0)
     {
         const int numSamples = buffer.getNumSamples();
-        const int sf2Ch      = sfzPlayer.getMidiChannel(); // 0=omni, 1-16=dedicated
 
         // ── Build sfzMidiBuf ─────────────────────────────────────────────────────
-        // SF2 loads as omni (sf2Ch==0): pass all MIDI — FluidSynth routes internally.
-        // SFZ uses a dedicated channel filter.
         juce::MidiBuffer sfzMidiBuf;
-        if (sf2Ch == 0)
+
+        if (auto* sfPort = dysektGetSfPlayerMidiPort(); sfPort != nullptr)
         {
-            sfzMidiBuf = midi;
+            // ── PREFERRED PATH: Port 1 events arrive via the side-channel ────────
+            // The wrapper already isolated Port-1 events; hand them directly to the
+            // SF player with no channel filtering required.
+            sfzMidiBuf = *sfPort;
         }
         else
         {
-            for (const auto meta : midi)
+            // ── FALLBACK PATH: single-port DAW, channel-based routing ────────────
+            // Keep existing behaviour so the plugin still functions in hosts that
+            // merge all MIDI onto Port 0 (Ableton Live, older hosts, etc.).
+            const int sf2Ch = sfzPlayer.getMidiChannel(); // 0=omni, 1-16=dedicated
+            if (sf2Ch == 0)
             {
-                const auto& msg = meta.getMessage();
-                if (msg.getChannel() == sf2Ch)
-                    sfzMidiBuf.addEvent (msg, meta.samplePosition);
+                sfzMidiBuf = midi;   // SF2 omni: FluidSynth routes internally
+            }
+            else
+            {
+                for (const auto meta : midi)
+                {
+                    const auto& msg = meta.getMessage();
+                    if (msg.getChannel() == sf2Ch)
+                        sfzMidiBuf.addEvent (msg, meta.samplePosition);
+                }
             }
         }
 
@@ -2909,8 +2974,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float* sfzL = sfzBuf.getWritePointer (0);
         float* sfzR = sfzBuf.getWritePointer (1);
 
-        // Pass the clean, pre-filtered buffer; sfzPlayer's internal channel filter
-        // now acts as a redundant safety check rather than the primary split point.
         sfzPlayer.process (sfzMidiBuf, sfzL, sfzR, numSamples);
 
         // Always sum into main bus (bus 0) — same as slice behaviour
