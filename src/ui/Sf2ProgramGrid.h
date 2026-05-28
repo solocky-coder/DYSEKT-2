@@ -10,6 +10,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../audio/SfzPlayer.h"
+#include "DysektLookAndFeel.h"
 
 class Sf2ProgramGrid : public juce::Component,
                        public juce::ScrollBar::Listener
