@@ -242,7 +242,16 @@ private:
     // Bitmask of FluidSynth channels (bit 0 = ch 0 … bit 15 = ch 15) that should
     // receive fan-out of incoming MIDI ch-1 controller input.
     // Written from UI thread via setLiveInputChannelMask(); read on audio thread.
-    std::atomic<uint16_t> liveInputChannelMask { 0 };
+    std::atomic<uint16_t> liveInputChannelMask    { 0 };
+    /** Bitmask of FluidSynth channels (bit 0 = ch0 … bit 15 = ch15) that have
+     *  been explicitly assigned a preset by the user.  When non-zero, the MIDI
+     *  loop only forwards messages to channels present in this mask, preventing
+     *  the default ch0 preset from firing on unassigned MIDI channel 1. */
+    std::atomic<uint16_t> activeFluidChannelMask  { 0 };
+    /** Bitmask of channels currently loaded by previewPreset() / clearPreview().
+     *  These are excluded from activeFluidChannelMask so preview loads don't
+     *  permanently open a channel to live MIDI after the preview is dismissed. */
+    std::atomic<uint16_t> previewChannelMask       { 0 };
 
     // ── Scratch buffer for FluidSynth interleaved → planar conversion ─────────
     std::vector<float> scratchL, scratchR;

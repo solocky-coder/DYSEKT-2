@@ -318,7 +318,9 @@ void SfzPlayer::clearChannelPresets()
     for (auto& slot : pendingChannelAssignment)
         slot.store (-1, std::memory_order_relaxed);
     anyChannelDirty.store (false, std::memory_order_relaxed);
-    liveInputChannelMask.store (0, std::memory_order_relaxed);
+    liveInputChannelMask.store    (0, std::memory_order_relaxed);
+    activeFluidChannelMask.store  (0, std::memory_order_relaxed);
+    previewChannelMask.store      (0, std::memory_order_relaxed);
 }
 
 // =============================================================================
@@ -328,27 +330,29 @@ static constexpr int kPreviewChannel = 15;
 
 void SfzPlayer::previewPreset (int bank, int preset)
 {
-    // Channel 15 is only a free scratch slot when an SF2 file is loaded.
-    // SFZ playback owns channel 15 (sfizz); calling this while an SFZ is
-    // active would corrupt that channel.  The UI gates this already, but
-    // guard here too so a future refactor can't silently break it.
     jassert (! isSfzFile);
     if (isSfzFile) return;
 
-    // Load the preview preset onto channel 0 so a controller on MIDI ch 1
-    // plays it immediately via 1:1 routing (MIDI ch 1 → FluidSynth ch 0).
-    // Also load it onto ch15 as a safety fallback for any sequencer events
-    // that may fire on that channel.
-    setPresetOnChannel (0,                bank, preset);
-    setPresetOnChannel (kPreviewChannel,  bank, preset);
+    // Mark ch0 and ch15 as preview channels so applyPendingChannelChanges
+    // does NOT set their bits in activeFluidChannelMask.  This keeps the MIDI
+    // gate from permanently opening these channels to live MIDI after the
+    // preview is dismissed.
+    previewChannelMask.store (
+        (1u << 0) | (1u << kPreviewChannel),
+        std::memory_order_relaxed);
+
+    setPresetOnChannel (0,               bank, preset);
+    setPresetOnChannel (kPreviewChannel, bank, preset);
 }
 
 void SfzPlayer::clearPreview()
 {
-    // Reset both ch0 and the preview channel (ch15) to GM piano so neither
-    // plays the previously-auditioned preset after the preview is dismissed.
     setPresetOnChannel (0,               0, 0);
     setPresetOnChannel (kPreviewChannel, 0, 0);
+
+    // Clear the preview mask AFTER queuing the resets so the next
+    // applyPendingChannelChanges call doesn't set bits for these channels.
+    previewChannelMask.store (0, std::memory_order_relaxed);
 }
 
 juce::File SfzPlayer::getLoadedFile() const
@@ -572,9 +576,16 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
 
     for (const auto meta : midiIn)
     {
-        const auto msg    = meta.getMessage();
-        const int  midiCh = msg.getChannel();   // 1-16
-        const int  fch    = midiCh - 1;         // FluidSynth channel (0-based)
+        const auto     msg    = meta.getMessage();
+        const int      midiCh = msg.getChannel();   // 1-16
+        const int      fch    = midiCh - 1;         // FluidSynth channel (0-based)
+        const uint16_t mask   = activeFluidChannelMask.load (std::memory_order_relaxed);
+
+        // When at least one preset has been user-assigned to a specific channel
+        // (mask != 0), only forward MIDI to channels that are in the mask.
+        // This prevents the default ch0 preset from sounding on unassigned MIDI ch 1.
+        if (mask != 0 && (mask & (1u << fch)) == 0)
+            continue;
 
         if (msg.isNoteOn())
         {
@@ -823,6 +834,11 @@ void SfzPlayer::applyPendingChannelChanges()
 
     const int offset = fluid_synth_get_bank_offset (synth, sfontId);
 
+    // Rebuild the active channel mask from all pending assignments.
+    // We fetch the current mask first and update it incrementally.
+    uint16_t mask        = activeFluidChannelMask.load (std::memory_order_relaxed);
+    const uint16_t prvMask = previewChannelMask.load   (std::memory_order_relaxed);
+
     for (int ch = 0; ch < 16; ++ch)
     {
         const int packed = pendingChannelAssignment[ch].exchange (
@@ -838,7 +854,16 @@ void SfzPlayer::applyPendingChannelChanges()
                                     static_cast<unsigned int> (sfontId),
                                     static_cast<unsigned int> (offset + bank),
                                     static_cast<unsigned int> (preset));
+
+        // Only mark this channel as user-assigned if it wasn't loaded by
+        // previewPreset().  Preview loads must not permanently open a channel
+        // to live MIDI — that would re-introduce the ch1 bleed bug after
+        // any audition session.
+        if ((prvMask & (1u << ch)) == 0)
+            mask |= static_cast<uint16_t> (1u << ch);
     }
+
+    activeFluidChannelMask.store (mask, std::memory_order_relaxed);
 #endif
 }
 
