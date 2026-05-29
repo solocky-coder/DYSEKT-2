@@ -117,6 +117,7 @@ private:
     int scrollY { 0 };
 
     void rebuildLayout();
+    void updateScrollBar();
     int  cellIndexAt (juce::Point<int> pt) const;
     juce::Rectangle<int> cellBoundsFor (int presetIdx) const;
 

@@ -42,6 +42,7 @@ void Sf2ProgramGrid::setPresets (const std::vector<Sf2PresetInfo>& list,
     }
 
     rebuildLayout();
+    updateScrollBar();
     repaint();
 }
 
@@ -129,11 +130,11 @@ void Sf2ProgramGrid::rebuildLayout()
 // =============================================================================
 //  resized
 // =============================================================================
-void Sf2ProgramGrid::resized()
+void Sf2ProgramGrid::updateScrollBar()
 {
-    rebuildLayout();
-
     const int h = getHeight();
+    if (h <= 0) return;
+
     if (totalH > h)
     {
         scrollBar.setBounds (getWidth() - kScrollW, 0, kScrollW, h);
@@ -146,6 +147,12 @@ void Sf2ProgramGrid::resized()
         scrollBar.setVisible (false);
         scrollY = 0;
     }
+}
+
+void Sf2ProgramGrid::resized()
+{
+    rebuildLayout();
+    updateScrollBar();
 }
 
 // =============================================================================
