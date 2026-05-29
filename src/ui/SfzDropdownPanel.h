@@ -44,8 +44,9 @@ public:
     ~SfzDropdownPanel() override;
 
     // ── Core overrides ────────────────────────────────────────────────────────
-    void paint   (juce::Graphics&) override;
-    void resized () override;
+    void paint              (juce::Graphics&) override;
+    void paintOverChildren  (juce::Graphics&) override;
+    void resized            () override;
     void timerCallback() override;
 
     // ── FileDragAndDropTarget ─────────────────────────────────────────────────

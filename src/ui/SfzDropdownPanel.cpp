@@ -623,13 +623,7 @@ void SfzDropdownPanel::resized()
     // ── SF2 program grid overlay ──────────────────────────────────────────────
     if (programPickerOpen)
     {
-        // Cap the grid height so it never balloons to fill the entire panel.
-        // kMaxGridH is in logical pixels; because Sf2ProgramGrid::cellH() already
-        // inverts the UI scale, this cap stays a consistent physical pixel budget
-        // (≈ 400 physical px at any zoom level).
-        static constexpr int kMaxGridH = 400;
-        const int gridH = juce::jmin (h - kStripH - 1, kMaxGridH);
-        programGrid.setBounds (kPad, kStripH + 1, w - kPad * 2, gridH);
+        programGrid.setBounds (kPad, kStripH + 1, w - kPad * 2, h - kStripH - 1);
         programGrid.setVisible (true);
     }
     else
@@ -887,7 +881,29 @@ void SfzDropdownPanel::paint (juce::Graphics& g)
 }
 
 // =============================================================================
-//  drawAdsrStrip
+//  paintOverChildren  — CRT frame drawn over the program grid
+// =============================================================================
+void SfzDropdownPanel::paintOverChildren (juce::Graphics& g)
+{
+    if (! programGrid.isVisible() || programGrid.getBounds().isEmpty())
+        return;
+
+    const auto& theme = getTheme();
+    const auto  ac    = theme.accent;
+    const auto  b     = programGrid.getBounds().toFloat();
+
+    // Outer glow
+    g.setColour (ac.withAlpha (0.18f));
+    g.drawRoundedRectangle (b.expanded (1.0f), 5.0f, 1.0f);
+
+    // Main accent border
+    g.setColour (ac.withAlpha (0.60f));
+    g.drawRoundedRectangle (b.reduced (0.5f), 4.0f, 1.5f);
+
+    // Inner ring
+    g.setColour (ac.withAlpha (0.12f));
+    g.drawRoundedRectangle (b.reduced (4.5f), 2.0f, 1.0f);
+}
 // =============================================================================
 
 void SfzDropdownPanel::drawAdsrStrip (juce::Graphics& g) const

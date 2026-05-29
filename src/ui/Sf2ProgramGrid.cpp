@@ -154,54 +154,15 @@ void Sf2ProgramGrid::resized()
 void Sf2ProgramGrid::paint (juce::Graphics& g)
 {
     const auto& theme = gridTheme();
-    const int   w     = getWidth() - (scrollBar.isVisible() ? kScrollW : 0) - kPad * 2;
-    const int   cellW = juce::jmin (w / kCols, kMaxCellW);
-    const int   gridW = cellW * kCols; // actual used width (may be less than w)
+    const int   availW = getWidth() - (scrollBar.isVisible() ? kScrollW : 0);
+    const int   cellW  = availW / kCols;           // fills full width, no kPad gap
+    const int   w      = cellW * kCols;            // actual grid width (≤ availW by integer division)
+    const int   gridW  = w;
 
-    // ── CRT frame background + border ────────────────────────────────────────
-    // Matches the recipe used by FileBrowserPanel and the editor's paintOverChildren
-    // for the waveform / SFZ panel borders (outer glow → accent ring → inner ring).
-    const auto  ac = theme.accent;
-    const auto  b  = getLocalBounds().toFloat();
-
-    // Outer shell fill
-    juce::ColourGradient outerGrad (juce::Colour (0xFF131313), 0, 0,
-                                    juce::Colour (0xFF0E0E0E), 0, b.getHeight(), false);
-    g.setGradientFill (outerGrad);
-    g.fillRoundedRectangle (b, 4.0f);
-
-    // Outer glow stroke
-    g.setColour (ac.withAlpha (0.18f));
-    g.drawRoundedRectangle (b.expanded (1.0f), 5.0f, 1.0f);
-
-    // Main accent border
-    g.setColour (ac.withAlpha (0.60f));
-    g.drawRoundedRectangle (b.reduced (0.5f), 4.0f, 1.5f);
-
-    // Inner screen area fill + inner ring
-    const auto screen = b.reduced (4.0f);
+    // Simple background — the CRT frame is drawn by SfzDropdownPanel::paintOverChildren
+    // over this component's bounds, so it's not clipped.
     g.setColour (theme.darkBar.darker (0.55f));
-    g.fillRoundedRectangle (screen, 2.0f);
-
-    // Scanlines
-    g.setColour (juce::Colours::black.withAlpha (0.18f));
-    {
-        juce::Graphics::ScopedSaveState ss (g);
-        g.reduceClipRegion (screen.toNearestInt());
-        for (int sy = screen.getSmallestIntegerContainer().getY();
-             sy < screen.getSmallestIntegerContainer().getBottom(); sy += 2)
-            g.drawHorizontalLine (sy, screen.getX(), screen.getRight());
-    }
-
-    // Top glow
-    juce::ColourGradient glow (ac.withAlpha (0.06f), 0, screen.getY(),
-                                juce::Colours::transparentBlack, 0,
-                                screen.getY() + 20.0f, false);
-    g.setGradientFill (glow);
-    g.fillRoundedRectangle (screen, 2.0f);
-
-    g.setColour (ac.withAlpha (0.12f));
-    g.drawRoundedRectangle (screen.expanded (0.5f), 2.0f, 1.0f);
+    g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
 
     // Clip to grid area
     g.saveState();
@@ -217,12 +178,12 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
         if (row.isHeader)
         {
             // Bank header
-            const auto hdrBounds = juce::Rectangle<int> (kPad, y, gridW, hh);
+            const auto hdrBounds = juce::Rectangle<int> (0, y, gridW, hh);
             g.setColour (theme.accent.withAlpha (0.12f));
             g.fillRect (hdrBounds);
             // Accent left-rule
             g.setColour (theme.accent.withAlpha (0.75f));
-            g.fillRect (juce::Rectangle<int> (kPad, y, 2, hh));
+            g.fillRect (juce::Rectangle<int> (0, y, 2, hh));
             g.setFont (DysektLookAndFeel::makeFont (11.0f, true));
             g.setColour (theme.accent.withAlpha (0.65f));
             g.drawText ("BANK " + juce::String (row.bank),
@@ -238,7 +199,7 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 const int idx = row.firstIdx + c;
                 const auto& info = presets[(size_t) idx];
 
-                const juce::Rectangle<int> cell (kPad + c * cellW, y, cellW - 2, ch - 2);
+                const juce::Rectangle<int> cell (c * cellW, y, cellW - 2, ch - 2);
 
                 const bool isSelected   = (idx == currentIdx);
                 const bool isPreviewing = (idx == previewIdx);
@@ -375,9 +336,9 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 // =============================================================================
 int Sf2ProgramGrid::cellIndexAt (juce::Point<int> pt) const
 {
-    const int w     = getWidth() - (scrollBar.isVisible() ? kScrollW : 0) - kPad * 2;
-    const int cellW = juce::jmin (w / kCols, kMaxCellW);
-    const int gridW = cellW * kCols;
+    const int availW = getWidth() - (scrollBar.isVisible() ? kScrollW : 0);
+    const int cellW  = availW / kCols;
+    const int gridW  = cellW * kCols;
 
     int y = kPad - scrollY;
 
@@ -392,10 +353,10 @@ int Sf2ProgramGrid::cellIndexAt (juce::Point<int> pt) const
         }
         else
         {
-            const juce::Rectangle<int> rowBounds (kPad, y, gridW, ch);
+            const juce::Rectangle<int> rowBounds (0, y, gridW, ch);
             if (rowBounds.contains (pt))
             {
-                const int col = (pt.x - kPad) / cellW;
+                const int col = pt.x / cellW;
                 if (col >= 0 && col < row.count)
                     return row.firstIdx + col;
             }
