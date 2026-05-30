@@ -8,7 +8,7 @@
 #include <set>
 
 // ── Layout constants (header strip) ──────────────────────────────────────────
-static constexpr int kPickerW      = 160;   // preset picker width
+static constexpr int kPickerW      = 160;   // narrowed to fit ADSR knobs in strip
 static constexpr int kKnobW        = 52;
 static constexpr int kMeterW       = 60;
 static constexpr int kPresetArrowW = 18;
@@ -495,7 +495,7 @@ void SfzDropdownPanel::resized()
     const int h = getHeight();
 
     // Strip order (left → right):
-    // [picker 160] [gap] [TRN] [FINE] [MIX] [SIZE] [PAN] [VOL] [METER]
+    // [picker 310] [gap] [TRN] [FINE] [REV] [CHO] [PAN] [VOL] [METER]
     auto strip = juce::Rectangle<int> (0, 0, w, kStripH).reduced (kPad, 0);
     strip.removeFromLeft (4);   // left margin
 
@@ -521,35 +521,32 @@ void SfzDropdownPanel::resized()
     fineZone   = strip.removeFromRight (kKnobW);
     strip.removeFromRight (kKnobGap);
     transZone  = strip.removeFromRight (kKnobW);
-    strip.removeFromRight (kPad);
-
-    // ADSR knobs live in their own second row (kStripH → kStripH+kAdsrH)
-    // They are NOT carved from the header strip above.
-    {
-        auto adsrStrip = juce::Rectangle<int> (0, kStripH, w, kAdsrH).reduced (kPad, 2);
-        // Centre four equally-spaced knobs across the full width
-        const int totalW = kKnobW * 4 + kKnobGap * 3;
-        const int startX = adsrStrip.getX() + (adsrStrip.getWidth() - totalW) / 2;
-        const int ay     = adsrStrip.getY();
-        const int ah     = adsrStrip.getHeight();
-        adsrAtkZone = juce::Rectangle<int> (startX,                           ay, kKnobW, ah);
-        adsrDecZone = juce::Rectangle<int> (startX + (kKnobW + kKnobGap),    ay, kKnobW, ah);
-        adsrSusZone = juce::Rectangle<int> (startX + (kKnobW + kKnobGap) * 2, ay, kKnobW, ah);
-        adsrRelZone = juce::Rectangle<int> (startX + (kKnobW + kKnobGap) * 3, ay, kKnobW, ah);
-    }
 
     // Sub-divide nameZone:
     //   [< arrow] [folder icon] [label] [> arrow]
     {
         auto z = nameZone;
-        presetDecBtn  = z.removeFromLeft  (kPresetArrowW);
-        presetIncBtn  = z.removeFromRight (kPresetArrowW);
+        presetDecBtn   = z.removeFromLeft  (kPresetArrowW);
+        presetIncBtn   = z.removeFromRight (kPresetArrowW);
         folderIconZone = z.removeFromRight (kFolderIconW);
-        presetLabel   = z;
+        presetLabel    = z;
+    }
+
+    // ── ADSR knobs — second row, below header strip ───────────────────────────
+    {
+        auto adsrStrip = juce::Rectangle<int> (0, kStripH, w, kAdsrH).reduced (kPad, 0);
+        adsrStrip.removeFromLeft (4);
+        adsrAtkZone = adsrStrip.removeFromLeft (kKnobW);
+        adsrStrip.removeFromLeft (kKnobGap);
+        adsrDecZone = adsrStrip.removeFromLeft (kKnobW);
+        adsrStrip.removeFromLeft (kKnobGap);
+        adsrSusZone = adsrStrip.removeFromLeft (kKnobW);
+        adsrStrip.removeFromLeft (kKnobGap);
+        adsrRelZone = adsrStrip.removeFromLeft (kKnobW);
     }
 
     // ── Keyboard panel ────────────────────────────────────────────────────────
-    const int kbY = kStripH + kAdsrH;  // below header strip + ADSR row
+    const int kbY = kStripH + kAdsrH;   // below header strip + ADSR row
     const int kbH = juce::jmax (60, h - kbY);
     // isSf2: true when an SF2 is loaded OR being loaded asynchronously.
     // Checking getPendingFilePath() avoids the keysPanel flash during the
@@ -569,9 +566,10 @@ void SfzDropdownPanel::resized()
         keysPanel.setBounds ({});
 
     // ── Inline browser overlay ────────────────────────────────────────────────
+    const int contentY = kStripH + kAdsrH + 1;
     if (browserOpen)
     {
-        fileBrowser.setBounds (kPad, kStripH + kAdsrH + 1, w - kPad * 2, h - kStripH - kAdsrH - 1);
+        fileBrowser.setBounds (kPad, contentY, w - kPad * 2, h - contentY);
         fileBrowser.setVisible (true);
     }
     else
@@ -583,7 +581,7 @@ void SfzDropdownPanel::resized()
     // ── SF2 program grid overlay ──────────────────────────────────────────────
     if (programPickerOpen)
     {
-        programGrid.setBounds (kPad, kStripH + kAdsrH + 1, w - kPad * 2, h - kStripH - kAdsrH - 1);
+        programGrid.setBounds (kPad, contentY, w - kPad * 2, h - contentY);
         programGrid.setVisible (true);
     }
     else
@@ -733,20 +731,11 @@ void SfzDropdownPanel::paint (juce::Graphics& g)
         g.setColour (theme.accent.withAlpha (0.18f));
         g.fillRect (kPad, sepY, w - kPad * 2, 1);
 
-        const int sep2Y = kStripH + kAdsrH;
-        g.setColour (theme.accent.withAlpha (0.12f));
-        g.fillRect (kPad, sep2Y, w - kPad * 2, 1);
+        // Separator below ADSR row
+        g.fillRect (kPad, kStripH + kAdsrH, w - kPad * 2, 1);
     }
 
     drawHeaderStrip (g);
-
-    // ── ADSR row background ───────────────────────────────────────────────────
-    {
-        auto adsrRowBounds = juce::Rectangle<int> (0, kStripH, w, kAdsrH).toFloat();
-        g.setColour (theme.darkBar.darker (0.05f));
-        g.fillRect (adsrRowBounds);
-    }
-
     drawAdsrStrip (g);
 
     g.setColour (theme.accent.withAlpha (0.45f));
@@ -977,13 +966,13 @@ void SfzDropdownPanel::drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
     const int textX = cx + (int) r + 5;
     const int textW = bounds.getRight() - textX;
 
-    g.setFont (DysektLookAndFeel::makeFont (11.5f, true));
+    g.setFont (DysektLookAndFeel::makeFont (10.5f, true));
     g.setColour (theme.foreground.withAlpha (0.38f));
-    g.drawText (label,    textX, cy - 11, textW, 11, juce::Justification::centredLeft, false);
+    g.drawText (label,    textX, cy - 10, textW, 10, juce::Justification::centredLeft, false);
 
-    g.setFont (DysektLookAndFeel::makeFont (12.5f));
+    g.setFont (DysektLookAndFeel::makeFont (11.5f));
     g.setColour (theme.foreground.withAlpha (0.82f));
-    g.drawText (valueStr, textX, cy,      textW, 11, juce::Justification::centredLeft, false);
+    g.drawText (valueStr, textX, cy,      textW, 10, juce::Justification::centredLeft, false);
 }
 
 // =============================================================================
