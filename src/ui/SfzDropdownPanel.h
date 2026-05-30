@@ -100,7 +100,8 @@ private:
     void drawAdsrStrip   (juce::Graphics& g) const;
     void drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
                    float normalised, const juce::String& label,
-                   const juce::String& valueStr) const;
+                   const juce::String& valueStr,
+                   juce::Colour tint = juce::Colours::transparentBlack) const;
     void drawMeter (juce::Graphics& g) const;
     void drawPresetPicker (juce::Graphics& g) const;
 

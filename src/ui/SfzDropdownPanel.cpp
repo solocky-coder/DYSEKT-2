@@ -16,6 +16,12 @@ static constexpr int kFolderIconW  = 20;
 static constexpr int kPad          = 6;
 static constexpr int kKnobGap      = 4;
 
+// ── ADSR knob tints — same palette as SliceControlBar so both panels match ───
+static const juce::Colour kSfzAdsrAttack  { 0xFF00FF87 }; // Toxic Lime
+static const juce::Colour kSfzAdsrDecay   { 0xFFFFE800 }; // Radioactive Yellow
+static const juce::Colour kSfzAdsrSustain { 0xFF00C8FF }; // Ice Blue
+static const juce::Colour kSfzAdsrRelease { 0xFFFF6B00 }; // Molten Orange
+
 // =============================================================================
 //  SfzFileBrowser
 // =============================================================================
@@ -758,6 +764,28 @@ void SfzDropdownPanel::paint (juce::Graphics& g)
     drawHeaderStrip (g);
     drawAdsrStrip (g);
 
+    // ── Section separators between knob groups in the header strip ────────────
+    // Groups (right-to-left as laid out): ADSR | pitch+fine | reverb | vol+pan
+    // Draw a 1px accent line at each group boundary, inset vertically to not
+    // span the full strip height — same visual weight as slicer dividers.
+    {
+        const int sepTop = 6;
+        const int sepBot = kStripH - 6;
+        g.setColour (theme.accent.withAlpha (0.16f));
+
+        // Between ADSR group and pitch group: left edge of adsrRelZone
+        const int x1 = adsrRelZone.getX() - kKnobGap / 2;
+        g.fillRect (x1, sepTop, 1, sepBot - sepTop);
+
+        // Between pitch group and reverb group: left edge of transZone
+        const int x2 = transZone.getX() - kPad / 2;
+        g.fillRect (x2, sepTop, 1, sepBot - sepTop);
+
+        // Between reverb group and vol+pan group: left edge of rvSizeZone
+        const int x3 = rvSizeZone.getX() - kPad / 2;
+        g.fillRect (x3, sepTop, 1, sepBot - sepTop);
+    }
+
     g.setColour (theme.accent.withAlpha (0.45f));
     g.fillRect (0, 0, w, 1);
 }
@@ -772,25 +800,29 @@ void SfzDropdownPanel::drawAdsrStrip (juce::Graphics& g) const
     drawKnob (g, adsrAtkZone,
               juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzAttack()  / 30.0f),
               "ATK",
-              juce::String (processor.sfzPlayer.getSfzAttack(), 2) + "s");
+              juce::String (processor.sfzPlayer.getSfzAttack(), 2) + "s",
+              kSfzAdsrAttack);
 
     // Decay: 0-30 s
     drawKnob (g, adsrDecZone,
               juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzDecay()   / 30.0f),
               "DEC",
-              juce::String (processor.sfzPlayer.getSfzDecay(), 2) + "s");
+              juce::String (processor.sfzPlayer.getSfzDecay(), 2) + "s",
+              kSfzAdsrDecay);
 
     // Sustain: 0-100 %
     drawKnob (g, adsrSusZone,
               juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzSustain() / 100.0f),
               "SUS",
-              juce::String (juce::roundToInt (processor.sfzPlayer.getSfzSustain())) + "%");
+              juce::String (juce::roundToInt (processor.sfzPlayer.getSfzSustain())) + "%",
+              kSfzAdsrSustain);
 
     // Release: 0-60 s
     drawKnob (g, adsrRelZone,
               juce::jlimit (0.f, 1.f, processor.sfzPlayer.getSfzRelease() / 60.0f),
               "REL",
-              juce::String (processor.sfzPlayer.getSfzRelease(), 2) + "s");
+              juce::String (processor.sfzPlayer.getSfzRelease(), 2) + "s",
+              kSfzAdsrRelease);
 }
 
 // =============================================================================
@@ -972,7 +1004,8 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
 
 void SfzDropdownPanel::drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
                                    float normalised, const juce::String& label,
-                                   const juce::String& valueStr) const
+                                   const juce::String& valueStr,
+                                   juce::Colour tint) const
 {
     const auto& theme = getTheme();
 
@@ -985,31 +1018,47 @@ void SfzDropdownPanel::drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
     const float endA   = juce::MathConstants<float>::pi * 2.75f;
     const float angle  = startA + normalised * (endA - startA);
 
+    // Track arc
     juce::Path track;
     track.addCentredArc ((float) cx, (float) cy, r - 1.f, r - 1.f, 0.f, startA, endA, true);
-    g.setColour (theme.darkBar.brighter (0.15f));
-    g.strokePath (track, juce::PathStrokeType (2.0f));
+    g.setColour (theme.darkBar.brighter (0.22f));
+    g.strokePath (track, juce::PathStrokeType (1.5f,
+                  juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
+    // Fill arc — use tint when provided (ADSR knobs), otherwise theme accent
+    const juce::Colour arcCol = tint.isTransparent() ? theme.accent.withAlpha (0.75f)
+                                                     : tint.withAlpha (0.85f);
     juce::Path fill;
     fill.addCentredArc ((float) cx, (float) cy, r - 1.f, r - 1.f, 0.f, startA, angle, true);
-    g.setColour (theme.accent);
-    g.strokePath (fill, juce::PathStrokeType (2.0f));
+    g.setColour (arcCol);
+    g.strokePath (fill, juce::PathStrokeType (2.2f,
+                  juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-    const float tx = (float) cx + (r - 4.f) * std::cos (angle - juce::MathConstants<float>::halfPi);
-    const float ty = (float) cy + (r - 4.f) * std::sin (angle - juce::MathConstants<float>::halfPi);
-    g.setColour (theme.accent.brighter (0.3f));
-    g.fillEllipse (tx - 2.f, ty - 2.f, 4.f, 4.f);
+    // Indicator line from centre to arc tip — matches slicer knob style
+    const float lineAngle = angle - juce::MathConstants<float>::halfPi;
+    const float lineR = r - 2.5f;
+    g.setColour (arcCol.brighter (0.15f));
+    g.drawLine ((float) cx, (float) cy,
+                (float) cx + lineR * std::cos (lineAngle),
+                (float) cy + lineR * std::sin (lineAngle), 1.5f);
+
+    // Centre dot
+    g.setColour (theme.foreground.withAlpha (0.25f));
+    g.fillEllipse ((float) cx - 2.f, (float) cy - 2.f, 4.f, 4.f);
 
     const int textX = cx + (int) r + 5;
     const int textW = bounds.getRight() - textX;
 
-    g.setFont (DysektLookAndFeel::makeFont (10.5f, true));
-    g.setColour (theme.foreground.withAlpha (0.38f));
+    // Label — use tint colour when provided so ADSR labels match their knob
+    g.setFont (DysektLookAndFeel::makeFont (10.0f, true));
+    g.setColour (tint.isTransparent() ? theme.foreground.withAlpha (0.42f)
+                                      : tint.withAlpha (0.70f));
     g.drawText (label,    textX, cy - 10, textW, 10, juce::Justification::centredLeft, false);
 
-    g.setFont (DysektLookAndFeel::makeFont (11.5f));
+    // Value — monospace font, consistent with slicer cells
+    g.setFont (DysektLookAndFeel::makeMonoFont (11.0f));
     g.setColour (theme.foreground.withAlpha (0.82f));
-    g.drawText (valueStr, textX, cy,      textW, 10, juce::Justification::centredLeft, false);
+    g.drawText (valueStr, textX, cy,      textW, 11, juce::Justification::centredLeft, false);
 }
 
 // =============================================================================
