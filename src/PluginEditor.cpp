@@ -1375,9 +1375,10 @@ void DysektEditor::timerCallback()
          // sfzPanelRestored is true but the program grid may have been opened
          // with an empty preset list (race between setUiMode and FluidSynth
          // finishing).  Re-call panelDidShow() once presets are available.
-         // Skip if the mixer is open — we must not auto-close it.
+         // Skip if the mixer or browser is open — must not auto-close them.
          if (! sfzDropdown.isProgramGridOpen()
              && ! sfzDropdown.isMixerOpen()
+             && ! sfzDropdown.isBrowserOpen()
              && processor.sfzPlayer.isLoaded()
              && processor.sfzPlayer.getLoadedFile()
                     .getFileExtension().toLowerCase() == ".sf2")

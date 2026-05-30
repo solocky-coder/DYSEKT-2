@@ -1466,9 +1466,9 @@ void SfzDropdownPanel::panelDidShow()
         // If presets are still empty (FluidSynth hasn't finished async loading),
         // skip openProgramGrid() here — the PluginEditor timer will call
         // panelDidShow() again once getPresetList() returns a non-empty list.
-        // Also skip if the mixer is open — the user opened it intentionally and
-        // we must not close it via the auto-open path.
-        if (sf2 && ! programPickerOpen && ! mixerOpen)
+        // Also skip if the mixer or browser is open — the user opened them
+        // intentionally and the auto-open path must not clobber that state.
+        if (sf2 && ! programPickerOpen && ! mixerOpen && ! browserOpen)
         {
             if (! presetList.empty())
                 openProgramGrid();
