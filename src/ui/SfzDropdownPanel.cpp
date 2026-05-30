@@ -683,6 +683,8 @@ void SfzDropdownPanel::openProgramGrid()
     programGrid.setPresets (presetList,
                             processor.sfzPlayer.getCurrentPresetIndex(),
                             processor.sfzPlayer.getMidiChannel());
+    programGrid.setChannelRange (processor.sfPlayerChLow .load (std::memory_order_relaxed),
+                                 processor.sfPlayerChHigh.load (std::memory_order_relaxed));
     restoreGridChannelAssignments();
     resized();
     repaint();
@@ -1213,6 +1215,9 @@ void SfzDropdownPanel::timerCallback()
     // Poll channel-range from processor for paint (avoids atomic reads in paint)
     cachedChLow  = processor.sfPlayerChLow .load (std::memory_order_relaxed);
     cachedChHigh = processor.sfPlayerChHigh.load (std::memory_order_relaxed);
+
+    // Keep the program grid's range in sync so out-of-range channels are greyed out
+    programGrid.setChannelRange (cachedChLow, cachedChHigh);
 
     repaint();
 }

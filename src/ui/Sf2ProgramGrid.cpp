@@ -464,9 +464,11 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
             if (kv.first != presetIdx && kv.second == ch)
                 usedByOther = true;
 
+        const bool inRange = (ch >= rangeLow && ch <= rangeHigh);
         const juce::String label = "Channel " + juce::String (ch)
-                                   + (usedByOther ? "  [in use]" : "");
-        menu.addItem (100 + ch, label, true, current == ch);
+                                   + (usedByOther ? "  [in use]" : "")
+                                   + (! inRange   ? "  [out of range]" : "");
+        menu.addItem (100 + ch, label, /*isEnabled=*/ inRange, current == ch);
     }
 
     menu.addSeparator();

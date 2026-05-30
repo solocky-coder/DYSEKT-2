@@ -47,6 +47,14 @@ public:
     /** Restore channel assignments from persisted state (e.g. after plugin reload).
      *  Must be called on the message thread after setPresets().
      *  Key = preset index in the list, value = 1-based MIDI channel. */
+    /** Called by SfzDropdownPanel whenever sfPlayerChLow/High changes.
+        Channels outside [low, high] are greyed out in the right-click menu. */
+    void setChannelRange (int low, int high)
+    {
+        rangeLow  = juce::jlimit (1, 16, low);
+        rangeHigh = juce::jlimit (1, 16, high);
+    }
+
     void setPresetChannels (const std::unordered_map<int,int>& channels)
     {
         presetChannels = channels;
@@ -99,6 +107,8 @@ private:
     int   editingIdx     { -1 };  ///< preset being edited for per-channel FX, or -1
     // Maps preset index → assigned MIDI channel (1-16). 0/absent = not assigned.
     std::unordered_map<int,int> presetChannels;
+    int rangeLow  { 1 };   ///< sfPlayerChLow  — set by SfzDropdownPanel
+    int rangeHigh { 16 };  ///< sfPlayerChHigh — set by SfzDropdownPanel
     int   hoveredCell    { -1 };
     int   previewIdx     { -1 };  ///< index of currently-previewing preset, or -1
 
