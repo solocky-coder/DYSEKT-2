@@ -535,26 +535,7 @@ void SfzDropdownPanel::resized()
     // We take the space that transZone and fineZone occupy and merge them.
     chComboZone = transZone.getUnion (fineZone).expanded (kKnobGap / 2, 0);
 
-    // Layout sf2ChCombo widget in the strip (visible only when SF2 loaded)
-    if (sf2ChCombo != nullptr)
-    {
-        const bool isSf2 = [&]() {
-            const auto f = processor.sfzPlayer.getLoadedFile();
-            return f.existsAsFile() && f.hasFileExtension (".sf2");
-        }();
-        if (isSf2 && ! sf2Presets.empty())
-        {
-            const int comboH = std::min (22, chComboZone.getHeight() - 4);
-            sf2ChCombo->setBounds (chComboZone.withSizeKeepingCentre (
-                chComboZone.getWidth(), comboH));
-            sf2ChCombo->setVisible (true);
-        }
-        else
-        {
-            sf2ChCombo->setVisible (false);
-            sf2ChCombo->setBounds ({});
-        }
-    }
+    // sf2ChCombo removed — channel routing is now via sfPlayerChLow/High spinners.
 
     // Sub-divide nameZone:
     //   [< arrow] [folder icon] [label] [> arrow]
@@ -1459,7 +1440,7 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
 
     // ── Knob drag start ───────────────────────────────────────────────────────
     {
-        const int selCh = sf2ChCombo != nullptr ? sf2ChCombo->getSelectedId() : 0;
+        const int selCh = selectedSf2Ch >= 0 ? selectedSf2Ch + 1 : 0;
         struct { juce::Rectangle<int>& zone; ActiveKnob id; float val; } knobs[] =
         {
             { volZone,     ActiveKnob::Volume,      volToNorm   (processor.sfzPlayer.getVolume()) },
@@ -1515,7 +1496,7 @@ void SfzDropdownPanel::mouseDrag (const juce::MouseEvent& e)
         case ActiveKnob::ChReverbDamp:
         case ActiveKnob::ChGain:
         {
-            const int selCh = sf2ChCombo != nullptr ? sf2ChCombo->getSelectedId() : 0;
+            const int selCh = selectedSf2Ch >= 0 ? selectedSf2Ch + 1 : 0;
             if (selCh > 0)
             {
                 if      (activeKnob == ActiveKnob::ChReverbMix)  processor.sfzPlayer.setReverbMix  (newNorm * 100.0f);
@@ -1551,7 +1532,7 @@ void SfzDropdownPanel::mouseDoubleClick (const juce::MouseEvent& e)
     if (adsrRelZone.contains (pos)) { processor.sfzPlayer.setSfzRelease (0.05f);   repaint(); }
     // Ch-FX defaults
     {
-        const int selCh = sf2ChCombo != nullptr ? sf2ChCombo->getSelectedId() : 0;
+        const int selCh = selectedSf2Ch >= 0 ? selectedSf2Ch + 1 : 0;
         if (selCh > 0)
         {
             if (chMixZone.contains  (pos)) { processor.sfzPlayer.setReverbMix  (0.0f);   repaint(); }

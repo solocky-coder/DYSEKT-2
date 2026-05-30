@@ -59,6 +59,9 @@ public:
     /** Returns true if the SF2 program grid is currently shown (programPickerOpen). */
     bool isProgramGridOpen() const noexcept { return programPickerOpen; }
 
+    /** Returns true if the inline file browser overlay is open. */
+    bool isBrowserOpen()     const noexcept { return browserOpen; }
+
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;
 

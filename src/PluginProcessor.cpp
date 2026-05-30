@@ -3131,7 +3131,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
 
     int version = stream.readInt();
-    if (version < 16 || version > 24)
+    if (version < 16 || version > 25)
         return;
 
     // APVTS state

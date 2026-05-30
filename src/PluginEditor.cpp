@@ -1377,7 +1377,7 @@ void DysektEditor::timerCallback()
          // finishing).  Re-call panelDidShow() once presets are available.
          // Skip if the mixer or browser is open — must not auto-close them.
          if (! sfzDropdown.isProgramGridOpen()
-             && ! sfzDropdown.isMixerOpen()
+             && activeSlot != SlotContent::Mixer
              && ! sfzDropdown.isBrowserOpen()
              && processor.sfzPlayer.isLoaded()
              && processor.sfzPlayer.getLoadedFile()
