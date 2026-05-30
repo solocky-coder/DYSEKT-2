@@ -161,6 +161,28 @@ public:
      */
     std::vector<Sf2PresetInfo> getPresetList() const;
 
+    // ── Per-channel mixer strip (SF2 multi-timbral) ───────────────────────────
+
+    /** Snapshot of one channel's mixer state — safe to copy on the UI thread. */
+    struct ChannelStrip
+    {
+        float volume     { 1.0f };   ///< normalised 0..1  (maps to CC7 0..127)
+        float pan        { 0.0f };   ///< -1..+1           (maps to CC10 0..127)
+        float reverbSend { 0.0f };   ///< normalised 0..1  (maps to CC91 0..127)
+        float preMuteVol { 1.0f };   ///< volume saved before mute
+        bool  muted      { false };
+    };
+
+    /** Read a channel's current strip state.  Safe to call on any thread. */
+    ChannelStrip getChannelStrip (int channel) const noexcept;
+
+    void setChannelVolume     (int channel, float normVol)   noexcept; ///< 0..1
+    void setChannelPan        (int channel, float pan)       noexcept; ///< -1..+1
+    void setChannelReverbSend (int channel, float normSend)  noexcept; ///< 0..1
+    void setChannelMuted      (int channel, bool muted)      noexcept;
+    void soloChannel          (int channel)                  noexcept;
+    void clearSolo            ()                             noexcept;
+
     // ── Called from audio thread ──────────────────────────────────────────────
 
     void prepare (double sampleRate, int maxBlockSize);
@@ -242,16 +264,7 @@ private:
     // Bitmask of FluidSynth channels (bit 0 = ch 0 … bit 15 = ch 15) that should
     // receive fan-out of incoming MIDI ch-1 controller input.
     // Written from UI thread via setLiveInputChannelMask(); read on audio thread.
-    std::atomic<uint16_t> liveInputChannelMask    { 0 };
-    /** Bitmask of FluidSynth channels (bit 0 = ch0 … bit 15 = ch15) that have
-     *  been explicitly assigned a preset by the user.  When non-zero, the MIDI
-     *  loop only forwards messages to channels present in this mask, preventing
-     *  the default ch0 preset from firing on unassigned MIDI channel 1. */
-    std::atomic<uint16_t> activeFluidChannelMask  { 0 };
-    /** Bitmask of channels currently loaded by previewPreset() / clearPreview().
-     *  These are excluded from activeFluidChannelMask so preview loads don't
-     *  permanently open a channel to live MIDI after the preview is dismissed. */
-    std::atomic<uint16_t> previewChannelMask       { 0 };
+    std::atomic<uint16_t> liveInputChannelMask { 0 };
 
     // ── Scratch buffer for FluidSynth interleaved → planar conversion ─────────
     std::vector<float> scratchL, scratchR;
@@ -277,6 +290,22 @@ private:
     std::atomic<bool>  reverbFreeze { false };
 
     void updateReverbParams();  ///< maps atomics → juce::dsp::Reverb::Parameters
+
+    // ── Per-channel mixer strip state ─────────────────────────────────────────
+    // Written on UI thread via setChannel*(); read on audio thread in applyDirtyStrips().
+    struct ChannelStripAtomics
+    {
+        std::atomic<float> volume     { 1.0f };
+        std::atomic<float> pan        { 0.0f };
+        std::atomic<float> reverbSend { 0.0f };
+        std::atomic<float> preMuteVol { 1.0f };
+        std::atomic<bool>  muted      { false };
+        std::atomic<bool>  dirty      { false };
+    };
+    ChannelStripAtomics channelStrips[16];
+    std::atomic<bool>   anyStripDirty { false };
+
+    void applyDirtyStrips();   ///< called at top of FluidSynth process block
 
     // ── Private helpers ───────────────────────────────────────────────────────
     void applyPendingLoad();             ///< called at top of process()

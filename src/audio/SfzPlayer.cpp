@@ -313,14 +313,135 @@ void SfzPlayer::setPresetOnChannel (int channel, int bank, int preset)
     anyChannelDirty.store (true, std::memory_order_release);
 }
 
+// =============================================================================
+//  Per-channel mixer strip — UI-thread setters + audio-thread applicator
+// =============================================================================
+
+SfzPlayer::ChannelStrip SfzPlayer::getChannelStrip (int ch) const noexcept
+{
+    if (ch < 0 || ch >= 16) return {};
+    const auto& s = channelStrips[ch];
+    ChannelStrip out;
+    out.volume     = s.volume    .load (std::memory_order_relaxed);
+    out.pan        = s.pan       .load (std::memory_order_relaxed);
+    out.reverbSend = s.reverbSend.load (std::memory_order_relaxed);
+    out.preMuteVol = s.preMuteVol.load (std::memory_order_relaxed);
+    out.muted      = s.muted     .load (std::memory_order_relaxed);
+    return out;
+}
+
+void SfzPlayer::setChannelVolume (int ch, float v) noexcept
+{
+    if (ch < 0 || ch >= 16) return;
+    channelStrips[ch].volume .store (juce::jlimit (0.f, 1.f, v), std::memory_order_relaxed);
+    channelStrips[ch].dirty  .store (true,                        std::memory_order_relaxed);
+    anyStripDirty            .store (true,                        std::memory_order_release);
+}
+
+void SfzPlayer::setChannelPan (int ch, float p) noexcept
+{
+    if (ch < 0 || ch >= 16) return;
+    channelStrips[ch].pan   .store (juce::jlimit (-1.f, 1.f, p), std::memory_order_relaxed);
+    channelStrips[ch].dirty .store (true,                         std::memory_order_relaxed);
+    anyStripDirty           .store (true,                         std::memory_order_release);
+}
+
+void SfzPlayer::setChannelReverbSend (int ch, float s) noexcept
+{
+    if (ch < 0 || ch >= 16) return;
+    channelStrips[ch].reverbSend.store (juce::jlimit (0.f, 1.f, s), std::memory_order_relaxed);
+    channelStrips[ch].dirty     .store (true,                        std::memory_order_relaxed);
+    anyStripDirty               .store (true,                        std::memory_order_release);
+}
+
+void SfzPlayer::setChannelMuted (int ch, bool mute) noexcept
+{
+    if (ch < 0 || ch >= 16) return;
+    auto& s = channelStrips[ch];
+    if (mute && ! s.muted.load (std::memory_order_relaxed))
+        s.preMuteVol.store (s.volume.load (std::memory_order_relaxed), std::memory_order_relaxed);
+    s.muted.store (mute, std::memory_order_relaxed);
+    s.dirty.store (true, std::memory_order_relaxed);
+    anyStripDirty.store (true, std::memory_order_release);
+}
+
+void SfzPlayer::soloChannel (int ch) noexcept
+{
+    if (ch < 0 || ch >= 16) return;
+    for (int i = 0; i < 16; ++i)
+    {
+        const bool shouldMute = (i != ch);
+        auto& s = channelStrips[i];
+        if (shouldMute && ! s.muted.load (std::memory_order_relaxed))
+            s.preMuteVol.store (s.volume.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        s.muted.store (shouldMute, std::memory_order_relaxed);
+        s.dirty.store (true,       std::memory_order_relaxed);
+    }
+    anyStripDirty.store (true, std::memory_order_release);
+}
+
+void SfzPlayer::clearSolo() noexcept
+{
+    for (int i = 0; i < 16; ++i)
+    {
+        auto& s = channelStrips[i];
+        if (s.muted.load (std::memory_order_relaxed))
+        {
+            // Restore pre-mute volume then unmute
+            s.volume.store (s.preMuteVol.load (std::memory_order_relaxed), std::memory_order_relaxed);
+            s.muted.store (false, std::memory_order_relaxed);
+            s.dirty.store (true,  std::memory_order_relaxed);
+        }
+    }
+    anyStripDirty.store (true, std::memory_order_release);
+}
+
+void SfzPlayer::applyDirtyStrips()
+{
+#if DYSEKT_HAS_FLUIDSYNTH
+    if (synth == nullptr) return;
+    if (! anyStripDirty.load (std::memory_order_acquire)) return;
+    anyStripDirty.store (false, std::memory_order_relaxed);
+
+    for (int ch = 0; ch < 16; ++ch)
+    {
+        auto& s = channelStrips[ch];
+        if (! s.dirty.load (std::memory_order_relaxed)) continue;
+        s.dirty.store (false, std::memory_order_relaxed);
+
+        const bool  muted = s.muted      .load (std::memory_order_relaxed);
+        const float vol   = muted ? 0.f : s.volume.load (std::memory_order_relaxed);
+        const float pan   = s.pan        .load (std::memory_order_relaxed);
+        const float rev   = s.reverbSend .load (std::memory_order_relaxed);
+
+        // CC7 volume  0..127
+        fluid_synth_cc (synth, ch, 7,  juce::roundToInt (vol * 127.f));
+        // CC10 pan    0 = L, 64 = C, 127 = R
+        fluid_synth_cc (synth, ch, 10, juce::roundToInt ((pan + 1.0f) * 63.5f));
+        // CC91 reverb send 0..127
+        fluid_synth_cc (synth, ch, 91, juce::roundToInt (rev * 127.f));
+    }
+#endif
+}
+
 void SfzPlayer::clearChannelPresets()
 {
     for (auto& slot : pendingChannelAssignment)
         slot.store (-1, std::memory_order_relaxed);
     anyChannelDirty.store (false, std::memory_order_relaxed);
-    liveInputChannelMask.store    (0, std::memory_order_relaxed);
-    activeFluidChannelMask.store  (0, std::memory_order_relaxed);
-    previewChannelMask.store      (0, std::memory_order_relaxed);
+    liveInputChannelMask.store (0, std::memory_order_relaxed);
+
+    // Reset per-channel mixer strips to defaults
+    for (auto& s : channelStrips)
+    {
+        s.volume    .store (1.0f,  std::memory_order_relaxed);
+        s.pan       .store (0.0f,  std::memory_order_relaxed);
+        s.reverbSend.store (0.0f,  std::memory_order_relaxed);
+        s.preMuteVol.store (1.0f,  std::memory_order_relaxed);
+        s.muted     .store (false, std::memory_order_relaxed);
+        s.dirty     .store (true,  std::memory_order_relaxed);  // push defaults to FluidSynth
+    }
+    anyStripDirty.store (true, std::memory_order_release);
 }
 
 // =============================================================================
@@ -330,29 +451,36 @@ static constexpr int kPreviewChannel = 15;
 
 void SfzPlayer::previewPreset (int bank, int preset)
 {
+    // Channel 15 is only a free scratch slot when an SF2 file is loaded.
+    // SFZ playback owns channel 15 (sfizz); calling this while an SFZ is
+    // active would corrupt that channel.  The UI gates this already, but
+    // guard here too so a future refactor can't silently break it.
     jassert (! isSfzFile);
     if (isSfzFile) return;
 
-    // Mark ch0 and ch15 as preview channels so applyPendingChannelChanges
-    // does NOT set their bits in activeFluidChannelMask.  This keeps the MIDI
-    // gate from permanently opening these channels to live MIDI after the
-    // preview is dismissed.
-    previewChannelMask.store (
-        (1u << 0) | (1u << kPreviewChannel),
-        std::memory_order_relaxed);
+    // Load onto both the preview channel (15) AND channel 0.
+    // Channel 0 is the default FluidSynth playback channel; without this,
+    // any MIDI not explicitly fan-fanned to ch15 still hits ch0 and plays
+    // whatever preset was loaded at startup (always preset 0).
+    setPresetOnChannel (0,                bank, preset);
+    setPresetOnChannel (kPreviewChannel,  bank, preset);
 
-    setPresetOnChannel (0,               bank, preset);
-    setPresetOnChannel (kPreviewChannel, bank, preset);
+    // Route live controller input to the preview channel.
+    const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
+    liveInputChannelMask.store (mask | (uint16_t(1) << kPreviewChannel),
+                                std::memory_order_relaxed);
 }
 
 void SfzPlayer::clearPreview()
 {
+    // Remove channel 15 from the live mask.
+    const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
+    liveInputChannelMask.store (mask & ~(uint16_t(1) << kPreviewChannel),
+                                std::memory_order_relaxed);
+    // Reset both the preview channel and ch0 to GM piano so neither plays
+    // the previously-auditioned preset after the preview is dismissed.
     setPresetOnChannel (0,               0, 0);
     setPresetOnChannel (kPreviewChannel, 0, 0);
-
-    // Clear the preview mask AFTER queuing the resets so the next
-    // applyPendingChannelChanges call doesn't set bits for these channels.
-    previewChannelMask.store (0, std::memory_order_relaxed);
 }
 
 juce::File SfzPlayer::getLoadedFile() const
@@ -560,6 +688,8 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         return;
 
     // Apply any pending preset assignments — multi-timbral first, then single-preset legacy.
+    applyDirtyStrips();
+
     if (anyChannelDirty.load (std::memory_order_acquire))
         applyPendingChannelChanges();
 
@@ -567,69 +697,83 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         applyProgramChange();
 
     // ── Forward MIDI to FluidSynth ────────────────────────────────────────────
-    // Multi-timbral mode: each incoming MIDI channel routes 1:1 to the matching
-    // FluidSynth channel (midiCh - 1).  setPresetOnChannel() has already loaded
-    // the correct preset onto each FluidSynth channel, so a controller sending
-    // on MIDI ch N will play the preset assigned to that channel in the UI.
-    // Sequencer tracks already emit on the channel their preset was assigned to,
-    // so they pass through correctly with no special-casing.
+    // Multi-timbral mode: route each message to its own FluidSynth channel (0-based).
+    // No channel filtering — every channel passes through so each sequencer track
+    // fires on the channel its preset was assigned to via setPresetOnChannel().
+
+    // ── Forward MIDI to FluidSynth ────────────────────────────────────────────
+    // Multi-timbral mode: route each message to its own FluidSynth channel (0-based).
+    //
+    // Live controller fan-out: if a message arrives on MIDI ch 1 AND
+    // liveInputChannelMask is non-zero, it is remapped to every channel set in
+    // that mask instead.  This lets a controller that always sends on ch 1 play
+    // whichever SF2 preset channels are currently selected in the UI.
+    // Sequencer messages (already on their correct channel) pass through unchanged.
+
+    const uint16_t liveMask = liveInputChannelMask.load (std::memory_order_relaxed);
 
     for (const auto meta : midiIn)
     {
-        const auto     msg    = meta.getMessage();
-        const int      midiCh = msg.getChannel();   // 1-16
-        const int      fch    = midiCh - 1;         // FluidSynth channel (0-based)
-        const uint16_t mask   = activeFluidChannelMask.load (std::memory_order_relaxed);
+        const auto msg    = meta.getMessage();
+        const int  midiCh = msg.getChannel();   // 1-16
 
-        // When at least one preset has been user-assigned to a specific channel
-        // (mask != 0), only forward MIDI to channels that are in the mask.
-        // This prevents the default ch0 preset from sounding on unassigned MIDI ch 1.
-        if (mask != 0 && (mask & (1u << fch)) == 0)
-            continue;
+        // Determine the set of FluidSynth channels to address.
+        // Fan-out applies only to ch-1 messages when a live mask is configured.
+        uint16_t targetMask;
+        if (midiCh == 1 && liveMask != 0)
+            targetMask = liveMask;
+        else
+            targetMask = (uint16_t)(1u << (midiCh - 1));  // single destination
 
-        if (msg.isNoteOn())
+        for (int fch = 0; fch < 16; ++fch)
         {
-            const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
-            fluid_synth_noteon (synth, fch, note, msg.getVelocity());
+            if (! (targetMask & (1u << fch))) continue;
+
+            if (msg.isNoteOn())
+            {
+                const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
+                fluid_synth_noteon (synth, fch, note, msg.getVelocity());
+            }
+            else if (msg.isNoteOff())
+            {
+                const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
+                fluid_synth_noteoff (synth, fch, note);
+            }
+            else if (msg.isController())
+            {
+                fluid_synth_cc (synth, fch,
+                                msg.getControllerNumber(),
+                                msg.getControllerValue());
+            }
+            else if (msg.isPitchWheel())
+            {
+                fluid_synth_pitch_bend (synth, fch, msg.getPitchWheelValue());
+            }
+            else if (msg.isChannelPressure())
+            {
+                fluid_synth_channel_pressure (synth, fch,
+                                              msg.getChannelPressureValue());
+            }
+            else if (msg.isAftertouch())
+            {
+                fluid_synth_key_pressure (synth, fch,
+                                          msg.getNoteNumber(),
+                                          msg.getAfterTouchValue());
+            }
+            else if (msg.isProgramChange())
+            {
+                fluid_synth_program_change (synth, fch,
+                                            msg.getProgramChangeNumber());
+            }
+            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+            {
+                fluid_synth_all_notes_off (synth, fch);
+            }
         }
-        else if (msg.isNoteOff())
+
+        // SysEx is not channel-specific — send once regardless of fan-out
+        if (msg.isSysEx())
         {
-            const int note = juce::jlimit (0, 127, msg.getNoteNumber() + trans);
-            fluid_synth_noteoff (synth, fch, note);
-        }
-        else if (msg.isController())
-        {
-            fluid_synth_cc (synth, fch,
-                            msg.getControllerNumber(),
-                            msg.getControllerValue());
-        }
-        else if (msg.isPitchWheel())
-        {
-            fluid_synth_pitch_bend (synth, fch, msg.getPitchWheelValue());
-        }
-        else if (msg.isChannelPressure())
-        {
-            fluid_synth_channel_pressure (synth, fch,
-                                          msg.getChannelPressureValue());
-        }
-        else if (msg.isAftertouch())
-        {
-            fluid_synth_key_pressure (synth, fch,
-                                      msg.getNoteNumber(),
-                                      msg.getAfterTouchValue());
-        }
-        else if (msg.isProgramChange())
-        {
-            fluid_synth_program_change (synth, fch,
-                                        msg.getProgramChangeNumber());
-        }
-        else if (msg.isAllNotesOff() || msg.isAllSoundOff())
-        {
-            fluid_synth_all_notes_off (synth, fch);
-        }
-        else if (msg.isSysEx())
-        {
-            // SysEx is not channel-specific — send once
             fluid_synth_sysex (synth,
                                reinterpret_cast<const char*> (msg.getSysExData()),
                                msg.getSysExDataSize(),
@@ -834,11 +978,6 @@ void SfzPlayer::applyPendingChannelChanges()
 
     const int offset = fluid_synth_get_bank_offset (synth, sfontId);
 
-    // Rebuild the active channel mask from all pending assignments.
-    // We fetch the current mask first and update it incrementally.
-    uint16_t mask        = activeFluidChannelMask.load (std::memory_order_relaxed);
-    const uint16_t prvMask = previewChannelMask.load   (std::memory_order_relaxed);
-
     for (int ch = 0; ch < 16; ++ch)
     {
         const int packed = pendingChannelAssignment[ch].exchange (
@@ -854,16 +993,7 @@ void SfzPlayer::applyPendingChannelChanges()
                                     static_cast<unsigned int> (sfontId),
                                     static_cast<unsigned int> (offset + bank),
                                     static_cast<unsigned int> (preset));
-
-        // Only mark this channel as user-assigned if it wasn't loaded by
-        // previewPreset().  Preview loads must not permanently open a channel
-        // to live MIDI — that would re-introduce the ch1 bleed bug after
-        // any audition session.
-        if ((prvMask & (1u << ch)) == 0)
-            mask |= static_cast<uint16_t> (1u << ch);
     }
-
-    activeFluidChannelMask.store (mask, std::memory_order_relaxed);
 #endif
 }
 
