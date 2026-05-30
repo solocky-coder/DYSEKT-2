@@ -461,9 +461,16 @@ public:
     std::atomic<int> sfzUiNoteOffRequest { -1 };
 
     // 128-bit active-note bitmask for the SF2/SFZ player (updated on audio thread,
-    // read on UI thread for KeysPanel highlighting — display-only, torn reads OK).
-    // Bit N of word 0 = note N (0-63); bit N of word 1 = note N+64 (64-127).
+    // read on UI thread for KeysPanel highlighting — display-only, torn reads OK)
     std::atomic<uint64_t> sfzActiveNotes[2] {}; // [0]=notes 0-63, [1]=notes 64-127
+
+    // MIDI channel range assigned to the SF Player.
+    // Messages whose channel falls in [sfPlayerChLow, sfPlayerChHigh] (inclusive,
+    // 1-based) are routed exclusively to sfzPlayer; all other channels go to the
+    // slicer.  sfPlayerChLow == 0 disables the SF player (slicer gets everything).
+    // Default: ch 1–16 (omni — all MIDI to SF player and slicer).
+    std::atomic<int> sfPlayerChLow  { 1 };
+    std::atomic<int> sfPlayerChHigh { 16 };
 
     // Trim region markers (stored in samples)
     std::atomic<int>  trimRegionStart  { 0 };

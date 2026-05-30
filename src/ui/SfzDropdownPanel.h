@@ -31,7 +31,6 @@ class DysektProcessor;
 // =============================================================================
 #include "SfzFileBrowser.h"
 #include "Sf2ProgramGrid.h"
-#include "Sf2MixerPanel.h"
 
 // =============================================================================
 //  SfzDropdownPanel
@@ -60,12 +59,6 @@ public:
     /** Returns true if the SF2 program grid is currently shown (programPickerOpen). */
     bool isProgramGridOpen() const noexcept { return programPickerOpen; }
 
-    /** Returns true if the SF2 channel mixer is currently shown. */
-    bool isMixerOpen() const noexcept { return mixerOpen; }
-
-    /** Returns true if the file browser overlay is currently shown. */
-    bool isBrowserOpen() const noexcept { return browserOpen; }
-
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;
 
@@ -80,12 +73,9 @@ public:
     /** Reload zone display for the given file — public so PluginEditor can call it directly. */
     void reloadZones (const juce::File& f);
 
-    /** Called by PluginEditor after an external preset-channel assignment so the mixer strip stays in sync. */
-    void notifyPresetChannelChanged (const juce::String& /*presetName*/, int /*midiChannel1Based*/)
-    {
-        if (mixerOpen)
-            sf2Mixer.setActiveChannels (presetList, programGrid.getPresetChannels());
-    }
+    // ── SF2 channel-FX public API ─────────────────────────────────────────────
+    /** Called by PluginEditor whenever a preset<->channel mapping changes. */
+    void notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based);
 
     // ── Layout constants ──────────────────────────────────────────────────────
     static constexpr int kStripH  = 36;
@@ -98,10 +88,10 @@ private:
     // ── Header-strip drawing ──────────────────────────────────────────────────
     void drawHeaderStrip (juce::Graphics& g) const;
     void drawAdsrStrip   (juce::Graphics& g) const;
+    void drawSf2ChStrip  (juce::Graphics& g) const;
     void drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
                    float normalised, const juce::String& label,
-                   const juce::String& valueStr,
-                   juce::Colour tint = juce::Colours::transparentBlack) const;
+                   const juce::String& valueStr) const;
     void drawMeter (juce::Graphics& g) const;
     void drawPresetPicker (juce::Graphics& g) const;
 
@@ -110,18 +100,25 @@ private:
                           volZone, transZone,
                           panZone, fineZone,
                           rvMixZone, rvSizeZone,
-                          meterZone,
-                          mixerBtnZone;
+                          meterZone;
 
     // ADSR knob zones (second row, below header strip)
     juce::Rectangle<int> adsrAtkZone, adsrDecZone, adsrSusZone, adsrRelZone;
+
+    // Per-channel SF2 FX zones — overlap the ADSR slots when SF2 is loaded
+    juce::Rectangle<int> chComboZone;   ///< combo fits where TRN+FINE slots are
+    juce::Rectangle<int> chMixZone;     ///< reuse adsrAtkZone slot
+    juce::Rectangle<int> chSizeZone;    ///< reuse adsrDecZone slot
+    juce::Rectangle<int> chDampZone;    ///< reuse adsrSusZone slot
+    juce::Rectangle<int> chGainZone;    ///< reuse adsrRelZone slot
 
     // Sub-zones inside nameZone
     juce::Rectangle<int> presetDecBtn, presetLabel, presetIncBtn, folderIconZone;
 
     // ── Drag state for knobs ──────────────────────────────────────────────────
     enum class ActiveKnob { None, Volume, Transpose, Pan, FineTune, ReverbMix, ReverbSize,
-                            AdsrAttack, AdsrDecay, AdsrSustain, AdsrRelease };
+                            AdsrAttack, AdsrDecay, AdsrSustain, AdsrRelease,
+                            ChReverbMix, ChReverbSize, ChReverbDamp, ChGain };
     ActiveKnob activeKnob  { ActiveKnob::None };
     int        dragStartY  { 0 };
     float      dragStartVal{ 0.f };
@@ -142,13 +139,26 @@ private:
     Sf2ProgramGrid programGrid;
     bool           programPickerOpen { false };
 
-    // ── SF2 mixer panel ───────────────────────────────────────────────────────
-    Sf2MixerPanel sf2Mixer;
-    bool          mixerOpen { false };
+    // ── SF2 per-channel FX state ───────────────────────────────────────────────
+    struct AssignedPreset { juce::String name; int ch { 0 }; };
+    std::vector<AssignedPreset>            sf2Presets;
+    int                                    selectedSf2Ch { -1 };
+
+    // ── MIDI channel-range spinners (replaces sf2ChCombo) ────────────────
+    // Drawn as:  CH [◂ 1 ▸] – [◂ 16 ▸]  inside the SF2 strip.
+    // Hit-zones laid out in resized(); clicks handled in mouseDown().
+    juce::Rectangle<int> chLowDec,  chLowLabel,  chLowInc;
+    juce::Rectangle<int> chHighDec, chHighLabel, chHighInc;
+    juce::Rectangle<int> chRangeLabelZone;
+    int cachedChLow  { 1 };   ///< polled from processor each timer tick
+    int cachedChHigh { 16 };
+
+    void buildSf2Combo();  ///< kept for grid-channel compat; now a no-op
 
 
     void openProgramGrid();
     void closeProgramGrid();
+    void restoreGridChannelAssignments();
 
     // State held between openAddZoneChooser() and onFileChosen() in kAddZone mode
     juce::File     addZoneTargetSfz;
