@@ -538,9 +538,12 @@ void SfzDropdownPanel::resized()
     strip.removeFromRight (kKnobGap);
     adsrAtkZone = strip.removeFromRight (kKnobW);
 
-    // MIXER toggle button — carved from the remaining gap between picker and ADSR knobs
-    strip.removeFromRight (kPad);
-    mixerBtnZone = strip.removeFromRight (36).withSizeKeepingCentre (36, 18);
+    // MIXER toggle button — anchored just right of the preset picker (gap between
+    // picker and ADSR knobs). Do NOT carve from strip here; the strip is fully
+    // consumed by all the knobs so there is no remainder at normal panel widths.
+    mixerBtnZone = juce::Rectangle<int> (nameZone.getRight() + kPad,
+                                         0, 36, kStripH)
+                       .withSizeKeepingCentre (36, 18);
 
     // Sub-divide nameZone:
     //   [< arrow] [folder icon] [label] [> arrow]
@@ -1463,7 +1466,9 @@ void SfzDropdownPanel::panelDidShow()
         // If presets are still empty (FluidSynth hasn't finished async loading),
         // skip openProgramGrid() here — the PluginEditor timer will call
         // panelDidShow() again once getPresetList() returns a non-empty list.
-        if (sf2 && ! programPickerOpen)
+        // Also skip if the mixer is open — the user opened it intentionally and
+        // we must not close it via the auto-open path.
+        if (sf2 && ! programPickerOpen && ! mixerOpen)
         {
             if (! presetList.empty())
                 openProgramGrid();
