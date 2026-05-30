@@ -74,6 +74,13 @@ public:
     /** Reload zone display for the given file — public so PluginEditor can call it directly. */
     void reloadZones (const juce::File& f);
 
+    /** Called by PluginEditor after an external preset-channel assignment so the mixer strip stays in sync. */
+    void notifyPresetChannelChanged (const juce::String& /*presetName*/, int /*midiChannel1Based*/)
+    {
+        if (mixerOpen)
+            sf2Mixer.setActiveChannels (presetList, programGrid.getPresetChannels());
+    }
+
     // ── Layout constants ──────────────────────────────────────────────────────
     static constexpr int kStripH  = 36;
     static constexpr int kAdsrH   = 34;   ///< height of the ADSR knob row

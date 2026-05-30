@@ -365,7 +365,8 @@ void SfzFileBrowser::timerCallback() {}
 
 SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     : processor (p),
-      keysPanel (p)
+      keysPanel (p),
+      sf2Mixer (p)
 {
     addChildComponent (keysPanel);
 
