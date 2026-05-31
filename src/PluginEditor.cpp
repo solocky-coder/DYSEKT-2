@@ -110,6 +110,11 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      // Keep the inline channel-FX panel in sync
      sfzDropdown.notifyPresetChannelChanged (preset.name, midiChannel1Based);
 
+     // Update the SF2 mixer panel — rebuild strips from the current
+     // preset→channel map so the new assignment appears immediately.
+     mixerPanel.setActiveChannels (sfzDropdown.programGrid.getPresets(),
+                                   sfzDropdown.programGrid.getPresetChannels());
+
      // Pick a colour based on the preset number (bank*128 + program).
      static const juce::Colour kPalette[] = {
          juce::Colour (0xFF4060A0), juce::Colour (0xFF60A040),
@@ -1430,7 +1435,13 @@ void DysektEditor::timerCallback()
  headerBar.repaint();
  sliceControlBar.updateMidiLearnPulse();
  sliceControlBar.repaint();
-if (activeSlot == SlotContent::Mixer) mixerPanel.updateFromSnapshot();
+if (activeSlot == SlotContent::Mixer)
+{
+    // Refresh strips in case a preset was just assigned or un-assigned.
+    mixerPanel.setActiveChannels (sfzDropdown.programGrid.getPresets(),
+                                  sfzDropdown.programGrid.getPresetChannels());
+    mixerPanel.updateFromSnapshot();
+}
 #if DYSEKT_STANDALONE
 if (activeSlot == SlotContent::Seq)   pianoRollPanel.syncSnap();
 #endif

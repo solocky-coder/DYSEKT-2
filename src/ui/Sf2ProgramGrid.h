@@ -44,6 +44,9 @@ public:
     /** Read-only access to the current per-preset channel assignments. */
     const std::unordered_map<int,int>& getPresetChannels() const noexcept { return presetChannels; }
 
+    /** Read-only access to the full preset list (used by Sf2MixerPanel). */
+    const std::vector<Sf2PresetInfo>& getPresets() const noexcept { return presets; }
+
     /** Restore channel assignments from persisted state (e.g. after plugin reload).
      *  Must be called on the message thread after setPresets().
      *  Key = preset index in the list, value = 1-based MIDI channel. */
