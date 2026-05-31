@@ -531,9 +531,10 @@ void SfzDropdownPanel::resized()
     chDampZone = adsrSusZone;
     chGainZone = adsrRelZone;
 
-    // SF2 channel combo: reuse the TRN+FINE slot area (inline in the strip)
-    // We take the space that transZone and fineZone occupy and merge them.
-    chComboZone = transZone.getUnion (fineZone).expanded (kKnobGap / 2, 0);
+    // SF2 channel combo: when SF2 is loaded, TRN, FINE, and the four ADSR
+    // knobs are all hidden.  Give the spinner the full span of those six
+    // knob slots so it has enough room (~336 px) to render legibly.
+    chComboZone = adsrAtkZone.getUnion (transZone).expanded (kKnobGap / 2, 0);
 
     // sf2ChCombo removed — channel routing is now via sfPlayerChLow/High spinners.
 
@@ -596,13 +597,14 @@ void SfzDropdownPanel::resized()
     // "CH [◂ 1 ▸] – [◂ 16 ▸]"
     {
         auto z = chComboZone;   // already computed above in the ADSR block
-        const int btnW  = 14;   // ◂ / ▸ arrow button width
-        const int numW  = 20;   // channel number label width
-        const int gap   = 4;
-        const int sepW  = 8;    // " – " separator
+        // Now ~336 px wide — use larger hit targets for comfort.
+        const int btnW  = 24;   // ◂ / ▸ arrow button width
+        const int numW  = 36;   // channel number label width
+        const int gap   = 8;
+        const int sepW  = 20;   // " – " separator
 
         // "CH" prefix
-        chRangeLabelZone = z.removeFromLeft (20);
+        chRangeLabelZone = z.removeFromLeft (28);
         z.removeFromLeft (gap);
 
         // Low spinner: [◂] [num] [▸]
@@ -887,31 +889,15 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
     const auto dim     = theme.foreground.withAlpha (0.45f);
     const auto bright  = theme.foreground;
 
-    // ── Per-channel FX knobs (mix/size/damp/gain) ─────────────────────────
-    const float chMix  = processor.sfzPlayer.getReverbMix() / 100.0f;
-    const float chSize = processor.sfzPlayer.getReverbSize() / 100.0f;
-    const float chDamp = processor.sfzPlayer.getReverbDamp() / 100.0f;
-    const float chGain = processor.sfzPlayer.getVolume();
-
-    drawKnob (g, chMixZone,  chMix,
-              "MIX",  juce::String (juce::roundToInt (chMix  * 100)) + "%");
-    drawKnob (g, chSizeZone, chSize,
-              "SIZE", juce::String (juce::roundToInt (chSize * 100)) + "%");
-    drawKnob (g, chDampZone, chDamp,
-              "DAMP", juce::String (juce::roundToInt (chDamp * 100)) + "%");
-    drawKnob (g, chGainZone, juce::jlimit (0.f, 1.f, chGain / 2.0f),
-              "GAIN", [&]() -> juce::String {
-                  const float db = juce::Decibels::gainToDecibels (chGain);
-                  return db <= -95.f ? "-inf" : (db >= 0.f ? "+" : "") + juce::String (db, 1) + "dB";
-              }());
-
     // ── Channel-range spinner: CH [◂ lo ▸] – [◂ hi ▸] ───────────────────
+    // (Per-channel FX knobs removed — global REV MIX/SIZE/PAN/VOL in the
+    //  header strip already cover these; drawing them twice caused duplicates.)
     // Drawn inside chComboZone (the TRN+FINE area).  Hit-zones are set in resized().
     const int lo = cachedChLow;
     const int hi = cachedChHigh;
     const bool disabled = (lo == 0);
 
-    g.setFont (DysektLookAndFeel::makeFont (9.f));
+    g.setFont (DysektLookAndFeel::makeFont (11.f));
 
     // "CH" prefix
     g.setColour (dim);
@@ -925,13 +911,13 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
     {
         // Arrows
         g.setColour (disabled ? dim : accent);
-        g.setFont (DysektLookAndFeel::makeFont (10.f));
+        g.setFont (DysektLookAndFeel::makeFont (13.f));
         g.drawText (juce::String::fromUTF8 ("â"), decR, juce::Justification::centred, false);
         g.drawText (juce::String::fromUTF8 ("â¸"), incR, juce::Justification::centred, false);
 
         // Value
         g.setColour (disabled ? dim : bright);
-        g.setFont (DysektLookAndFeel::makeFont (11.f));
+        g.setFont (DysektLookAndFeel::makeFont (14.f, true));
         const auto valStr = disabled ? juce::String ("--") : juce::String (value);
         g.drawText (valStr, numR, juce::Justification::centred, false);
     };
