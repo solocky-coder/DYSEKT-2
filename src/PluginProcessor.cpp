@@ -1351,35 +1351,10 @@ void DysektProcessor::handleCommand (const Command& cmd)
 
 void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 {
-    // ── MIDI route mode guard ─────────────────────────────────────────────────
-    // In SfPlayer mode, block live MIDI from the slicer/VoicePool entirely —
-    // all input belongs to the SF-player.  In Sequencer mode, live MIDI must
-    // still reach the VoicePool (re-channeled to the selected track above).
-    {
-        const int routeMode = midiRouteMode.load (std::memory_order_relaxed);
-        if (routeMode == static_cast<int> (MidiRouteMode::SfPlayer))
-            return;
-    }
-
-    // ── MIDI channel routing ──────────────────────────────────────────────────
-    // Messages whose channel falls in [sfPlayerChLow, sfPlayerChHigh] (inclusive)
-    // are routed exclusively to sfzPlayer and must not trigger slices or MIDI learn.
-    // sfPlayerChLow == 0 means the SF player is disabled; slicer gets everything.
-    const int chLow  = sfPlayerChLow .load (std::memory_order_relaxed);
-    const int chHigh = sfPlayerChHigh.load (std::memory_order_relaxed);
-    const bool sfChannelSplitActive = (chLow >= 1 && chHigh >= chLow);
 
     for (const auto metadata : midi)
     {
         const auto msg = metadata.getMessage();
-
-        // Skip messages on the SF player's channel range — they belong to DY-SFP.
-        if (sfChannelSplitActive)
-        {
-            const int ch = msg.getChannel();
-            if (ch >= chLow && ch <= chHigh)
-                continue;
-        }
 
         // ── MIDI Learn CC dispatch ────────────────────────────────────
         if (msg.isController())
@@ -2509,68 +2484,9 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             midi.addEvent (juce::MidiMessage::noteOff (1, noteOff, (juce::uint8) 0),   0);
     }
 
-    // ── SF2/SFZ keyboard UI note injection ───────────────────────────────────
-    // Inject on the lowest channel of the SF player's assigned range so the note
-    // reaches sfzPlayer and is excluded from the slicer by the range check above.
-    // If the SF player is disabled (chLow == 0) skip injection entirely.
-    {
-        const int chLo    = sfPlayerChLow .load (std::memory_order_relaxed);
-        const int injectCh = (chLo >= 1) ? chLo : 1;
-        const bool sfEnabled = (chLo >= 1);
-
-        const int noteOn  = sfzUiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
-        const int noteOff = sfzUiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
-
-        if (sfEnabled)
-        {
-            if (noteOn  >= 0 && noteOn  <= 127)
-            {
-                midi.addEvent (juce::MidiMessage::noteOn  (injectCh, noteOn,  (juce::uint8) 100), 0);
-                const int w = noteOn < 64 ? 0 : 1;
-                const int b = noteOn < 64 ? noteOn : noteOn - 64;
-                sfzActiveNotes[w].fetch_or ((uint64_t)1 << b, std::memory_order_relaxed);
-            }
-            if (noteOff >= 0 && noteOff <= 127)
-            {
-                const int offSample = (noteOn == noteOff)
-                                    ? juce::jmax (0, buffer.getNumSamples() - 1)
-                                    : 0;
-                midi.addEvent (juce::MidiMessage::noteOff (injectCh, noteOff, (juce::uint8) 0), offSample);
-                if (noteOff != noteOn)
-                {
-                    const int w = noteOff < 64 ? 0 : 1;
-                    const int b = noteOff < 64 ? noteOff : noteOff - 64;
-                    sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
-                }
-            }
-        }
-    }
-
-    // ── Snoop note messages to update active-note bitmask for keyboard display ──
-    // Snoop messages on the SF player's assigned channel range only.
-    {
-        const int chLo = sfPlayerChLow .load (std::memory_order_relaxed);
-        const int chHi = sfPlayerChHigh.load (std::memory_order_relaxed);
-        const bool rangeActive = (chLo >= 1 && chHi >= chLo);
-
-        for (const auto metadata : midi)
-        {
-            const auto msg = metadata.getMessage();
-            if (rangeActive)
-            {
-                const int ch = msg.getChannel();
-                if (ch < chLo || ch > chHi) continue;
-            }
-            const int n = msg.getNoteNumber();
-            if (n < 0 || n > 127) continue;
-            const int w = n < 64 ? 0 : 1;
-            const int b = n < 64 ? n : n - 64;
-            if (msg.isNoteOn())
-                sfzActiveNotes[w].fetch_or  ((uint64_t)1 << b, std::memory_order_relaxed);
-            else if (msg.isNoteOff())
-                sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
-        }
-    }
+    // SF-player keyboard note injection and active-note snooping are handled
+    // inside the sfzMidiBuf block below, keeping them fully decoupled from
+    // the slicer's midi buffer.
 
 
 #if DYSEKT_STANDALONE
@@ -2893,33 +2809,81 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         const int numSamples = buffer.getNumSamples();
 
-        // ── Build sfzMidiBuf ─────────────────────────────────────────────────
-        // Copy messages whose channel is within [sfPlayerChLow, sfPlayerChHigh]
-        // into the SF player's buffer.  If sfPlayerChLow == 0 the SF player is
-        // disabled; sfzMidiBuf stays empty.  If the range covers all 16 channels
-        // (default omni) all messages are copied — FluidSynth routes internally.
+        // ── Build sfzMidiBuf — completely independent from the slicer buffer ────
+        // SF2 (multi-timbral): FluidSynth owns all channels covered by the live
+        // mask; pass the full buffer so its internal per-channel routing works.
+        // SFZ: has a dedicated MIDI channel; filter to that channel only.
+        // In both cases this buffer is built from the raw incoming MIDI, not from
+        // the slicer-modified copy, so the two engines are fully decoupled.
+        const bool    isSf2File = sfzPlayer.isLoaded() &&
+                                  sfzPlayer.getLoadedFile()
+                                           .getFileExtension().toLowerCase() == ".sf2";
+        const int     sfzDedCh  = sfzPlayer.getMidiChannel(); // SFZ dedicated ch (1-16), or 0
         juce::MidiBuffer sfzMidiBuf;
+        if (isSf2File)
         {
-            const int chLo = sfPlayerChLow .load (std::memory_order_relaxed);
-            const int chHi = sfPlayerChHigh.load (std::memory_order_relaxed);
-
-            if (chLo >= 1)
+            // Multi-timbral SF2: give FluidSynth the full MIDI stream; it routes
+            // internally per-channel.  No slicer-side channel filtering needed.
+            sfzMidiBuf = midi;
+        }
+        else if (sfzDedCh > 0)
+        {
+            // SFZ: dedicated channel only.
+            for (const auto meta : midi)
             {
-                const bool allChannels = (chLo == 1 && chHi == 16);
-                if (allChannels)
+                const auto& msg = meta.getMessage();
+                if (msg.getChannel() == sfzDedCh)
+                    sfzMidiBuf.addEvent (msg, meta.samplePosition);
+            }
+        }
+        // else: nothing loaded — sfzMidiBuf stays empty.
+
+        // ── SF-player keyboard UI note injection ─────────────────────────────
+        // Inject directly into sfzMidiBuf — never into the slicer's midi buffer.
+        // For SF2 (multi-timbral), inject on ch 1; FluidSynth's liveInputChannelMask
+        // fans that out to every assigned preset channel internally.
+        // For SFZ, inject on its dedicated channel.
+        {
+            const int ch      = isSf2File ? 1 : (sfzDedCh > 0 ? sfzDedCh : 1);
+            const int noteOn  = sfzUiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
+            const int noteOff = sfzUiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
+            if (noteOn  >= 0 && noteOn  <= 127)
+            {
+                sfzMidiBuf.addEvent (juce::MidiMessage::noteOn  (ch, noteOn,  (juce::uint8) 100), 0);
+                const int w = noteOn < 64 ? 0 : 1;
+                const int b = noteOn < 64 ? noteOn : noteOn - 64;
+                sfzActiveNotes[w].fetch_or ((uint64_t)1 << b, std::memory_order_relaxed);
+            }
+            if (noteOff >= 0 && noteOff <= 127)
+            {
+                const int offSample = (noteOn == noteOff)
+                                    ? juce::jmax (0, numSamples - 1) : 0;
+                sfzMidiBuf.addEvent (juce::MidiMessage::noteOff (ch, noteOff, (juce::uint8) 0), offSample);
+                if (noteOff != noteOn)
                 {
-                    sfzMidiBuf = midi;
+                    const int w = noteOff < 64 ? 0 : 1;
+                    const int b = noteOff < 64 ? noteOff : noteOff - 64;
+                    sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
                 }
-                else
-                {
-                    for (const auto meta : midi)
-                    {
-                        const auto& msg = meta.getMessage();
-                        const int ch = msg.getChannel();
-                        if (ch >= chLo && ch <= chHi)
-                            sfzMidiBuf.addEvent (msg, meta.samplePosition);
-                    }
-                }
+            }
+        }
+
+        // ── Snoop sfzMidiBuf for active-note keyboard highlights ─────────────
+        // SF2: snoop ch 1 (fan-out source).  SFZ: dedicated ch.
+        {
+            const int snoopCh = isSf2File ? 1 : (sfzDedCh > 0 ? sfzDedCh : 1);
+            for (const auto meta : sfzMidiBuf)
+            {
+                const auto msg = meta.getMessage();
+                if (msg.getChannel() != snoopCh) continue;
+                const int n = msg.getNoteNumber();
+                if (n < 0 || n > 127) continue;
+                const int w = n < 64 ? 0 : 1;
+                const int b = n < 64 ? n : n - 64;
+                if (msg.isNoteOn())
+                    sfzActiveNotes[w].fetch_or  ((uint64_t)1 << b, std::memory_order_relaxed);
+                else if (msg.isNoteOff())
+                    sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
             }
         }
 
@@ -2929,8 +2893,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float* sfzL = sfzBuf.getWritePointer (0);
         float* sfzR = sfzBuf.getWritePointer (1);
 
-        // Pass the clean, pre-filtered buffer; sfzPlayer's internal channel filter
-        // now acts as a redundant safety check rather than the primary split point.
         sfzPlayer.process (sfzMidiBuf, sfzL, sfzR, numSamples);
 
         // Always sum into main bus (bus 0) — same as slice behaviour
@@ -3017,7 +2979,7 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::MemoryOutputStream stream (destData, false);
 
     // Version
-    stream.writeInt (25);
+    stream.writeInt (24);
 
     // APVTS state
     auto state = apvts.copyState();
@@ -3114,11 +3076,7 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     // v23: additional sfzPlayer parameters
     stream.writeFloat (sfzPlayer.getPan());
     stream.writeFloat (sfzPlayer.getFineTune());
-    // v23 originally stored a single midiChannel int here.
-    // v25 replaces it with a channel range (low, high).  Both are written as
-    // separate ints so old presets (v23/v24) can still be read with a fallback.
-    stream.writeInt   (sfPlayerChLow .load (std::memory_order_relaxed));
-    stream.writeInt   (sfPlayerChHigh.load (std::memory_order_relaxed));
+    stream.writeInt   (sfzPlayer.getMidiChannel());
 
     // Sequencer state
 #if DYSEKT_STANDALONE
@@ -3131,7 +3089,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
 
     int version = stream.readInt();
-    if (version < 16 || version > 25)
+    if (version < 16 || version > 24)
         return;
 
     // APVTS state
@@ -3276,37 +3234,12 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
         sfzPlayer.setReverbMix   (sfzRvMx);
         sfzPlayer.setReverbFreeze(sfzRvFrz);
 
-        // v23/v24: Pan, FineTune, MidiChannel (single int)
-        // v25:     Pan, FineTune, sfPlayerChLow, sfPlayerChHigh (two ints)
+        // v23: Pan, FineTune, MidiChannel
         if (version >= 23 && ! stream.isExhausted())
         {
-            sfzPlayer.setPan      (stream.readFloat());
-            sfzPlayer.setFineTune (stream.readFloat());
-
-            if (version >= 25)
-            {
-                // New range-based routing
-                const int lo = stream.readInt();
-                const int hi = stream.readInt();
-                sfPlayerChLow .store (juce::jlimit (0, 16, lo), std::memory_order_relaxed);
-                sfPlayerChHigh.store (juce::jlimit (1, 16, hi), std::memory_order_relaxed);
-            }
-            else
-            {
-                // v23/v24: single-channel value — map to a one-channel range,
-                // or omni (1-16) if it was 0 (omni mode).
-                const int oldCh = stream.readInt();
-                if (oldCh >= 1 && oldCh <= 16)
-                {
-                    sfPlayerChLow .store (oldCh, std::memory_order_relaxed);
-                    sfPlayerChHigh.store (oldCh, std::memory_order_relaxed);
-                }
-                else
-                {
-                    sfPlayerChLow .store (1,  std::memory_order_relaxed);
-                    sfPlayerChHigh.store (16, std::memory_order_relaxed);
-                }
-            }
+            sfzPlayer.setPan        (stream.readFloat());
+            sfzPlayer.setFineTune   (stream.readFloat());
+            sfzPlayer.setMidiChannel(stream.readInt());
         }
 
         // Restore the SF2/SFZ file — this is async; the editor polls isLoaded()

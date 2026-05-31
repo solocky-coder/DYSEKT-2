@@ -10,7 +10,6 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../audio/SfzPlayer.h"
-#include "DysektLookAndFeel.h"
 
 class Sf2ProgramGrid : public juce::Component,
                        public juce::ScrollBar::Listener
@@ -26,10 +25,6 @@ public:
      *  index >= 0   → preset at that index is now being previewed. */
     std::function<void (int index)> onPreviewToggled;
 
-    /** Fired when the user clicks an already-assigned preset cell to select it
-     *  for per-channel FX editing.  index is the preset index in presets[]. */
-    std::function<void (int index)> onAssignedPresetClicked;
-
     Sf2ProgramGrid();
     ~Sf2ProgramGrid() override;
 
@@ -37,29 +32,13 @@ public:
                       int currentMidiChannel);
     void setCurrentIndex (int idx);
 
-    /** Marks a preset as the one currently being edited for per-channel FX.
-     *  Pass -1 to clear.  Triggers a repaint. */
-    void setEditingIndex (int idx);
-
     /** Read-only access to the current per-preset channel assignments. */
     const std::unordered_map<int,int>& getPresetChannels() const noexcept { return presetChannels; }
 
-    /** Restore channel assignments from persisted state (e.g. after plugin reload).
-     *  Must be called on the message thread after setPresets().
-     *  Key = preset index in the list, value = 1-based MIDI channel. */
-    /** Called by SfzDropdownPanel whenever sfPlayerChLow/High changes.
-        Channels outside [low, high] are greyed out in the right-click menu. */
-    void setChannelRange (int low, int high)
-    {
-        rangeLow  = juce::jlimit (1, 16, low);
-        rangeHigh = juce::jlimit (1, 16, high);
-    }
-
-    void setPresetChannels (const std::unordered_map<int,int>& channels)
-    {
-        presetChannels = channels;
-        repaint();
-    }
+    /** Channels occupied by non-SF components (e.g. chromatic slices).
+     *  Pass a bitmask where bit N = MIDI channel N+1.  The channel picker
+     *  will label these entries so the user sees conflicts before assigning. */
+    void setExternalChannelMask (uint16_t mask) noexcept { externalChannelMask = mask; }
 
     /** Clear the preview toggle without firing onPreviewToggled.
      *  Called by SfzDropdownPanel when the grid is closed or a real
@@ -79,36 +58,18 @@ public:
     void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override;
 
 private:
-    // Layout — column count and scroll-bar width are fixed; all pixel heights
-    // scale with the component so the grid stays proportional at any UI scale.
-    static constexpr int kCols      = 8;
-    static constexpr int kScrollW   = 10;
-    static constexpr int kPad       = 4;
-    static constexpr int kMaxCellW  = 220; // cap so cells don't balloon on wide panels
-
-    // Base heights (logical pixels at 1× / default UI scale).
-    static constexpr int kBaseCellH = 36;
-    static constexpr int kBaseHdrH  = 18;
-
-    // Scale factor: mirrors the live UI scale set on the editor via setTransform().
-    // DysektLookAndFeel::getMenuScale() is updated to userScale*hostScale every
-    // time the editor calls setTransform(), so it always reflects current scale.
-    // Clamped to [0.5, 4] to guard against pathological values.
-    float scaleFactor() const noexcept
-    {
-        return juce::jlimit (0.5f, 4.0f, DysektLookAndFeel::getMenuScale());
-    }
-
-    int cellH() const noexcept { return juce::roundToInt ((float) kBaseCellH * scaleFactor()); }
-    int hdrH()  const noexcept { return juce::roundToInt ((float) kBaseHdrH  * scaleFactor()); }
+    // Layout
+    static constexpr int kCols     = 8;
+    static constexpr int kCellH    = 36;
+    static constexpr int kHdrH     = 18;   // bank section header
+    static constexpr int kScrollW  = 10;
+    static constexpr int kPad      = 4;
 
     std::vector<Sf2PresetInfo> presets;
     int   currentIdx     { -1 };
-    int   editingIdx     { -1 };  ///< preset being edited for per-channel FX, or -1
     // Maps preset index → assigned MIDI channel (1-16). 0/absent = not assigned.
     std::unordered_map<int,int> presetChannels;
-    int rangeLow  { 1 };   ///< sfPlayerChLow  — set by SfzDropdownPanel
-    int rangeHigh { 16 };  ///< sfPlayerChHigh — set by SfzDropdownPanel
+    uint16_t externalChannelMask { 0 };  ///< channels owned by chromatic slices
     int   hoveredCell    { -1 };
     int   previewIdx     { -1 };  ///< index of currently-previewing preset, or -1
 
@@ -127,7 +88,6 @@ private:
     int scrollY { 0 };
 
     void rebuildLayout();
-    void updateScrollBar();
     int  cellIndexAt (juce::Point<int> pt) const;
     juce::Rectangle<int> cellBoundsFor (int presetIdx) const;
 
