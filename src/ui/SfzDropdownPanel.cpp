@@ -2128,3 +2128,25 @@ void SfzDropdownPanel::hideOverlays()
         saveSfzOverlay.reset();
     }
 }
+
+//==============================================================================
+void SfzDropdownPanel::notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based)
+{
+    // Find the preset index by name and push the channel assignment into
+    // the program grid so its badge display stays in sync.
+    for (int i = 0; i < (int) presetList.size(); ++i)
+    {
+        if (presetList[(size_t) i].name == presetName)
+        {
+            auto& channels = const_cast<std::unordered_map<int, int>&> (
+                                 programGrid.getPresetChannels());
+            if (midiCh1Based > 0)
+                channels[i] = midiCh1Based;
+            else
+                channels.erase (i);
+
+            programGrid.repaint();
+            return;
+        }
+    }
+}
