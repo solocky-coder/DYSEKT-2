@@ -531,11 +531,17 @@ void SfzDropdownPanel::resized()
     chDampZone = adsrSusZone;
     chGainZone = adsrRelZone;
 
-    // SF2 channel combo: reuse the TRN+FINE slot area (inline in the strip)
-    // We take the space that transZone and fineZone occupy and merge them.
-    chComboZone = transZone.getUnion (fineZone).expanded (kKnobGap / 2, 0);
-
-    // sf2ChCombo removed — channel routing is now via sfPlayerChLow/High spinners.
+    // SF2 channel-range spinner zone: all the knob slots that are hidden when
+    // SF2 is loaded (ADSR + TRN + FINE) become available real-estate.  Use the
+    // combined bounding box of those six zones for a wide, readable spinner.
+    // When SFZ is loaded these knobs show normally; the spinner is invisible.
+    chComboZone = adsrAtkZone
+                      .getUnion (adsrDecZone)
+                      .getUnion (adsrSusZone)
+                      .getUnion (adsrRelZone)
+                      .getUnion (transZone)
+                      .getUnion (fineZone)
+                      .expanded (kKnobGap / 2, 0);
 
     // Sub-divide nameZone:
     //   [< arrow] [folder icon] [label] [> arrow]
@@ -595,27 +601,27 @@ void SfzDropdownPanel::resized()
     // Laid out inside chComboZone (the TRN+FINE area when SF2 is loaded).
     // "CH [◂ 1 ▸] – [◂ 16 ▸]"
     {
-        auto z = chComboZone;   // already computed above in the ADSR block
-        const int btnW  = 14;   // ◂ / ▸ arrow button width
-        const int numW  = 20;   // channel number label width
-        const int gap   = 4;
-        const int sepW  = 8;    // " – " separator
+        // Spinner centred inside the full chComboZone width (~336 px).
+        // Large hit targets for easy clicking.
+        const int btnW   = 28;   // ◂ / ▸ arrow
+        const int numW   = 38;   // two-digit channel number + padding
+        const int gap    = 10;
+        const int sepW   = 28;   // " – " separator
+        const int labelW = 30;   // "CH" prefix
+        const int widgetW = labelW + gap + btnW + numW + btnW + gap + sepW + gap + btnW + numW + btnW;
+        auto z = chComboZone.withSizeKeepingCentre (widgetW, chComboZone.getHeight());
 
-        // "CH" prefix
-        chRangeLabelZone = z.removeFromLeft (20);
+        chRangeLabelZone = z.removeFromLeft (labelW);
         z.removeFromLeft (gap);
 
-        // Low spinner: [◂] [num] [▸]
         chLowDec   = z.removeFromLeft (btnW);
         chLowLabel = z.removeFromLeft (numW);
         chLowInc   = z.removeFromLeft (btnW);
         z.removeFromLeft (gap);
 
-        // " – " separator
         z.removeFromLeft (sepW);
         z.removeFromLeft (gap);
 
-        // High spinner: [◂] [num] [▸]
         chHighDec   = z.removeFromLeft (btnW);
         chHighLabel = z.removeFromLeft (numW);
         chHighInc   = z.removeFromLeft (btnW);
@@ -893,17 +899,7 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
     const float chDamp = processor.sfzPlayer.getReverbDamp() / 100.0f;
     const float chGain = processor.sfzPlayer.getVolume();
 
-    drawKnob (g, chMixZone,  chMix,
-              "MIX",  juce::String (juce::roundToInt (chMix  * 100)) + "%");
-    drawKnob (g, chSizeZone, chSize,
-              "SIZE", juce::String (juce::roundToInt (chSize * 100)) + "%");
-    drawKnob (g, chDampZone, chDamp,
-              "DAMP", juce::String (juce::roundToInt (chDamp * 100)) + "%");
-    drawKnob (g, chGainZone, juce::jlimit (0.f, 1.f, chGain / 2.0f),
-              "GAIN", [&]() -> juce::String {
-                  const float db = juce::Decibels::gainToDecibels (chGain);
-                  return db <= -95.f ? "-inf" : (db >= 0.f ? "+" : "") + juce::String (db, 1) + "dB";
-              }());
+    // MIX/SIZE/PAN/VOL already drawn by drawHeaderStrip() — do not duplicate here.
 
     // ── Channel-range spinner: CH [◂ lo ▸] – [◂ hi ▸] ───────────────────
     // Drawn inside chComboZone (the TRN+FINE area).  Hit-zones are set in resized().
@@ -911,11 +907,10 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
     const int hi = cachedChHigh;
     const bool disabled = (lo == 0);
 
-    g.setFont (DysektLookAndFeel::makeFont (9.f));
-
     // "CH" prefix
+    g.setFont (DysektLookAndFeel::makeFont (11.f, true));
     g.setColour (dim);
-    g.drawText ("CH", chRangeLabelZone, juce::Justification::centredRight, false);
+    g.drawText ("CH", chRangeLabelZone, juce::Justification::centred, false);
 
     // Helper lambda: draw one spinner (dec button, number label, inc button)
     auto drawSpinner = [&](juce::Rectangle<int> decR,
@@ -923,27 +918,32 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
                             juce::Rectangle<int> incR,
                             int value)
     {
-        // Arrows
+        // Subtle button backgrounds
+        g.setColour ((disabled ? dim : accent).withAlpha (0.18f));
+        g.fillRoundedRectangle (decR.toFloat(), 3.f);
+        g.fillRoundedRectangle (incR.toFloat(), 3.f);
+
+        // Arrows (plain ASCII so MSVC code page 1252 never chokes)
         g.setColour (disabled ? dim : accent);
-        g.setFont (DysektLookAndFeel::makeFont (10.f));
-        g.drawText (juce::String::fromUTF8 ("â"), decR, juce::Justification::centred, false);
-        g.drawText (juce::String::fromUTF8 ("â¸"), incR, juce::Justification::centred, false);
+        g.setFont (DysektLookAndFeel::makeFont (13.f));
+        g.drawText ("<", decR, juce::Justification::centred, false);
+        g.drawText (">", incR, juce::Justification::centred, false);
 
         // Value
         g.setColour (disabled ? dim : bright);
-        g.setFont (DysektLookAndFeel::makeFont (11.f));
+        g.setFont (DysektLookAndFeel::makeFont (14.f, true));
         const auto valStr = disabled ? juce::String ("--") : juce::String (value);
         g.drawText (valStr, numR, juce::Justification::centred, false);
     };
 
     drawSpinner (chLowDec,  chLowLabel,  chLowInc,  lo);
 
-    // " – " separator
+    // " - " separator
     const auto sepR = juce::Rectangle<int> (chLowInc.getRight(), chLowInc.getY(),
                                             chHighDec.getX() - chLowInc.getRight(),
                                             chLowInc.getHeight());
     g.setColour (dim);
-    g.setFont (DysektLookAndFeel::makeFont (10.f));
+    g.setFont (DysektLookAndFeel::makeFont (13.f));
     g.drawText ("-", sepR, juce::Justification::centred, false);
 
     drawSpinner (chHighDec, chHighLabel, chHighInc, hi);
