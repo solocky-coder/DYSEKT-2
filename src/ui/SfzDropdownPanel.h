@@ -87,6 +87,9 @@ public:
     // ── Keyboard sub-component ────────────────────────────────────────────────
     KeysPanel keysPanel;
 
+    /** Direct access to the SF2 program grid (read-only) for PluginEditor. */
+    const Sf2ProgramGrid& getProgramGrid() const noexcept { return programGrid; }
+
 private:
     // ── Header-strip drawing ──────────────────────────────────────────────────
     void drawHeaderStrip (juce::Graphics& g) const;

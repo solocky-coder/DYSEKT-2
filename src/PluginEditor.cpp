@@ -112,8 +112,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
      // Update the SF2 mixer panel — rebuild strips from the current
      // preset→channel map so the new assignment appears immediately.
-     mixerPanel.setActiveChannels (sfzDropdown.programGrid.getPresets(),
-                                   sfzDropdown.programGrid.getPresetChannels());
+     mixerPanel.setActiveChannels (sfzDropdown.getProgramGrid().getPresets(),
+                                   sfzDropdown.getProgramGrid().getPresetChannels());
 
      // Pick a colour based on the preset number (bank*128 + program).
      static const juce::Colour kPalette[] = {
@@ -1438,8 +1438,8 @@ void DysektEditor::timerCallback()
 if (activeSlot == SlotContent::Mixer)
 {
     // Refresh strips in case a preset was just assigned or un-assigned.
-    mixerPanel.setActiveChannels (sfzDropdown.programGrid.getPresets(),
-                                  sfzDropdown.programGrid.getPresetChannels());
+    mixerPanel.setActiveChannels (sfzDropdown.getProgramGrid().getPresets(),
+                                  sfzDropdown.getProgramGrid().getPresetChannels());
     mixerPanel.updateFromSnapshot();
 }
 #if DYSEKT_STANDALONE

@@ -19,12 +19,22 @@ MixerPanel::MixerPanel (DysektProcessor& p)
 MixerPanel::~MixerPanel() = default;
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  setActiveChannels
+// ─────────────────────────────────────────────────────────────────────────────
+void MixerPanel::setActiveChannels (const std::vector<Sf2PresetInfo>& presets,
+                                    const std::unordered_map<int,int>& presetChannels)
+{
+    sf2Presets        = presets;
+    sf2PresetChannels = presetChannels;
+    repaint();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  updateFromSnapshot
 // ─────────────────────────────────────────────────────────────────────────────
 void MixerPanel::updateFromSnapshot()
 {
     const uint32_t v = (uint32_t) processor.getUiSliceSnapshotVersion();
-    if (v != cachedVersion)
     {
         cachedVersion = v;
 
