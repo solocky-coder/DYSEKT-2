@@ -23,8 +23,10 @@ public:
     static constexpr int kRowH        = 38;
     /** Height of the master row at the bottom. */
     static constexpr int kMasterH     = 42;
-    /** Height of the SF2 player row below master. */
+    /** Height of the SF-PLAYER header row (global gain/pan/meter). */
     static constexpr int kSf2RowH     = 38;
+    /** Height of each per-channel SF2 sub-row (same as slice rows). */
+    static constexpr int kSf2ChRowH   = kRowH;
     /** Width of the slice name column. */
     static constexpr int kNameColW    = 88;
     /** Width of each knob column. */
@@ -82,6 +84,8 @@ private:
     void drawSliceRow  (juce::Graphics&, int rowY, int sliceIdx, bool selected) const;
     void drawMasterRow (juce::Graphics&, int rowY) const;
     void drawSf2Row    (juce::Graphics&, int rowY) const;
+    void drawSf2ChRow  (juce::Graphics&, int rowY, int channel, int holdSlot,
+                        bool isLast) const;
     void drawKnobInRow (juce::Graphics&, int cx, int cy, float norm,
                         bool locked, bool isMaster = false,
                         bool isGain = false) const;
@@ -110,6 +114,7 @@ private:
     int   rowY        (int sliceIdx) const;   // top Y of a slice row in the scroll area
     int   masterRowY  () const;
     int   sf2RowY     () const;
+    int   sf2TotalH   () const;               // kSf2RowH + numActiveChannels * kSf2ChRowH
     Cell  hitTest     (juce::Point<int> pos) const;
 
     // ── Drag state ────────────────────────────────────────────────────────
@@ -117,11 +122,16 @@ private:
         bool   active    { false };
         bool   isMaster  { false };
         bool   isSf2     { false };
+        bool   isSf2Ch   { false };   ///< true when dragging a per-channel sub-row
+        int    sf2ChIdx  { -1 };      ///< 0-based channel index for isSf2Ch drags
         int    sliceIdx  { -1 };
         Col    col       { ColGain };
         int    startY    { 0 };
         float  startVal  { 0.f };
     } drag;
+
+    // ── Per-channel SF2 solo state (UI-side) ──────────────────────────────
+    int   soloedSf2Channel { -1 };   ///< -1 = none soloed
 
     // ── Peak-hold for phosphor meter (UI-side, decays in timerCallback) ──
     static constexpr int kMaxHoldSlices = 128;  // matches DysektProcessor::kMaxMeterSlices

@@ -34,7 +34,7 @@ void MixerPanel::updateFromSnapshot()
         if (snap.selectedSlice >= 0 && snap.selectedSlice != cachedNumSlices)
         {
             const int visTop    = kHeaderH;
-            const int visBottom = getHeight() - kSf2RowH - kMasterH;
+            const int visBottom = getHeight() - sf2TotalH() - kMasterH;
             const int visH      = visBottom - visTop;
 
             const int rowTop    = kHeaderH + snap.selectedSlice * kRowH - scrollPixels;
@@ -46,7 +46,7 @@ void MixerPanel::updateFromSnapshot()
                 scrollPixels = kHeaderH + snap.selectedSlice * kRowH - (visH - kRowH);
 
             // Clamp to valid scroll range
-            const int totalH  = snap.numSlices * kRowH + kMasterH + kSf2RowH;
+            const int totalH  = snap.numSlices * kRowH + kMasterH + sf2TotalH();
             const int maxScroll = juce::jmax (0, totalH - (getHeight() - kHeaderH));
             scrollPixels = juce::jlimit (0, maxScroll, scrollPixels);
         }
@@ -71,16 +71,25 @@ int MixerPanel::rowY (int sliceIdx) const
 
 int MixerPanel::sf2RowY() const
 {
-    // SF-PLAYER row sits immediately below the slice rows, above Master.
+    // SF-PLAYER header row sits immediately below the slice rows.
     const auto& snap = processor.getUiSliceSnapshot();
     return kHeaderH + snap.numSlices * kRowH - scrollPixels;
 }
 
+int MixerPanel::sf2TotalH() const
+{
+    // Count active MIDI channels in [sfPlayerChLow, sfPlayerChHigh].
+    const int lo = processor.sfPlayerChLow .load (std::memory_order_relaxed);
+    const int hi = processor.sfPlayerChHigh.load (std::memory_order_relaxed);
+    const int numCh = (lo > 0 && hi >= lo) ? (hi - lo + 1) : 0;
+    return kSf2RowH + numCh * kSf2ChRowH;
+}
+
 int MixerPanel::masterRowY() const
 {
-    // Master row is at the very bottom, below the SF-PLAYER row.
+    // Master row is below the entire SF-PLAYER block (header + channel sub-rows).
     const auto& snap = processor.getUiSliceSnapshot();
-    return kHeaderH + snap.numSlices * kRowH + kSf2RowH - scrollPixels;
+    return kHeaderH + snap.numSlices * kRowH + sf2TotalH() - scrollPixels;
 }
 
 MixerPanel::Cell MixerPanel::hitTest (juce::Point<int> pos) const
@@ -89,7 +98,6 @@ MixerPanel::Cell MixerPanel::hitTest (juce::Point<int> pos) const
     if (pos.y < kHeaderH) return c;          // header — no hit
 
     const auto& snap = processor.getUiSliceSnapshot();
-    [[maybe_unused]] const int totalRowsH = snap.numSlices * kRowH + kMasterH;
     const int contentTop = kHeaderH;
 
     // Which logical row?
@@ -101,31 +109,55 @@ MixerPanel::Cell MixerPanel::hitTest (juce::Point<int> pos) const
         c.row = logicalRow;
         c.isMaster = false;
     }
-    else if (relY >= snap.numSlices * kRowH &&
-             relY <  snap.numSlices * kRowH + kSf2RowH)
+    else
     {
-        c.row = -2;
-        c.isSf2 = true;
+        // Into the SF-PLAYER block — header row, then per-channel sub-rows
+        const int sf2Start = snap.numSlices * kRowH;
+        const int relSf2   = relY - sf2Start;
+
+        if (relSf2 < kSf2RowH)
+        {
+            // SF-PLAYER global header row
+            c.row = -2;
+            c.isSf2 = true;
+        }
+        else
+        {
+            const int sf2Total = sf2TotalH();
+            const int relCh = relSf2 - kSf2RowH;
+
+            if (relCh < (sf2Total - kSf2RowH))
+            {
+                // Per-channel sub-row — but only used for solo/mute clicks in mouseDown,
+                // not exposed as a draggable Cell here.
+                c.row   = -3;                        // sentinel: sf2 channel sub-row
+                c.isSf2 = true;
+                // Store which channel in col (abuse — we decode it in mouseDown)
+                const int lo = processor.sfPlayerChLow.load (std::memory_order_relaxed);
+                c.col = (Col) (lo + relCh / kSf2ChRowH - 1);   // 0-based ch idx
+            }
+            else if (relY < sf2Start + sf2Total + kMasterH)
+            {
+                c.row = -1;
+                c.isMaster = true;
+            }
+            else return c;
+        }
     }
-    else if (relY >= snap.numSlices * kRowH + kSf2RowH &&
-             relY <  snap.numSlices * kRowH + kSf2RowH + kMasterH)
-    {
-        c.row = -1;
-        c.isMaster = true;
-    }
-    else return c;  // below content
 
     // Which column?
     const int cx = pos.x;
-    if (cx < kNameColW) { c.row = -2; return c; }  // name column (row select only)
+    if (cx < kNameColW) { c.row = (c.row == -2 || c.row == -3) ? c.row : -2; return c; }
     int colIdx = (cx - kNameColW) / kKnobColW;
     if (colIdx < 0 || colIdx >= kNumCols) return c;
     c.col = (Col) colIdx;
 
-    const int rowTop  = c.isSf2   ? sf2RowY()
-                        : c.isMaster ? masterRowY()
-                                     : rowY (c.row);
-    const int rowHt   = c.isSf2 ? kSf2RowH : c.isMaster ? kMasterH : kRowH;
+    const int rowTop  = c.isMaster  ? masterRowY()
+                      : (c.row == -2) ? sf2RowY()
+                      : rowY (c.row);
+    const int rowHt   = c.isMaster ? kMasterH
+                      : (c.row == -2) ? kSf2RowH
+                      : kRowH;
     c.bounds = { kNameColW + colIdx * kKnobColW, rowTop, kKnobColW, rowHt };
     return c;
 }
@@ -757,13 +789,13 @@ void MixerPanel::drawMasterRow (juce::Graphics& g, int ry) const
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  SF2 player row
+//  SF2 player rows (header + per-channel sub-rows)
 // ─────────────────────────────────────────────────────────────────────────────
 void MixerPanel::drawSf2Row (juce::Graphics& g, int ry) const
 {
     const auto& theme = getTheme();
 
-    // Background — slightly different tint to distinguish from master
+    // ── Global SF-PLAYER header row ──────────────────────────────────────────
     g.setColour (theme.accent.withAlpha (0.06f));
     g.fillRect (0, ry, getWidth(), kSf2RowH);
     g.setColour (theme.accent.withAlpha (0.18f));
@@ -820,24 +852,204 @@ void MixerPanel::drawSf2Row (juce::Graphics& g, int ry) const
         g.drawText (fmtPan (pan), x, sliderY + sliderH + 2, kKnobColW, 10, juce::Justification::centred);
     }
 
-    // Dash-fill columns that don't apply to the SF-Player
+    // Dash-fill columns that don't apply to global SF-Player row
     g.setFont (DysektLookAndFeel::makeFont (11.0f));
     g.setColour (theme.foreground.withAlpha (0.15f));
     for (int i = ColFcut; i < kNumCols; ++i)
         g.drawText ("—", colX ((Col)i), ry, kKnobColW, kSf2RowH, juce::Justification::centred);
 
-    // Peak meter using sfzPeakL/R from processor
+    // Peak meter (global SF2 mix)
     const int mx = colX (ColOut) + kKnobColW + 4;
     const int mw = getWidth() - mx - 6;
     if (mw > 20)
     {
         float pkL = processor.sfzPeakL.load (std::memory_order_relaxed);
         float pkR = processor.sfzPeakR.load (std::memory_order_relaxed);
-        // Use a dedicated hold slot beyond the slice slots (index kMaxHoldSlices - 2)
         constexpr int kSf2HoldSlot = kMaxHoldSlices - 2;
         holdL[kSf2HoldSlot] = std::max (holdL[kSf2HoldSlot], pkL);
         holdR[kSf2HoldSlot] = std::max (holdR[kSf2HoldSlot], pkR);
         drawMeter (g, mx, ry + 4, mw, kSf2RowH - 8, pkL, pkR, theme.accent, kSf2HoldSlot);
+    }
+
+    // ── Per-channel sub-rows ─────────────────────────────────────────────────
+    const int lo = processor.sfPlayerChLow .load (std::memory_order_relaxed);
+    const int hi = processor.sfPlayerChHigh.load (std::memory_order_relaxed);
+    if (lo < 1 || hi < lo) return;
+
+    int subY = ry + kSf2RowH;
+    // Hold slots for per-channel meters: use kMaxHoldSlices-3 downward (16 channels max)
+    constexpr int kChHoldBase = kMaxHoldSlices - 3;   // slot for ch 1; ch 2 = base-1, etc.
+
+    for (int ch1 = lo; ch1 <= hi; ++ch1)
+    {
+        const int holdSlot = juce::jlimit (0, kMaxHoldSlices - 1,
+                                           kChHoldBase - (ch1 - 1));
+        const bool isLast = (ch1 == hi);
+        drawSf2ChRow (g, subY, ch1 - 1, holdSlot, isLast);
+        subY += kSf2ChRowH;
+    }
+}
+
+void MixerPanel::drawSf2ChRow (juce::Graphics& g, int ry, int channel,
+                                int holdSlot, bool isLast) const
+{
+    // channel is 0-based (MIDI ch 1 = channel 0)
+    const auto& theme = getTheme();
+    const auto strip  = processor.sfzPlayer.getChannelStrip (channel);
+    const bool soloed = (soloedSf2Channel == channel);
+    const bool muted  = strip.muted;
+
+    // Row background — alternating zebra, accent tint for solo
+    if (soloed)
+    {
+        g.setColour (theme.accent.withAlpha (0.07f));
+        g.fillRect (0, ry, getWidth(), kSf2ChRowH);
+        g.setColour (theme.accent.withAlpha (0.55f));
+        g.fillRect (0, ry, 2, kSf2ChRowH);
+    }
+    else if ((channel % 2) == 1)
+    {
+        g.setColour (juce::Colour (0xFF000000).withAlpha (0.12f));
+        g.fillRect (0, ry, getWidth(), kSf2ChRowH);
+    }
+
+    if (! isLast)
+    {
+        g.setColour (theme.separator.withAlpha (0.25f));
+        g.drawHorizontalLine (ry + kSf2ChRowH - 1, (float) kNameColW * 0.3f, (float) getWidth());
+    }
+
+    // Colour bar on left edge (cyan-ish tint so it reads as SF2, not a slice)
+    const auto chColour = theme.accent.withRotatedHue (0.08f + (float)channel * 0.04f)
+                                      .withSaturation (0.7f)
+                                      .withBrightness (0.65f);
+    g.setColour (chColour.withAlpha (muted ? 0.25f : 0.70f));
+    g.fillRect (0, ry, 3, kSf2ChRowH);
+
+    // Name column — "CH N" (MIDI channel, 1-based)
+    g.setFont (DysektLookAndFeel::makeFont (12.0f));
+    g.setColour (chColour.withAlpha (muted ? 0.35f : (soloed ? 0.95f : 0.65f)));
+    g.drawText (juce::String ("CH ") + juce::String (channel + 1),
+                8, ry, kNameColW - 10, kSf2ChRowH, juce::Justification::centredLeft);
+
+    const int kcy = ry + kSf2ChRowH / 2;
+    const float alpha = muted ? 0.30f : 1.0f;
+
+    // ── GAIN knob (volume 0..1 → dB) ────────────────────────────────────────
+    {
+        const float vol   = muted ? strip.preMuteVol : strip.volume;
+        const float volDb = juce::Decibels::gainToDecibels (vol, -100.f);
+        const int x  = colX (ColGain);
+        const int cx = x + kKnobR + 8;
+        g.saveState();
+        g.setOpacity (alpha);
+        drawKnobInRow (g, cx, kcy, toNormGain (volDb), false, false, /*isGain=*/true);
+        g.restoreState();
+        const int tx = cx + kKnobR + 4;
+        const int tw = kKnobColW - (tx - x) - 2;
+        g.setFont (DysektLookAndFeel::makeFont (12.0f));
+        g.setColour (theme.foreground.withAlpha (muted ? 0.22f : 0.40f));
+        g.drawText (fmtGain (volDb), tx, ry + 1, tw, kSf2ChRowH - 2, juce::Justification::centredLeft);
+    }
+
+    // ── PAN slider ───────────────────────────────────────────────────────────
+    {
+        const float pan     = strip.pan;
+        const int   x       = colX (ColPan);
+        const int   sliderX = x + 6;
+        const int   sliderW = kKnobColW - 12;
+        const int   sliderY = kcy - 3;
+        const int   sliderH = 6;
+        const float norm    = toNormPan (pan);
+        const int   thumbX  = sliderX + (int)(norm * (float)sliderW);
+        const int   centreX = sliderX + sliderW / 2;
+        const auto  fillCol = muted ? theme.foreground.withAlpha (0.25f) : theme.accent;
+
+        g.setColour (theme.darkBar.darker (0.3f));
+        g.fillRoundedRectangle ((float)sliderX, (float)sliderY, (float)sliderW, (float)sliderH, 2.f);
+        g.setColour (theme.foreground.withAlpha (0.18f));
+        g.drawVerticalLine (centreX, (float)sliderY, (float)(sliderY + sliderH));
+        if (std::abs (pan) > 0.005f)
+        {
+            const int fillX = (pan < 0.f) ? thumbX : centreX;
+            const int fillW = std::abs (thumbX - centreX);
+            if (fillW > 0)
+            {
+                g.setColour (fillCol.withAlpha (muted ? 0.15f : 0.35f));
+                g.fillRect (fillX, sliderY + 1, fillW, sliderH - 2);
+            }
+        }
+        g.setColour (fillCol.withAlpha (muted ? 0.35f : 0.85f));
+        g.fillRoundedRectangle ((float)(thumbX - 2), (float)(sliderY - 1), 4.f, (float)(sliderH + 2), 1.5f);
+        g.setFont (DysektLookAndFeel::makeFont (12.0f));
+        g.setColour (theme.foreground.withAlpha (muted ? 0.22f : 0.40f));
+        g.drawText (fmtPan (pan), x, sliderY + sliderH + 2, kKnobColW, 10, juce::Justification::centred);
+    }
+
+    // ── REV SEND in FCUT column ──────────────────────────────────────────────
+    {
+        const int x  = colX (ColFcut);
+        const int cx = x + kKnobR + 8;
+        g.saveState();
+        g.setOpacity (alpha);
+        drawKnobInRow (g, cx, kcy, strip.reverbSend, false, false, false);
+        g.restoreState();
+        const int tx = cx + kKnobR + 4;
+        const int tw = kKnobColW - (tx - x) - 2;
+        g.setFont (DysektLookAndFeel::makeFont (12.0f));
+        g.setColour (theme.foreground.withAlpha (muted ? 0.22f : 0.40f));
+        g.drawText (juce::String (juce::roundToInt (strip.reverbSend * 100)) + "%",
+                    tx, ry + 1, tw, kSf2ChRowH - 2, juce::Justification::centredLeft);
+    }
+
+    // Header label for REV column (only on first sub-row)
+    // (The column header row already says FCUT — we reuse it; label drawn in drawHeader)
+
+    // ── MUTE badge in PRES column ────────────────────────────────────────────
+    {
+        const int x  = colX (ColPres);
+        const int cx = x + kKnobColW / 2;
+        const int bw = 24, bh = 16;
+        const juce::Rectangle<float> r ((float)(cx - bw / 2), (float)(kcy - bh / 2), (float)bw, (float)bh);
+        g.setColour (muted ? juce::Colour (0xFFFF6B6B).withAlpha (0.80f) : theme.separator.withAlpha (0.30f));
+        g.fillRoundedRectangle (r, 2.5f);
+        g.setColour (muted ? juce::Colours::white : theme.foreground.withAlpha (0.45f));
+        g.setFont (DysektLookAndFeel::makeFont (10.0f, true));
+        g.drawText ("M", r.toNearestInt(), juce::Justification::centred);
+    }
+
+    // ── SOLO badge in MUTE column ────────────────────────────────────────────
+    {
+        const int x  = colX (ColMute);
+        const int cx = x + kKnobColW / 2;
+        const int bw = 24, bh = 16;
+        const juce::Rectangle<float> r ((float)(cx - bw / 2), (float)(kcy - bh / 2), (float)bw, (float)bh);
+        g.setColour (soloed ? juce::Colour (0xFFFFD700).withAlpha (0.85f) : theme.separator.withAlpha (0.30f));
+        g.fillRoundedRectangle (r, 2.5f);
+        g.setColour (soloed ? juce::Colours::black : theme.foreground.withAlpha (0.45f));
+        g.setFont (DysektLookAndFeel::makeFont (10.0f, true));
+        g.drawText ("S", r.toNearestInt(), juce::Justification::centred);
+    }
+
+    // Dash remaining columns
+    g.setFont (DysektLookAndFeel::makeFont (11.0f));
+    g.setColour (theme.foreground.withAlpha (0.12f));
+    for (int i = ColChro; i < kNumCols; ++i)
+        g.drawText ("—", colX ((Col)i), ry, kKnobColW, kSf2ChRowH, juce::Justification::centred);
+
+    // ── Per-channel peak meter ───────────────────────────────────────────────
+    // SfzPlayer doesn't expose per-channel peaks yet — use sfzPeakL/R scaled by vol.
+    // When proper per-channel metering lands, replace this.
+    const int mx = colX (ColOut) + kKnobColW + 4;
+    const int mw = getWidth() - mx - 6;
+    if (mw > 20)
+    {
+        const float vol  = muted ? 0.f : strip.volume;
+        float pkL = processor.sfzPeakL.load (std::memory_order_relaxed) * vol;
+        float pkR = processor.sfzPeakR.load (std::memory_order_relaxed) * vol;
+        holdL[holdSlot] = std::max (holdL[holdSlot], pkL);
+        holdR[holdSlot] = std::max (holdR[holdSlot], pkR);
+        drawMeter (g, mx, ry + 4, mw, kSf2ChRowH - 8, pkL, pkR, chColour, holdSlot);
     }
 }
 
@@ -1026,9 +1238,60 @@ void MixerPanel::mouseDown (const juce::MouseEvent& e)
     drag.active   = true;
     drag.isMaster = c.isMaster;
     drag.isSf2    = c.isSf2;
+    drag.isSf2Ch  = (c.row == -3);
+    drag.sf2ChIdx = drag.isSf2Ch ? (int) c.col : -1;   // col was abused to store ch 0-based idx
     drag.sliceIdx = c.row;
     drag.col      = c.col;
     drag.startY   = (c.col == ColPan) ? e.getScreenPosition().x : e.getScreenPosition().y;
+
+    // ── Per-channel sub-row clicks ──────────────────────────────────────────
+    if (drag.isSf2Ch)
+    {
+        const int ch = drag.sf2ChIdx;   // 0-based
+
+        // Recompute actual column from x position (col was abused for channel index)
+        const int colIdx2 = (e.getPosition().x - kNameColW) / kKnobColW;
+        drag.col = (Col) juce::jlimit (0, kNumCols - 1, colIdx2);
+
+        if (drag.col == ColPres)   // MUTE badge
+        {
+            const auto st = processor.sfzPlayer.getChannelStrip (ch);
+            processor.sfzPlayer.setChannelMuted (ch, ! st.muted);
+            drag.active = false;
+            repaint(); return;
+        }
+        if (drag.col == ColMute)   // SOLO badge
+        {
+            if (soloedSf2Channel == ch) { processor.sfzPlayer.clearSolo(); soloedSf2Channel = -1; }
+            else                        { processor.sfzPlayer.soloChannel (ch); soloedSf2Channel = ch; }
+            drag.active = false;
+            repaint(); return;
+        }
+
+        // Draggable columns
+        const auto st = processor.sfzPlayer.getChannelStrip (ch);
+        if (drag.col == ColGain)
+        {
+            const float vol = st.muted ? st.preMuteVol : st.volume;
+            drag.startVal = juce::Decibels::gainToDecibels (vol, -100.f);
+            drag.startY   = e.getScreenPosition().y;
+        }
+        else if (drag.col == ColPan)
+        {
+            drag.startVal = st.pan;
+            drag.startY   = e.getScreenPosition().x;
+        }
+        else if (drag.col == ColFcut)   // REV SEND
+        {
+            drag.startVal = st.reverbSend;
+            drag.startY   = e.getScreenPosition().y;
+        }
+        else
+        {
+            drag.active = false;
+        }
+        return;
+    }
 
     if (c.isSf2)
     {
@@ -1069,6 +1332,29 @@ void MixerPanel::mouseDrag (const juce::MouseEvent& e)
     const float fineMult = fine ? 0.1f : 1.0f;
 
     float newVal = drag.startVal;
+
+    if (drag.isSf2Ch)
+    {
+        const int ch = drag.sf2ChIdx;
+        const float dy2 = (float)(drag.startY - e.getScreenPosition().y);
+        const float dx2 = (float)(e.getScreenPosition().x - drag.startY);
+        const float fm  = e.mods.isShiftDown() ? 0.1f : 1.0f;
+
+        if (drag.col == ColGain)
+        {
+            const float newDb = juce::jlimit (-100.f, 6.f, drag.startVal + dy2 * 0.5f * fm);
+            processor.sfzPlayer.setChannelVolume (ch, juce::Decibels::decibelsToGain (newDb, -100.f));
+        }
+        else if (drag.col == ColPan)
+        {
+            processor.sfzPlayer.setChannelPan (ch, juce::jlimit (-1.f, 1.f, drag.startVal + dx2 * 0.01f * fm));
+        }
+        else if (drag.col == ColFcut)  // REV SEND
+        {
+            processor.sfzPlayer.setChannelReverbSend (ch, juce::jlimit (0.f, 1.f, drag.startVal + dy2 * 0.005f * fm));
+        }
+        repaint(); return;
+    }
 
     if (drag.isSf2)
     {
@@ -1192,6 +1478,17 @@ void MixerPanel::mouseDoubleClick (const juce::MouseEvent& e)
     }
 
     if (c.col == ColMute || c.col == ColOut || c.col == ColLegato) return;
+    // ── Per-channel sub-row double-click resets ──────────────────────────────
+    if (c.isSf2 && c.row == -3)
+    {
+        const int ch = (int) c.col;   // abused as channel index
+        const int colIdx2 = (e.getPosition().x - kNameColW) / kKnobColW;
+        if (colIdx2 == ColGain)       processor.sfzPlayer.setChannelVolume     (ch, 1.0f);
+        else if (colIdx2 == ColPan)   processor.sfzPlayer.setChannelPan        (ch, 0.0f);
+        else if (colIdx2 == ColFcut)  processor.sfzPlayer.setChannelReverbSend (ch, 0.0f);
+        repaint(); return;
+    }
+
     if (c.isSf2  && c.col >= ColFcut) return;
     if (!c.isMaster && !c.isSf2 && (c.row < 0)) return;
     if (c.isMaster && c.col >= ColFcut) return;
@@ -1305,7 +1602,7 @@ void MixerPanel::mouseWheelMove (const juce::MouseEvent&,
                                    const juce::MouseWheelDetails& wheel)
 {
     const auto& snap = processor.getUiSliceSnapshot();
-    const int contentH = snap.numSlices * kRowH + kSf2RowH + kMasterH;
+    const int contentH = snap.numSlices * kRowH + sf2TotalH() + kMasterH;
     const int visibleH = getHeight() - kHeaderH;
     const int maxScroll = juce::jmax (0, contentH - visibleH);
 
