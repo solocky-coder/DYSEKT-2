@@ -1571,41 +1571,9 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  else if (fieldId == F::FieldChromaticChannel)
  {
  int cur = sl.chromaticChannel;  // always read from slice
-#if DYSEKT_STANDALONE
- const uint16_t sfMask = processor.sequencer.getAllSfPlayerChannelMask();
-#else
- const uint16_t sfMask = 0;
-#endif
- // Build "Off" + ch 1-16, annotating any channel claimed by the SF-player
- auto addItems = [&] (juce::PopupMenu& m)
- {
-     m.addItem (1, "Off", true, cur == 0);
-     for (int i = 1; i <= 16; ++i)
-     {
-         const bool sfOwned = (sfMask & (uint16_t(1) << (i - 1))) != 0;
-         juce::String label = "Channel " + juce::String (i);
-         if (sfOwned) label += "  [SF-player]";
-         m.addItem (i + 1, label, true, cur == i);
-     }
- };
- juce::PopupMenu chMenu;
- addItems (chMenu);
- const auto cellScreenRect = localAreaToGlobal (
-     juce::Rectangle (cell.x, cell.y, cell.w, cell.h));
- chMenu.showMenuAsync (juce::PopupMenu::Options()
-     .withTargetScreenArea (cellScreenRect)
-     .withParentComponent (getTopLevelComponent()),
-     [this, fieldId] (int result)
-     {
-         if (result <= 0) return;
-         DysektProcessor::Command cmd;
-         cmd.type = DysektProcessor::CmdSetSliceParam;
-         cmd.intParam1 = fieldId;
-         cmd.floatParam1 = (float)(result - 1);  // result 1=Off→0, result 2=ch1→1 …
-         processor.pushCommand (cmd);
-         repaint();
-     });
- return;
+ juce::StringArray names; names.add ("Off");
+ for (int i = 1; i <= 16; ++i) names.add ("Channel " + juce::String (i));
+ addItems (names, cur);
  }
  else
  {

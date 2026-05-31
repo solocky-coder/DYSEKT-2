@@ -42,12 +42,20 @@ void Sf2ProgramGrid::setPresets (const std::vector<Sf2PresetInfo>& list,
     }
 
     rebuildLayout();
+    updateScrollBar();
     repaint();
 }
 
 void Sf2ProgramGrid::setCurrentIndex (int idx)
 {
     currentIdx = idx;
+    repaint();
+}
+
+void Sf2ProgramGrid::setEditingIndex (int idx)
+{
+    if (editingIdx == idx) return;
+    editingIdx = idx;
     repaint();
 }
 
@@ -110,21 +118,23 @@ void Sf2ProgramGrid::rebuildLayout()
     }
     flushRow();
 
-    // Compute totalH
+    // Compute totalH using scale-aware row heights
+    const int ch = cellH();
+    const int hh = hdrH();
     totalH = kPad;
     for (auto& r : rows)
-        totalH += r.isHeader ? kHdrH : kCellH;
+        totalH += r.isHeader ? hh : ch;
     totalH += kPad;
 }
 
 // =============================================================================
 //  resized
 // =============================================================================
-void Sf2ProgramGrid::resized()
+void Sf2ProgramGrid::updateScrollBar()
 {
-    rebuildLayout();
-
     const int h = getHeight();
+    if (h <= 0) return;
+
     if (totalH > h)
     {
         scrollBar.setBounds (getWidth() - kScrollW, 0, kScrollW, h);
@@ -139,18 +149,27 @@ void Sf2ProgramGrid::resized()
     }
 }
 
+void Sf2ProgramGrid::resized()
+{
+    rebuildLayout();
+    updateScrollBar();
+}
+
 // =============================================================================
 //  paint
 // =============================================================================
 void Sf2ProgramGrid::paint (juce::Graphics& g)
 {
     const auto& theme = gridTheme();
-    const int   w     = getWidth() - (scrollBar.isVisible() ? kScrollW : 0) - kPad * 2;
-    const int   cellW = w / kCols;
+    const int   availW = getWidth() - (scrollBar.isVisible() ? kScrollW : 0);
+    const int   cellW  = availW / kCols;           // fills full width, no kPad gap
+    const int   w      = cellW * kCols;            // actual grid width (≤ availW by integer division)
+    const int   gridW  = w;
 
-    // Background
-    g.setColour (theme.darkBar.darker (0.45f));
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
+    // Simple background — the CRT frame is drawn by SfzDropdownPanel::paintOverChildren
+    // over this component's bounds, so it's not clipped.
+    g.setColour (theme.darkBar.darker (0.55f));
+    g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
 
     // Clip to grid area
     g.saveState();
@@ -158,20 +177,26 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 
     int y = kPad - scrollY;
 
+    const int ch = cellH();
+    const int hh = hdrH();
+
     for (auto& row : rows)
     {
         if (row.isHeader)
         {
             // Bank header
-            const auto hdrBounds = juce::Rectangle<int> (kPad, y, w, kHdrH);
+            const auto hdrBounds = juce::Rectangle<int> (0, y, gridW, hh);
             g.setColour (theme.accent.withAlpha (0.12f));
             g.fillRect (hdrBounds);
+            // Accent left-rule
+            g.setColour (theme.accent.withAlpha (0.75f));
+            g.fillRect (juce::Rectangle<int> (0, y, 2, hh));
             g.setFont (DysektLookAndFeel::makeFont (11.0f, true));
             g.setColour (theme.accent.withAlpha (0.65f));
             g.drawText ("BANK " + juce::String (row.bank),
-                        hdrBounds.reduced (4, 0),
+                        hdrBounds.reduced (4, 0).withTrimmedLeft (4),
                         juce::Justification::centredLeft, false);
-            y += kHdrH;
+            y += hh;
         }
         else
         {
@@ -181,11 +206,14 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 const int idx = row.firstIdx + c;
                 const auto& info = presets[(size_t) idx];
 
-                const juce::Rectangle<int> cell (kPad + c * cellW, y, cellW - 2, kCellH - 2);
+                const juce::Rectangle<int> cell (c * cellW, y, cellW - 2, ch - 2);
 
-                const bool isSelected  = (idx == currentIdx);
+                const bool isSelected   = (idx == currentIdx);
                 const bool isPreviewing = (idx == previewIdx);
-                const bool isHovered   = (idx == hoveredCell) && ! isSelected && ! isPreviewing;
+                const bool isHovered    = (idx == hoveredCell) && ! isSelected && ! isPreviewing;
+                const int  assignedCh   = presetChannels.count (idx) ? presetChannels.at (idx) : 0;
+                const bool isAssigned   = (assignedCh > 0);
+                const bool isEditing    = (idx == editingIdx);
 
                 // Cell background
                 if (isPreviewing)
@@ -203,6 +231,22 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                     g.setColour (theme.accent);
                     g.fillEllipse (dot);
                 }
+                else if (isEditing)
+                {
+                    // Assigned + currently selected for per-channel FX editing: bright solid border
+                    g.setColour (theme.accent.withAlpha (0.25f));
+                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (theme.accent.withAlpha (1.0f));
+                    g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.5f);
+                }
+                else if (isAssigned)
+                {
+                    // Assigned but not currently editing: subtle tinted fill + accent border
+                    g.setColour (theme.accent.withAlpha (0.12f));
+                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (theme.accent.withAlpha (0.50f));
+                    g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
+                }
                 else if (isSelected)
                 {
                     g.setColour (theme.accent.withAlpha (0.30f));
@@ -219,8 +263,10 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 }
                 else
                 {
-                    g.setColour (theme.darkBar.brighter (0.06f));
+                    g.setColour (juce::Colour (0xff16161F));
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (juce::Colour (0xff222230));
+                    g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
 
                 // Preset number badge (top-left)
@@ -229,6 +275,8 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                                            .withX (cell.getX() + 2).withY (cell.getY() + 2);
                     g.setFont (DysektLookAndFeel::makeFont (9.5f));
                     g.setColour (isPreviewing ? theme.accent.brighter (0.3f)
+                                 : isEditing  ? theme.accent.brighter (0.3f)
+                                 : isAssigned ? theme.accent.brighter (0.1f)
                                  : isSelected ? theme.accent.brighter (0.2f)
                                              : theme.foreground.withAlpha (0.30f));
                     g.drawText (juce::String (info.preset), badge,
@@ -236,14 +284,13 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 }
 
                 // MIDI channel badge (bottom-right corner) — only when assigned
-                const int assignedCh = presetChannels.count (idx) ? presetChannels.at (idx) : 0;
-                if (assignedCh > 0)
+                if (isAssigned)
                 {
                     const juce::String chLabel = "ch" + juce::String (assignedCh);
                     const int bw = 22, bh = 11;
                     const auto badgeR = juce::Rectangle<int> (
                         cell.getRight() - bw - 2, cell.getBottom() - bh - 2, bw, bh);
-                    g.setColour (theme.accent.withAlpha (0.85f));
+                    g.setColour (isEditing ? theme.accent : theme.accent.withAlpha (0.85f));
                     g.fillRoundedRectangle (badgeR.toFloat(), 2.f);
                     g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
                     g.setColour (theme.darkBar);
@@ -252,17 +299,19 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 
                 // Preset name (centred)
                 {
-                    g.setFont (DysektLookAndFeel::makeFont (12.0f));
+                    g.setFont (DysektLookAndFeel::makeFont (13.0f));
                     g.setColour (isPreviewing ? theme.foreground.brighter (0.2f).withAlpha (0.95f)
+                                 : isEditing  ? theme.foreground.brighter (0.2f)
+                                 : isAssigned ? theme.foreground.brighter (0.05f).withAlpha (0.90f)
                                  : isSelected ? theme.foreground.brighter (0.1f)
                                              : theme.foreground.withAlpha (0.78f));
                     // Shrink name area if channel badge is showing
-                    const auto nameRect = assignedCh > 0 ? cell.reduced (3, 0).withTrimmedBottom (12)
-                                                         : cell.reduced (3, 0);
+                    const auto nameRect = isAssigned ? cell.reduced (3, 0).withTrimmedBottom (12)
+                                                     : cell.reduced (3, 0);
                     g.drawText (info.name, nameRect, juce::Justification::centred, true);
                 }
             }
-            y += kCellH;
+            y += ch;
         }
     }
 
@@ -294,27 +343,31 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 // =============================================================================
 int Sf2ProgramGrid::cellIndexAt (juce::Point<int> pt) const
 {
-    const int w     = getWidth() - (scrollBar.isVisible() ? kScrollW : 0) - kPad * 2;
-    const int cellW = w / kCols;
+    const int availW = getWidth() - (scrollBar.isVisible() ? kScrollW : 0);
+    const int cellW  = availW / kCols;
+    const int gridW  = cellW * kCols;
 
     int y = kPad - scrollY;
+
+    const int ch = cellH();
+    const int hh = hdrH();
 
     for (const auto& row : rows)
     {
         if (row.isHeader)
         {
-            y += kHdrH;
+            y += hh;
         }
         else
         {
-            const juce::Rectangle<int> rowBounds (kPad, y, w, kCellH);
+            const juce::Rectangle<int> rowBounds (0, y, gridW, ch);
             if (rowBounds.contains (pt))
             {
-                const int col = (pt.x - kPad) / cellW;
+                const int col = pt.x / cellW;
                 if (col >= 0 && col < row.count)
                     return row.firstIdx + col;
             }
-            y += kCellH;
+            y += ch;
         }
     }
     return -1;
@@ -349,6 +402,16 @@ void Sf2ProgramGrid::mouseDown (const juce::MouseEvent& e)
     }
     else
     {
+        // Left-click on an already-assigned cell → select it for per-channel FX editing.
+        const int assignedCh = presetChannels.count (idx) ? presetChannels.at (idx) : 0;
+        if (assignedCh > 0)
+        {
+            editingIdx = idx;
+            if (onAssignedPresetClicked) onAssignedPresetClicked (idx);
+            repaint();
+            return;
+        }
+
         // Radio-button preview toggle — left-click auditions, click again to deactivate.
         // currentIdx is only set via right-click channel assignment, never on left-click.
         if (idx == previewIdx)
@@ -395,20 +458,17 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
 
     for (int ch = 1; ch <= 16; ++ch)
     {
-        // Mark channel as used by another SF preset
+        // Mark channel as used by another preset so user can see what's taken
         bool usedByOther = false;
         for (auto& kv : presetChannels)
             if (kv.first != presetIdx && kv.second == ch)
                 usedByOther = true;
 
-        // Mark channel as used by a chromatic slice
-        const bool usedByChromatic = (externalChannelMask & (uint16_t(1) << (ch - 1))) != 0;
-
-        juce::String label = "Channel " + juce::String (ch);
-        if (usedByOther)     label += "  [SF preset]";
-        if (usedByChromatic) label += "  [chromatic]";
-
-        menu.addItem (100 + ch, label, true, current == ch);
+        const bool inRange = (ch >= rangeLow && ch <= rangeHigh);
+        const juce::String label = "Channel " + juce::String (ch)
+                                   + (usedByOther ? "  [in use]" : "")
+                                   + (! inRange   ? "  [out of range]" : "");
+        menu.addItem (100 + ch, label, /*isEnabled=*/ inRange, current == ch);
     }
 
     menu.addSeparator();

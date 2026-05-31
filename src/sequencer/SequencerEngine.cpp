@@ -363,12 +363,7 @@ void SequencerEngine::addOrUpdateSfTrackOnChannel (const Sf2PresetInfo& preset,
 
     // Call sfzPlayer outside the lock to avoid potential deadlock.
     if (needsPlayerUpdate && impl->sfzPlayer != nullptr)
-    {
         impl->sfzPlayer->setPresetOnChannel (ch, preset.bank, preset.preset);
-        // Rebuild the live fan-out mask so keyboard/controller input reaches
-        // the updated channel immediately.
-        impl->sfzPlayer->setLiveInputChannelMask (getAllSfPlayerChannelMask());
-    }
 }
 
 void SequencerEngine::addSfzTrack (const juce::String& name, int midiChannel0Based,
@@ -509,16 +504,6 @@ uint16_t SequencerEngine::getAllSfPlayerChannelMask() const noexcept
     const juce::ScopedReadLock sl (impl->tracksLock);
     for (auto* t : impl->tracks)
         if (t->type == TrackType::SfPlayer)
-            mask |= static_cast<uint16_t> (1u << (t->midiChannel & 0xF));
-    return mask;
-}
-
-uint16_t SequencerEngine::getAllChromaticChannelMask() const noexcept
-{
-    uint16_t mask = 0;
-    const juce::ScopedReadLock sl (impl->tracksLock);
-    for (auto* t : impl->tracks)
-        if (t->type == TrackType::ChromaticSlice)
             mask |= static_cast<uint16_t> (1u << (t->midiChannel & 0xF));
     return mask;
 }
@@ -762,19 +747,6 @@ bool SequencerEngine::readFromStream (juce::MemoryInputStream& s)
         const juce::ScopedWriteLock sl (impl->tracksLock);
         impl->tracks.clear();
         impl->tracks.swapWith (loaded);
-    }
-
-    // Re-arm FluidSynth channels for every SfPlayer track that was just restored.
-    // Without this, the audio engine has no preset loaded on these channels until
-    // the user re-assigns from the grid.
-    if (impl->sfzPlayer != nullptr)
-    {
-        const juce::ScopedReadLock sl (impl->tracksLock);
-        for (auto* t : impl->tracks)
-            if (t->type == TrackType::SfPlayer && t->preset.bank >= 0)
-                impl->sfzPlayer->setPresetOnChannel (t->midiChannel,
-                                                      t->preset.bank,
-                                                      t->preset.preset);
     }
 
     return true;

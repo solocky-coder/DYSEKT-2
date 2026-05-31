@@ -472,13 +472,6 @@ public:
     std::atomic<int> sfPlayerChLow  { 1 };
     std::atomic<int> sfPlayerChHigh { 16 };
 
-    // Bitmask of SF2 MIDI channels that have a preset assigned (bit N set = channel N,
-    // 1-based; bit 1 = ch 1 … bit 16 = ch 16).  Written by the UI thread whenever
-    // a preset is assigned or deactivated; read by MixerPanel to build channel strips
-    // and by the CHRO column to restrict the cycling range.
-    // Value 0 means no SF2 file is loaded / no presets assigned.
-    std::atomic<uint32_t> sf2AssignedChannelMask { 0 };
-
     // Trim region markers (stored in samples)
     std::atomic<int>  trimRegionStart  { 0 };
     std::atomic<int>  trimRegionEnd    { 0 };
