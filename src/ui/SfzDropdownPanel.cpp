@@ -1290,15 +1290,38 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     {
         const int lo = processor.sfPlayerChLow .load (std::memory_order_relaxed);
         const int hi = processor.sfPlayerChHigh.load (std::memory_order_relaxed);
+
+        // Collect channels already assigned to slicer slices (chromaticChannel).
+        // The SF-player range must not encroach on them.
+        juce::SortedSet<int> slicerChannels;
+        const int numSl = processor.sliceManager.getNumSlices();
+        for (int i = 0; i < numSl; ++i)
+        {
+            const int ch = processor.sliceManager.getSlice (i).chromaticChannel;
+            if (ch >= 1 && ch <= 16)
+                slicerChannels.add (ch);
+        }
+
+        auto isFree = [&](int ch) { return ! slicerChannels.contains (ch); };
+
         if (isLow)
         {
-            const int newLo = juce::jlimit (1, hi, lo + delta);
-            processor.sfPlayerChLow.store (newLo, std::memory_order_relaxed);
+            int newLo = juce::jlimit (1, hi, lo + delta);
+            // Skip past any slicer-owned channels
+            while (newLo >= 1 && newLo <= hi && ! isFree (newLo))
+                newLo += delta > 0 ? 1 : -1;
+            newLo = juce::jlimit (1, hi, newLo);
+            if (isFree (newLo))
+                processor.sfPlayerChLow.store (newLo, std::memory_order_relaxed);
         }
         else
         {
-            const int newHi = juce::jlimit (lo, 16, hi + delta);
-            processor.sfPlayerChHigh.store (newHi, std::memory_order_relaxed);
+            int newHi = juce::jlimit (lo, 16, hi + delta);
+            while (newHi >= lo && newHi <= 16 && ! isFree (newHi))
+                newHi += delta > 0 ? 1 : -1;
+            newHi = juce::jlimit (lo, 16, newHi);
+            if (isFree (newHi))
+                processor.sfPlayerChHigh.store (newHi, std::memory_order_relaxed);
         }
         repaint();
     };
