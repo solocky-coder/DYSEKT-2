@@ -1,8 +1,5 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
-#include <unordered_map>
-#include <vector>
-#include "../audio/SfzPlayer.h"   // Sf2PresetInfo
 
 class DysektProcessor;
 
@@ -52,11 +49,6 @@ public:
 
     /** Called from editor timer — snapshot version check, repaint if stale. */
     void updateFromSnapshot();
-
-    /** Receives the current SF2 preset→channel map from the program grid.
-        Stored for future per-preset strip rendering; triggers repaint. */
-    void setActiveChannels (const std::vector<Sf2PresetInfo>& presets,
-                            const std::unordered_map<int,int>& presetChannels);
 
     // Timer (drives hold decay and repaints while voices are active)
     void timerCallback() override
@@ -145,10 +137,6 @@ private:
 
     // ── Text editor for double-click ──────────────────────────────────────
     std::unique_ptr<juce::TextEditor> textEditor;
-
-    // ── SF2 preset→channel map (populated by setActiveChannels) ──────────
-    std::vector<Sf2PresetInfo>      sf2Presets;
-    std::unordered_map<int,int>     sf2PresetChannels;
 
     DysektProcessor& processor;
 

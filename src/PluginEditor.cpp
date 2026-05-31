@@ -25,6 +25,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  sliceControlBar (p),
  browserPanel (p),
  mixerPanel (p),
+ sf2MixerPanel (p),
       eqPanel (p),
  sfzDropdown (p),
  padGridView (p),
@@ -49,6 +50,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  addChildComponent (browserPanel);
  mixerPanel.setVisible (false);
  addChildComponent (mixerPanel);
+ sf2MixerPanel.setVisible (false);
+ addChildComponent (sf2MixerPanel);
  eqPanel.setVisible (false);
  addChildComponent (eqPanel);
 
@@ -112,7 +115,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
      // Update the SF2 mixer panel — rebuild strips from the current
      // preset→channel map so the new assignment appears immediately.
-     mixerPanel.setActiveChannels (sfzDropdown.getProgramGrid().getPresets(),
+     sf2MixerPanel.setActiveChannels (sfzDropdown.getProgramGrid().getPresets(),
                                    sfzDropdown.getProgramGrid().getPresetChannels());
 
      // Pick a colour based on the preset number (bank*128 + program).
@@ -434,6 +437,7 @@ void DysektEditor::toggleBrowserPanel()
         {
             activeSlot = SlotContent::None;
             mixerPanel.setVisible (false);
+            sf2MixerPanel.setVisible (false);
             headerBar.setBodeActive (false);
         }
         else if (activeSlot == SlotContent::Eq)
@@ -579,6 +583,7 @@ void DysektEditor::toggleSeqPanel()
         // Close any currently open slot
         if (activeSlot == SlotContent::Mixer) {
             mixerPanel.setVisible (false);
+            sf2MixerPanel.setVisible (false);
             headerBar.setBodeActive (false);
         } else if (activeSlot == SlotContent::Browser) {
             browserPanel.setVisible (false);
@@ -835,10 +840,18 @@ void DysektEditor::resized()
  if (hasActiveSlot) area.removeFromBottom (si (kMargin));
 
  if (activeSlot == SlotContent::Mixer) {
- // Expand mixer to fill ALL available area (waveformView space + slot)
+ // Expand mixer to fill ALL available area (waveformView space + slot).
+ // Top portion: SF2 channel strips. Bottom portion: slice mixer.
  const int mixTop = actionArea.getY();
  const int mixBot = slot.getBottom();
- mixerPanel.setBounds (kFX, mixTop, kFW, mixBot - mixTop);
+ const int totalH = mixBot - mixTop;
+ // SF2 panel gets ~40% of height (min 80px), slice mixer gets the rest.
+ const int sf2H    = juce::jmax (80, totalH * 2 / 5);
+ const int sliceH  = totalH - sf2H - 2; // 2px gap
+ sf2MixerPanel.setBounds (kFX, mixTop,          kFW, sf2H);
+ mixerPanel.setBounds    (kFX, mixTop + sf2H + 2, kFW, sliceH);
+ sf2MixerPanel.setVisible (true);
+ mixerPanel.setVisible (true);
  browserPanel.setBounds ({});
  eqPanel.setBounds ({});
 #if DYSEKT_STANDALONE
@@ -852,6 +865,7 @@ void DysektEditor::resized()
  const int browserBot = slot.getBottom();
  browserPanel.setBounds (kFX, browserTop, kFW, browserBot - browserTop);
  mixerPanel.setBounds ({});
+ sf2MixerPanel.setBounds ({});
  eqPanel.setBounds ({});
 #if DYSEKT_STANDALONE
  pianoRollPanel.setBounds ({});
@@ -863,6 +877,7 @@ void DysektEditor::resized()
      const int eqBot = slot.getBottom();
      eqPanel.setBounds (kFX, eqTop, kFW, eqBot - eqTop);
      mixerPanel.setBounds ({});
+ sf2MixerPanel.setBounds ({});
      browserPanel.setBounds ({});
 #if DYSEKT_STANDALONE
      pianoRollPanel.setBounds ({});
@@ -893,10 +908,12 @@ void DysektEditor::resized()
 #endif
 
      mixerPanel.setBounds ({});
+ sf2MixerPanel.setBounds ({});
      browserPanel.setBounds ({});
      eqPanel.setBounds ({});
  } else {
  mixerPanel.setBounds ({});
+ sf2MixerPanel.setBounds ({});
  eqPanel.setBounds ({});
 #if DYSEKT_STANDALONE
  pianoRollPanel.setBounds ({});
@@ -1068,6 +1085,7 @@ void DysektEditor::toggleMixerPanel()
  if (activeSlot == SlotContent::Mixer) {
  activeSlot = SlotContent::None;
  mixerPanel.setVisible (false);
+ sf2MixerPanel.setVisible (false);
  headerBar.setBodeActive (false);
  } else {
  if (activeSlot == SlotContent::Browser) {
@@ -1086,6 +1104,7 @@ void DysektEditor::toggleMixerPanel()
  }
  activeSlot = SlotContent::Mixer;
  mixerPanel.setVisible (true);
+ sf2MixerPanel.setVisible (true);
  headerBar.setBodeActive (true);
  }
  resized(); repaint(); resized(); repaint();
@@ -1101,6 +1120,7 @@ void DysektEditor::toggleEqPanel()
         // Close any currently open slot
         if (activeSlot == SlotContent::Mixer) {
             mixerPanel.setVisible (false);
+            sf2MixerPanel.setVisible (false);
             headerBar.setBodeActive (false);
         } else if (activeSlot == SlotContent::Browser) {
             browserPanel.setVisible (false);
@@ -1438,7 +1458,7 @@ void DysektEditor::timerCallback()
 if (activeSlot == SlotContent::Mixer)
 {
     // Refresh strips in case a preset was just assigned or un-assigned.
-    mixerPanel.setActiveChannels (sfzDropdown.getProgramGrid().getPresets(),
+    sf2MixerPanel.setActiveChannels (sfzDropdown.getProgramGrid().getPresets(),
                                   sfzDropdown.getProgramGrid().getPresetChannels());
     mixerPanel.updateFromSnapshot();
 }

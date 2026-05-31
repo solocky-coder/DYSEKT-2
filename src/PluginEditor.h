@@ -12,6 +12,7 @@
 #include "ui/ShortcutsPanel.h"
 #include "ui/FileBrowserPanel.h"
 #include "ui/MixerPanel.h"
+#include "ui/Sf2MixerPanel.h"
 #include "ui/TrimDialog.h"
 #include "ui/MidiLearnDialog.h"
 #include "ui/ConfirmOverlay.h"
@@ -133,6 +134,7 @@ private:
 
     FileBrowserPanel browserPanel;
     MixerPanel       mixerPanel;
+    Sf2MixerPanel    sf2MixerPanel;
     PadGridView      padGridView;
     SfzDropdownPanel sfzDropdown;
     ShortcutsPanel   shortcutsPanel { processor };
