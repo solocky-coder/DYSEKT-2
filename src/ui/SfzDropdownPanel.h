@@ -158,6 +158,8 @@ private:
 
     void buildSf2Combo();  ///< kept for grid-channel compat; now a no-op
 
+    /** Recompute sf2AssignedChannelMask on the processor from the current sf2Presets list. */
+    void rebuildSf2ChannelMask();
 
     void openProgramGrid();
     void closeProgramGrid();

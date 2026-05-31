@@ -723,6 +723,7 @@ void SfzDropdownPanel::restoreGridChannelAssignments()
         }
     }
     programGrid.setPresetChannels (chMap);
+    rebuildSf2ChannelMask();
 }
 
 // =============================================================================
@@ -733,6 +734,16 @@ void SfzDropdownPanel::buildSf2Combo()
     // sf2ChCombo removed — channel routing is now via sfPlayerChLow/High spinners.
     // This method is retained as a no-op so callers (notifyPresetChannelChanged)
     // don't need changes.
+}
+
+void SfzDropdownPanel::rebuildSf2ChannelMask()
+{
+    // Build a bitmask where bit N (1-based) is set if any preset is assigned to ch N.
+    uint32_t mask = 0;
+    for (const auto& ap : sf2Presets)
+        if (ap.ch >= 1 && ap.ch <= 16)
+            mask |= (1u << (uint32_t)ap.ch);
+    processor.sf2AssignedChannelMask.store (mask, std::memory_order_relaxed);
 }
 
 void SfzDropdownPanel::notifyPresetChannelChanged (const juce::String& presetName,
@@ -764,6 +775,7 @@ void SfzDropdownPanel::notifyPresetChannelChanged (const juce::String& presetNam
             selectedSf2Ch = midiCh1Based - 1;
     }
     buildSf2Combo();
+    rebuildSf2ChannelMask();
     resized();
     repaint();
 }

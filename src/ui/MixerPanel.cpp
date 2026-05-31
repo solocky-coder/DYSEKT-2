@@ -64,6 +64,23 @@ int MixerPanel::colX (Col col) const
     return kNameColW + (int)col * kKnobColW;
 }
 
+uint32_t MixerPanel::buildUsedChannelMask (int excludeSliceIdx) const
+{
+    // Start with channels owned by SF2 preset assignments.
+    uint32_t mask = processor.sf2AssignedChannelMask.load (std::memory_order_relaxed);
+
+    // Add channels claimed by any slice's chromaticChannel (skip the slice being edited).
+    const auto& snap = processor.getUiSliceSnapshot();
+    for (int i = 0; i < snap.numSlices; ++i)
+    {
+        if (i == excludeSliceIdx) continue;
+        const int ch = snap.slices[(size_t)i].chromaticChannel;
+        if (ch >= 1 && ch <= 16)
+            mask |= (1u << (uint32_t)ch);
+    }
+    return mask;
+}
+
 int MixerPanel::rowY (int sliceIdx) const
 {
     return kHeaderH + sliceIdx * kRowH - scrollPixels;
@@ -347,13 +364,31 @@ void MixerPanel::drawHeader (juce::Graphics& g) const
     }
 }
 
-void MixerPanel::drawChroBadge (juce::Graphics& g, int cx, int cy, int channel, bool locked) const
+void MixerPanel::drawChroBadge (juce::Graphics& g, int cx, int cy, int channel, bool locked, bool conflict) const
 {
     const auto& theme = getTheme();
     const int bw = 18, bh = 16;
     const juce::Rectangle<float> r ((float)(cx - bw/2), (float)(cy - bh/2), (float)bw, (float)bh);
 
     const bool active = (channel > 0);
+
+    // Conflict: channel is claimed by another slice or SF2 preset — render red with strikethrough
+    if (active && conflict)
+    {
+        const juce::Colour warn = juce::Colour (0xFFFF6B6B);
+        g.setColour (warn.withAlpha (0.18f));
+        g.fillRoundedRectangle (r, 2.5f);
+        g.setColour (warn.withAlpha (0.70f));
+        g.drawRoundedRectangle (r, 2.5f, 0.8f);
+        g.setFont (DysektLookAndFeel::makeFont (11.0f));
+        g.setColour (warn.withAlpha (0.80f));
+        g.drawText (juce::String (channel), r.toNearestInt(), juce::Justification::centred);
+        const float midY = r.getCentreY();
+        g.setColour (warn.withAlpha (0.65f));
+        g.drawLine (r.getX() + 2.f, midY, r.getRight() - 2.f, midY, 1.0f);
+        return;
+    }
+
     g.setColour (active ? (locked ? theme.lockActive.withAlpha (0.15f) : theme.accent.withAlpha (0.15f))
                         : theme.separator.withAlpha (0.3f));
     g.fillRoundedRectangle (r, 2.5f);
@@ -657,7 +692,11 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
         const bool chromaLocked = (sl.lockMask & kLockChromaticChannel) != 0;
         const int x  = colX (ColChro);
         const int cx = x + kKnobColW / 2;
-        drawChroBadge (g, cx, kcy, sl.chromaticChannel, chromaLocked);
+        // Conflict = this channel is also in use by another slice or an SF2 preset
+        const int ch = sl.chromaticChannel;
+        const bool conflict = (ch > 0) &&
+                              ((buildUsedChannelMask (idx) & (1u << (uint32_t)ch)) != 0);
+        drawChroBadge (g, cx, kcy, ch, chromaLocked, conflict);
     }
 
     // LEGATO — chromatic legato toggle
@@ -1182,8 +1221,16 @@ void MixerPanel::mouseDown (const juce::MouseEvent& e)
             }
             else
             {
-                // Left-click: cycle channel 0→1→...→16→0
+                // Left-click: advance to the next channel NOT claimed by another
+                // slice or an SF2 preset.  0 (off) is always valid.
+                const uint32_t used = buildUsedChannelMask (c.row);
                 int next = (sl.chromaticChannel + 1) % 17;
+                for (int tries = 0; tries < 16; ++tries)
+                {
+                    if (next == 0) break;                          // 0 = off, always valid
+                    if (!(used & (1u << (uint32_t)next))) break;   // channel is free
+                    next = (next + 1) % 17;
+                }
                 DysektProcessor::Command cmd;
                 cmd.type = DysektProcessor::CmdSetSliceParam;
                 cmd.intParam1 = DysektProcessor::FieldChromaticChannel;

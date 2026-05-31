@@ -91,11 +91,15 @@ private:
                         bool isGain = false) const;
     void drawMuteBadge (juce::Graphics&, int cx, int cy,
                         int muteGroup, bool locked, bool dimmed) const;
-    void drawChroBadge (juce::Graphics&, int cx, int cy, int channel, bool locked) const;
+    void drawChroBadge (juce::Graphics&, int cx, int cy, int channel, bool locked, bool conflict = false) const;
     void drawMeter     (juce::Graphics&, int x, int y, int w, int h,
                         float peakL, float peakR, juce::Colour tint, int sliceIdx) const;
 
     juce::String fmtGain (float db)      const;
+    /** Returns a bitmask (bit N set = ch N, 1-based) of every MIDI channel currently
+     *  claimed by the SF2 preset grid OR by a slice's chromaticChannel, excluding
+     *  the slice at excludeSliceIdx (pass -1 to include all slices). */
+    uint32_t buildUsedChannelMask (int excludeSliceIdx = -1) const;
     juce::String fmtPan  (float pan)     const;
     juce::String fmtFcut (float hz)      const;
     juce::String fmtPres (float res)     const;
