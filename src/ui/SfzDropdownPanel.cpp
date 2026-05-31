@@ -429,6 +429,11 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
             if (onPresetChannelAssigned)
                 onPresetChannelAssigned (info, ch);
         }
+
+        // Always sync sf2Presets / channel mask — onPresetChannelAssigned is only
+        // wired in DYSEKT_STANDALONE builds so the mask would never update in the
+        // plugin build without this unconditional call.
+        notifyPresetChannelChanged (info.name, ch);
     };
 
     // ── Preview toggle: left-click radio ─────────────────────────────────────
@@ -1389,11 +1394,14 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
                             {
                                 const int ch = result - 200;
                                 processor.sfzPlayer.setMidiChannel (ch);
-                                if (onPresetChannelAssigned && ! presetList.empty())
+                                if (! presetList.empty())
                                 {
                                     const int idx = juce::jlimit (0, (int) presetList.size() - 1,
                                                                   processor.sfzPlayer.getCurrentPresetIndex());
-                                    onPresetChannelAssigned (presetList[(size_t) idx], ch);
+                                    if (onPresetChannelAssigned)
+                                        onPresetChannelAssigned (presetList[(size_t) idx], ch);
+                                    // Always sync mask in both standalone and plugin builds
+                                    notifyPresetChannelChanged (presetList[(size_t) idx].name, ch);
                                 }
                             }
                             else if (result == 300)

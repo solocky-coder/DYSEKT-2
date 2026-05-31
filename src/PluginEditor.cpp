@@ -107,9 +107,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  // SF2 preset right-clicked → user assigned a MIDI channel → create track.
  sfzDropdown.onPresetChannelAssigned = [this] (const Sf2PresetInfo& preset, int midiChannel1Based)
  {
-     // Keep the inline channel-FX panel in sync
-     sfzDropdown.notifyPresetChannelChanged (preset.name, midiChannel1Based);
-
      // Pick a colour based on the preset number (bank*128 + program).
      static const juce::Colour kPalette[] = {
          juce::Colour (0xFF4060A0), juce::Colour (0xFF60A040),
