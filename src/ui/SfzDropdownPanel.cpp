@@ -397,6 +397,14 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
         if (presetIdx < 0 || presetIdx >= (int) presetList.size()) return;
         const auto& info = presetList[(size_t) presetIdx];
 
+        // Collision check: refuse to assign a channel already owned by a chromatic slice.
+        if (ch >= 1 && ch <= 16)
+        {
+            const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
+            if (chromaMask & (1u << ch))
+                return;   // channel is slicer-owned — silently reject
+        }
+
         if (ch == 0)
         {
             // Deactivate — silence all FluidSynth channels, then reload only the
@@ -429,6 +437,11 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
             if (onPresetChannelAssigned)
                 onPresetChannelAssigned (info, ch);
         }
+
+        // Rebuild sfPlayerChannelMask from the current grid state.
+        // NOTE: the grid only assigns presets to channels within the SF player's
+        // spinner-defined range — it does NOT determine which channels the SF
+        // player owns.  The mask is owned exclusively by the CH spinners.
     };
 
     // ── Preview toggle: left-click radio ─────────────────────────────────────
@@ -689,8 +702,16 @@ void SfzDropdownPanel::openProgramGrid()
     programGrid.setPresets (presetList,
                             processor.sfzPlayer.getCurrentPresetIndex(),
                             processor.sfzPlayer.getMidiChannel());
-    programGrid.setChannelRange (processor.sfPlayerChLow .load (std::memory_order_relaxed),
-                                 processor.sfPlayerChHigh.load (std::memory_order_relaxed));
+    {
+        const uint32_t mask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+        int lo = 0, hi = 0;
+        if (mask != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (mask & (1u << c)) { lo = c; break; }
+            for (int c = 16; c >= 2; --c)  if (mask & (1u << c)) { hi = c; break; }
+        }
+        programGrid.setChannelRange (lo, hi);
+    }
     restoreGridChannelAssignments();
     resized();
     repaint();
@@ -734,7 +755,7 @@ void SfzDropdownPanel::restoreGridChannelAssignments()
 // =============================================================================
 void SfzDropdownPanel::buildSf2Combo()
 {
-    // sf2ChCombo removed — channel routing is now via sfPlayerChLow/High spinners.
+    // sf2ChCombo removed — channel routing is now via sfPlayerChannelMask (bitmask).
     // This method is retained as a no-op so callers (notifyPresetChannelChanged)
     // don't need changes.
 }
@@ -1212,9 +1233,19 @@ void SfzDropdownPanel::timerCallback()
 
     presetList = processor.sfzPlayer.getPresetList();
 
-    // Poll channel-range from processor for paint (avoids atomic reads in paint)
-    cachedChLow  = processor.sfPlayerChLow .load (std::memory_order_relaxed);
-    cachedChHigh = processor.sfPlayerChHigh.load (std::memory_order_relaxed);
+    // Poll sfPlayerChannelMask from processor for paint (avoids atomic reads in paint).
+    // Derive lo/hi as the lowest and highest set channel bits for spinner display.
+    // Channel 1 is hardwired to the slicer and never appears in sfPlayerChannelMask.
+    {
+        const uint32_t mask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+        cachedChLow  = 0;
+        cachedChHigh = 0;
+        if (mask != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (mask & (1u << c)) { cachedChLow  = c; break; }
+            for (int c = 16; c >= 2; --c)  if (mask & (1u << c)) { cachedChHigh = c; break; }
+        }
+    }
 
     // Keep the program grid's range in sync so out-of-range channels are greyed out
     programGrid.setChannelRange (cachedChLow, cachedChHigh);
@@ -1288,31 +1319,38 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     // ── Channel-range spinners (visible in SF2 strip) ─────────────────────
     auto adjustChannel = [&](bool isLow, int delta)
     {
-        const int lo = processor.sfPlayerChLow .load (std::memory_order_relaxed);
-        const int hi = processor.sfPlayerChHigh.load (std::memory_order_relaxed);
-
-        // Collect channels already assigned to slicer slices (chromaticChannel).
-        // The SF-player range must not encroach on them.
-        juce::SortedSet<int> slicerChannels;
-        const int numSl = processor.sliceManager.getNumSlices();
-        for (int i = 0; i < numSl; ++i)
+        // Derive current lo/hi from sfPlayerChannelMask for spinner display.
+        const uint32_t curMask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+        int lo = 0, hi = 0;
+        if (curMask != 0)
         {
-            const int ch = processor.sliceManager.getSlice (i).chromaticChannel;
-            if (ch >= 1 && ch <= 16)
-                slicerChannels.add (ch);
+            for (int c = 2; c <= 16; ++c)  if (curMask & (1u << c)) { lo = c; break; }
+            for (int c = 16; c >= 2; --c)  if (curMask & (1u << c)) { hi = c; break; }
         }
+        if (lo == 0) lo = 2;   // channel 1 is hardwired to the slicer; SF player starts at 2
+        if (hi == 0) hi = lo;
 
-        auto isFree = [&](int ch) { return ! slicerChannels.contains (ch); };
+        // Channels owned by chromatic slices are not available to the SF player.
+        const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
+        // Channel 1 is also never available to the SF player.
+        auto isFree = [&](int ch) -> bool
+        {
+            if (ch < 2 || ch > 16) return false;
+            return ! (chromaMask & (1u << ch));
+        };
 
         if (isLow)
         {
-            int newLo = juce::jlimit (1, hi, lo + delta);
-            // Skip past any slicer-owned channels
-            while (newLo >= 1 && newLo <= hi && ! isFree (newLo))
+            int newLo = juce::jlimit (2, hi, lo + delta);
+            while (newLo >= 2 && newLo <= hi && ! isFree (newLo))
                 newLo += delta > 0 ? 1 : -1;
-            newLo = juce::jlimit (1, hi, newLo);
+            newLo = juce::jlimit (2, hi, newLo);
             if (isFree (newLo))
-                processor.sfPlayerChLow.store (newLo, std::memory_order_relaxed);
+            {
+                uint32_t mask = 0u;
+                for (int c = newLo; c <= hi; ++c)  mask |= (1u << c);
+                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+            }
         }
         else
         {
@@ -1321,7 +1359,11 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
                 newHi += delta > 0 ? 1 : -1;
             newHi = juce::jlimit (lo, 16, newHi);
             if (isFree (newHi))
-                processor.sfPlayerChHigh.store (newHi, std::memory_order_relaxed);
+            {
+                uint32_t mask = 0u;
+                for (int c = lo; c <= newHi; ++c)  mask |= (1u << c);
+                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+            }
         }
         repaint();
     };

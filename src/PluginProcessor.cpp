@@ -478,10 +478,35 @@ void DysektProcessor::publishUiSliceSnapshot()
     }
 }
 
+void DysektProcessor::rebuildChromaticChannelMask()
+{
+    // Build a bitmask of all channels currently assigned to chromatic slices.
+    // Bit N (1-based, N in 1..16) is set when at least one slice uses channel N.
+    uint32_t mask = 0u;
+    const int n = sliceManager.getNumSlices();
+    for (int i = 0; i < n; ++i)
+    {
+        const int ch = sliceManager.getSlice (i).chromaticChannel;
+        if (ch >= 1 && ch <= 16)
+            mask |= (1u << ch);
+    }
+    chromaticSliceChannelMask.store (mask, std::memory_order_relaxed);
+}
+
 void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
 {
     // Called on the message thread.  Atomically update the route mode so
     // processMidi() sees the new value on the next audio callback.
+    //
+    // VST3/AU plugin builds must never enter MidiRouteMode::SfPlayer — the
+    // early-return in the old processMidi() that depended on it has been
+    // removed in favour of bitmask routing.  Force-downgrade to Slicer so
+    // the mode enum stays consistent with the actual routing behaviour.
+#if !DYSEKT_STANDALONE
+    if (mode == MidiRouteMode::SfPlayer)
+        mode = MidiRouteMode::Slicer;
+#endif
+
     midiRouteMode.store (static_cast<int> (mode), std::memory_order_relaxed);
 
     switch (mode)
@@ -999,7 +1024,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                     case FieldEqMidFreq:       s.eqMidFreq       = val;       if (!skipLock) s.lockMask |= kLockEqMid;       break;
                     case FieldEqMidQ:          s.eqMidQ          = val;       if (!skipLock) s.lockMask |= kLockEqMid;       break;
                     case FieldEqHighGain:      s.eqHighGain      = val;       if (!skipLock) s.lockMask |= kLockEqHigh;      break;
-                    case FieldChromaticChannel: s.chromaticChannel = juce::jlimit (0, 16, (int) val); break;
+                    case FieldChromaticChannel: s.chromaticChannel = juce::jlimit (0, 16, (int) val); rebuildChromaticChannelMask(); break;
                     case FieldChromaticLegato:  s.chromaticLegato  = (val > 0.5f); break;
                     case FieldMidiNote:
                         s.midiNote = juce::jlimit (0, 127, (int) val);
@@ -1351,33 +1376,21 @@ void DysektProcessor::handleCommand (const Command& cmd)
 
 void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 {
-    // ── MIDI route mode guard ─────────────────────────────────────────────────
-    // In SfPlayer mode, block live MIDI from the slicer/VoicePool entirely —
-    // all input belongs to the SF-player.  In Sequencer mode, live MIDI must
-    // still reach the VoicePool (re-channeled to the selected track above).
-    {
-        const int routeMode = midiRouteMode.load (std::memory_order_relaxed);
-        if (routeMode == static_cast<int> (MidiRouteMode::SfPlayer))
-            return;
-    }
-
     // ── MIDI channel routing ──────────────────────────────────────────────────
-    // Messages whose channel falls in [sfPlayerChLow, sfPlayerChHigh] (inclusive)
-    // are routed exclusively to sfzPlayer and must not trigger slices or MIDI learn.
-    // sfPlayerChLow == 0 means the SF player is disabled; slicer gets everything.
-    const int chLow  = sfPlayerChLow .load (std::memory_order_relaxed);
-    const int chHigh = sfPlayerChHigh.load (std::memory_order_relaxed);
-    const bool sfChannelSplitActive = (chLow >= 1 && chHigh >= chLow);
+    // Messages on channels owned by sfPlayerChannelMask are routed exclusively
+    // to sfzPlayer and must not trigger slices or MIDI learn.
+    // sfPlayerChannelMask == 0 means the SF player is disabled; slicer gets everything.
+    const uint32_t sfMask = sfPlayerChannelMask.load (std::memory_order_relaxed);
 
     for (const auto metadata : midi)
     {
         const auto msg = metadata.getMessage();
 
-        // Skip messages on the SF player's channel range — they belong to DY-SFP.
-        if (sfChannelSplitActive)
+        // Skip messages on SF-player-owned channels — they belong to DY-SFP.
+        if (sfMask != 0)
         {
-            const int ch = msg.getChannel();
-            if (ch >= chLow && ch <= chHigh)
+            const int ch = msg.getChannel();   // 1-based
+            if (ch >= 1 && ch <= 16 && (sfMask & (1u << ch)))
                 continue;
         }
 
@@ -2518,13 +2531,16 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── SF2/SFZ keyboard UI note injection ───────────────────────────────────
-    // Inject on the lowest channel of the SF player's assigned range so the note
-    // reaches sfzPlayer and is excluded from the slicer by the range check above.
-    // If the SF player is disabled (chLow == 0) skip injection entirely.
+    // Inject on the lowest set channel of the SF player's assigned bitmask so
+    // the note reaches sfzPlayer and is excluded from the slicer by the bitmask
+    // check above.  If sfPlayerChannelMask == 0 the SF player is disabled; skip.
     {
-        const int chLo    = sfPlayerChLow .load (std::memory_order_relaxed);
-        const int injectCh = (chLo >= 1) ? chLo : 1;
-        const bool sfEnabled = (chLo >= 1);
+        const uint32_t sfMaskInject = sfPlayerChannelMask.load (std::memory_order_relaxed);
+        // Find lowest set channel (1-based bits 1..16)
+        int injectCh = 1;
+        for (int c = 1; c <= 16; ++c)
+            if (sfMaskInject & (1u << c)) { injectCh = c; break; }
+        const bool sfEnabled = (sfMaskInject != 0);
 
         const int noteOn  = sfzUiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
         const int noteOff = sfzUiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
@@ -2557,19 +2573,17 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── Snoop note messages to update active-note bitmask for keyboard display ──
-    // Snoop messages on the SF player's assigned channel range only.
+    // Snoop messages on the SF player's assigned channels only.
     {
-        const int chLo = sfPlayerChLow .load (std::memory_order_relaxed);
-        const int chHi = sfPlayerChHigh.load (std::memory_order_relaxed);
-        const bool rangeActive = (chLo >= 1 && chHi >= chLo);
+        const uint32_t sfMaskSnoop = sfPlayerChannelMask.load (std::memory_order_relaxed);
 
         for (const auto metadata : midi)
         {
             const auto msg = metadata.getMessage();
-            if (rangeActive)
+            if (sfMaskSnoop != 0)
             {
-                const int ch = msg.getChannel();
-                if (ch < chLo || ch > chHi) continue;
+                const int ch = msg.getChannel();   // 1-based
+                if (ch < 1 || ch > 16 || ! (sfMaskSnoop & (1u << ch))) continue;
             }
             const int n = msg.getNoteNumber();
             if (n < 0 || n > 127) continue;
@@ -2904,18 +2918,17 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int numSamples = buffer.getNumSamples();
 
         // ── Build sfzMidiBuf ─────────────────────────────────────────────────
-        // Copy messages whose channel is within [sfPlayerChLow, sfPlayerChHigh]
-        // into the SF player's buffer.  If sfPlayerChLow == 0 the SF player is
-        // disabled; sfzMidiBuf stays empty.  If the range covers all 16 channels
-        // (default omni) all messages are copied — FluidSynth routes internally.
+        // Copy messages on channels owned by sfPlayerChannelMask into the SF
+        // player's buffer.  If sfPlayerChannelMask == 0 the SF player is disabled;
+        // sfzMidiBuf stays empty.  If all 16 channels are set (default omni)
+        // all messages are copied — FluidSynth routes internally.
         juce::MidiBuffer sfzMidiBuf;
         {
-            const int chLo = sfPlayerChLow .load (std::memory_order_relaxed);
-            const int chHi = sfPlayerChHigh.load (std::memory_order_relaxed);
+            const uint32_t sfMaskBuild = sfPlayerChannelMask.load (std::memory_order_relaxed);
 
-            if (chLo >= 1)
+            if (sfMaskBuild != 0)
             {
-                const bool allChannels = (chLo == 1 && chHi == 16);
+                const bool allChannels = ((sfMaskBuild & 0x1FFFEu) == 0x1FFFEu); // bits 1-16 all set
                 if (allChannels)
                 {
                     sfzMidiBuf = midi;
@@ -2925,8 +2938,8 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     for (const auto meta : midi)
                     {
                         const auto& msg = meta.getMessage();
-                        const int ch = msg.getChannel();
-                        if (ch >= chLo && ch <= chHi)
+                        const int ch = msg.getChannel();   // 1-based
+                        if (ch >= 1 && ch <= 16 && (sfMaskBuild & (1u << ch)))
                             sfzMidiBuf.addEvent (msg, meta.samplePosition);
                     }
                 }
@@ -3127,8 +3140,19 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     // v23 originally stored a single midiChannel int here.
     // v25 replaces it with a channel range (low, high).  Both are written as
     // separate ints so old presets (v23/v24) can still be read with a fallback.
-    stream.writeInt   (sfPlayerChLow .load (std::memory_order_relaxed));
-    stream.writeInt   (sfPlayerChHigh.load (std::memory_order_relaxed));
+    // The channel range is derived from sfPlayerChannelMask for serialisation.
+    // Channel 1 is hardwired to the slicer and never in the mask.
+    {
+        const uint32_t mask = sfPlayerChannelMask.load (std::memory_order_relaxed);
+        int lo = 0, hi = 0;
+        if (mask != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (mask & (1u << c)) { lo = c; break; }
+            for (int c = 16; c >= 2; --c)  if (mask & (1u << c)) { hi = c; break; }
+        }
+        stream.writeInt (lo);
+        stream.writeInt (hi);
+    }
 
     // Sequencer state
 #if DYSEKT_STANDALONE
@@ -3295,27 +3319,28 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
 
             if (version >= 25)
             {
-                // New range-based routing
+                // New range-based routing — convert lo/hi range back to bitmask.
+                // Channel 1 is hardwired to the slicer; clamp lo to 2 minimum.
                 const int lo = stream.readInt();
                 const int hi = stream.readInt();
-                sfPlayerChLow .store (juce::jlimit (0, 16, lo), std::memory_order_relaxed);
-                sfPlayerChHigh.store (juce::jlimit (1, 16, hi), std::memory_order_relaxed);
+                uint32_t mask = 0u;
+                if (lo >= 1 && hi >= lo)
+                    for (int c = juce::jmax (lo, 2); c <= juce::jmin (hi, 16); ++c)
+                        mask |= (1u << c);
+                sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
             else
             {
-                // v23/v24: single-channel value — map to a one-channel range,
-                // or omni (1-16) if it was 0 (omni mode).
+                // v23/v24: single-channel value — map to one-channel mask,
+                // or channels 2–16 if it was 0 (old omni mode).
+                // Channel 1 is hardwired to the slicer; never set bit 1.
                 const int oldCh = stream.readInt();
-                if (oldCh >= 1 && oldCh <= 16)
-                {
-                    sfPlayerChLow .store (oldCh, std::memory_order_relaxed);
-                    sfPlayerChHigh.store (oldCh, std::memory_order_relaxed);
-                }
-                else
-                {
-                    sfPlayerChLow .store (1,  std::memory_order_relaxed);
-                    sfPlayerChHigh.store (16, std::memory_order_relaxed);
-                }
+                uint32_t mask = 0u;
+                if (oldCh >= 2 && oldCh <= 16)
+                    mask = (1u << oldCh);
+                else if (oldCh == 0 || oldCh == 1)
+                    for (int c = 2; c <= 16; ++c) mask |= (1u << c);   // legacy omni → 2–16
+                sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
         }
 
@@ -3339,6 +3364,10 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     if (! stream.isExhausted())
         sequencer.readFromStream (stream);
 #endif
+
+    // Rebuild chromaticSliceChannelMask now that all slices are restored.
+    // sfPlayerChannelMask was already set above from the saved range.
+    rebuildChromaticChannelMask();
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

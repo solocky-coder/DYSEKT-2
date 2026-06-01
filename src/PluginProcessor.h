@@ -464,13 +464,22 @@ public:
     // read on UI thread for KeysPanel highlighting — display-only, torn reads OK)
     std::atomic<uint64_t> sfzActiveNotes[2] {}; // [0]=notes 0-63, [1]=notes 64-127
 
-    // MIDI channel range assigned to the SF Player.
-    // Messages whose channel falls in [sfPlayerChLow, sfPlayerChHigh] (inclusive,
-    // 1-based) are routed exclusively to sfzPlayer; all other channels go to the
-    // slicer.  sfPlayerChLow == 0 disables the SF player (slicer gets everything).
-    // Default: ch 1–16 (omni — all MIDI to SF player and slicer).
-    std::atomic<int> sfPlayerChLow  { 1 };
-    std::atomic<int> sfPlayerChHigh { 16 };
+    // MIDI channel routing bitmasks (bit N = channel N, 1-based, bits 1–16 used).
+    //
+    // Channel ownership rules:
+    //   channel 1               → slicer always (hardwired, not stored in any mask)
+    //   chromaticSliceChannelMask → channels 2–16 explicitly assigned to chromatic slices
+    //   sfPlayerChannelMask     → contiguous range 2–16 set by the CH spinners;
+    //                             never overlaps channel 1 or chromaticSliceChannelMask
+    //   0 in sfPlayerChannelMask = SF player disabled; slicer gets everything
+    //
+    // Both are derived/cached state — not serialised; rebuilt on load.
+    std::atomic<uint32_t> sfPlayerChannelMask      { 0u };   // disabled until user sets a range
+    std::atomic<uint32_t> chromaticSliceChannelMask { 0u };
+
+    /** Rebuild chromaticSliceChannelMask from current slice data.
+     *  Must be called on the audio thread (or before first audio callback). */
+    void rebuildChromaticChannelMask();
 
     // Trim region markers (stored in samples)
     std::atomic<int>  trimRegionStart  { 0 };

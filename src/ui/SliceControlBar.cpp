@@ -1572,13 +1572,11 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  {
  int cur = sl.chromaticChannel;  // always read from slice
  // Channels owned by the SF player are not available to the slicer.
- const int sfLo = processor.sfPlayerChLow .load (std::memory_order_relaxed);
- const int sfHi = processor.sfPlayerChHigh.load (std::memory_order_relaxed);
- const bool sfRangeActive = (sfLo >= 1 && sfHi >= sfLo);
+ const uint32_t sfMask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
  juce::StringArray names; names.add ("Off");
  for (int i = 1; i <= 16; ++i)
  {
-     if (sfRangeActive && i >= sfLo && i <= sfHi)
+     if (sfMask != 0 && (sfMask & (1u << i)))
          continue;  // owned by SF player — skip
      names.add ("Channel " + juce::String (i));
  }
