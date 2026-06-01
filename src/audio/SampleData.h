@@ -39,6 +39,12 @@ public:
     static std::unique_ptr<DecodedSample> decodeFromFile (const juce::File& file,
                                                            double projectSampleRate);
     void applyDecodedSample (std::unique_ptr<DecodedSample> decoded);
+
+    /** Build peak mipmaps for a DecodedSample whose buffer has already been
+     *  filled.  Call this before posting a DecodedSample to completedLoadData
+     *  whenever the audio was assembled outside of decodeFromFile() (e.g. the
+     *  SF2/SFZ render path in SoundFontLoader). */
+    static void buildPeakMipmaps (DecodedSample& ds);
     bool loadFromFile (const juce::File& file, double projectSampleRate);
     void clear();
 

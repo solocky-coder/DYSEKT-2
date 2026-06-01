@@ -982,6 +982,14 @@ void SliceWaveformLcd::paint (juce::Graphics& g)
      const auto nodeArea = getLocalBounds().reduced (4).toFloat();
      screenArea = nodeArea;
      const auto lcdArea  = nodeArea.reduced (2.0f);
+
+     // Draw the selected-preset waveform as a subtle backdrop, then layer
+     // the SF-Player ADSR panel and draggable nodes over it.
+     // buildDisplayData() was already called above; data.peaks is populated
+     // when a preset region has been rendered into sampleData.
+     if (! data.peaks.isEmpty())
+         drawWaveform (g, lcdArea);
+
      drawSfPlayerPanel (g, lcdArea);
      drawNodes (g, nodeArea);
      return;

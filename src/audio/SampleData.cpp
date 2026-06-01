@@ -206,6 +206,12 @@ void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
     loaded = true;
 }
 
+// static
+void SampleData::buildPeakMipmaps (DecodedSample& ds)
+{
+    buildMipmapsForBuffer (ds.buffer, ds.peakMipmaps);
+}
+
 bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
 {
     auto decoded = decodeFromFile (file, projectSampleRate);

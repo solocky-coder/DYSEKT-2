@@ -168,8 +168,9 @@ public:
             writePos = end + gapSamples;
         }
 
-        // Build waveform peak mipmaps for the waveform display
-        // SampleData::buildPeakMipmaps (decoded->buffer, decoded->peakMipmaps);
+        // Build waveform peak mipmaps so SliceWaveformLcd can display the
+        // rendered preset audio.  Must happen before posting to completedLoadData.
+        SampleData::buildPeakMipmaps (*decoded);
 
         // ── Step 4: post results ──────────────────────────────────────────────
         // Post slice layout (processBlock picks this up right after applyDecodedSample)
