@@ -946,10 +946,10 @@ void SfzPlayer::measureChannelPeaks (int /*numSamples*/)
 //  Called once after a successful SF2 load to zero FluidSynth's built-in ADSR
 //  generators on all 16 channels, giving JUCE ADSR exclusive envelope control.
 //
-//  Generator values are in timecents (GEN_VOLATTACK/VOLDECAY/VOLRELEASE) or
-//  centibels attenuation (GEN_VOLSUSTAIN).
+//  Generator values are in timecents (GEN_VOLENVATTACK/DECAY/RELEASE) or
+//  centibels attenuation (GEN_VOLENVSUSTAIN).
 //    • Minimum attack/decay/release in FluidSynth = -12000 timecents ≈ 0 ms
-//    • GEN_VOLSUSTAIN = 0 means 0 dB attenuation (full level); JUCE ADSR drives
+//    • GEN_VOLENVSUSTAIN = 0 means 0 dB attenuation (full level); JUCE ADSR drives
 //      the actual shape.
 // ─────────────────────────────────────────────────────────────────────────────
 void SfzPlayer::suppressFluidAdsr()
@@ -960,14 +960,14 @@ void SfzPlayer::suppressFluidAdsr()
     for (int ch = 0; ch < 16; ++ch)
     {
         // Instant attack  (minimum timecents)
-        fluid_synth_set_gen (synth, ch, GEN_VOLATTACK,  -12000.0f);
+        fluid_synth_set_gen (synth, ch, GEN_VOLENVATTACK,  -12000.0f);
         // Instant decay   (minimum timecents)
-        fluid_synth_set_gen (synth, ch, GEN_VOLDECAY,   -12000.0f);
-        // GEN_VOLSUSTAIN = 0 means 0 dB attenuation (full level) — FluidSynth
+        fluid_synth_set_gen (synth, ch, GEN_VOLENVDECAY,   -12000.0f);
+        // GEN_VOLENVSUSTAIN = 0 means 0 dB attenuation (full level) — FluidSynth
         // passes audio at full amplitude and JUCE ADSR shapes the envelope.
-        fluid_synth_set_gen (synth, ch, GEN_VOLSUSTAIN,  0.0f);
+        fluid_synth_set_gen (synth, ch, GEN_VOLENVSUSTAIN,  0.0f);
         // Instant release (minimum timecents)
-        fluid_synth_set_gen (synth, ch, GEN_VOLRELEASE, -12000.0f);
+        fluid_synth_set_gen (synth, ch, GEN_VOLENVRELEASE, -12000.0f);
     }
 #endif
 }
