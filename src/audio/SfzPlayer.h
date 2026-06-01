@@ -307,6 +307,14 @@ private:
 
     void applyDirtyStrips();   ///< called at top of FluidSynth process block
 
+    // ── Per-channel peak meters ───────────────────────────────────────────────
+    // Written on audio thread after each process() block; read on UI thread
+    // (MixerPanel timer).  One L+R pair per FluidSynth channel (0-based).
+    std::atomic<float> channelPeakL[16] {};
+    std::atomic<float> channelPeakR[16] {};
+
+    void measureChannelPeaks (int numSamples);   ///< called at end of SF2 render block
+
     // ── Private helpers ───────────────────────────────────────────────────────
     void applyPendingLoad();             ///< called at top of process()
     void applyProgramChange();           ///< single-preset legacy (channel 0); called when programChangePending

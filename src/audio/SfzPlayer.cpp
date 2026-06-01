@@ -789,6 +789,9 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     float* planes[2] = { scratchL.data(), scratchR.data() };
     fluid_synth_process (synth, numSamples, 0, nullptr, 2, planes);
 
+    // Measure per-channel peaks from active voices before volume scaling
+    measureChannelPeaks (numSamples);
+
     // Apply volume
     for (int i = 0; i < numSamples; ++i)
     {
@@ -814,6 +817,60 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
 #else
     juce::ignoreUnused (midiIn, outL, outR, numSamples);
 #endif
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  measureChannelPeaks
+//
+//  FluidSynth mixes all channels into a single stereo buffer — there is no
+//  per-channel audio tap.  Instead we proxy peak level using voice activity:
+//
+//    peak_ch = max over active voices on ch (velocity/127 * CC7_vol)
+//
+//  This gives a signal-present indicator that tracks note activity and volume
+//  accurately enough for a mixer VU.  Pan is not modelled (L≈R).
+//  A fast exponential decay is applied so the needle falls when voices stop.
+// ─────────────────────────────────────────────────────────────────────────────
+void SfzPlayer::measureChannelPeaks (int /*numSamples*/)
+{
+    if (synth == nullptr) return;
+
+    // Collect max voice amplitude per channel
+    float chPk[16] {};
+
+    // fluid_synth_get_voicelist fills an array of fluid_voice_t* pointers.
+    // We ask for up to 256 voices; unused slots are set to nullptr.
+    static constexpr int kMaxVoices = 256;
+    fluid_voice_t* voices[kMaxVoices];
+    fluid_synth_get_voicelist (synth, voices, kMaxVoices, -1 /*all channels*/);
+
+    for (int vi = 0; vi < kMaxVoices; ++vi)
+    {
+        fluid_voice_t* v = voices[vi];
+        if (v == nullptr) break;
+        if (! fluid_voice_is_playing (v)) continue;
+
+        const int ch = fluid_voice_get_channel (v);
+        if (ch < 0 || ch >= 16) continue;
+
+        // Actual amplitude: velocity × channel CC7 volume (both 0-127)
+        const float vel    = (float) fluid_voice_get_actual_velocity (v) / 127.f;
+        const float cc7vol = channelStrips[ch].volume.load (std::memory_order_relaxed);
+        chPk[ch] = std::max (chPk[ch], vel * cc7vol);
+    }
+
+    // Store with decay — same pattern as sfzPeakL/R in PluginProcessor
+    static constexpr float kDecay = 0.85f;
+    for (int ch = 0; ch < 16; ++ch)
+    {
+        const float pk = chPk[ch];
+        channelPeakL[ch].store (
+            std::max (channelPeakL[ch].load (std::memory_order_relaxed) * kDecay, pk),
+            std::memory_order_relaxed);
+        channelPeakR[ch].store (
+            std::max (channelPeakR[ch].load (std::memory_order_relaxed) * kDecay, pk),
+            std::memory_order_relaxed);
+    }
 }
 
 // =============================================================================

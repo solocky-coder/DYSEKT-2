@@ -1005,6 +1005,27 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
     g.setColour (theme.foreground.withAlpha (0.12f));
     for (int i = ColPres; i < kNumCols; ++i)
         g.drawText ("—", colX ((Col)i), ry, kKnobColW, kSf2ChRowH, juce::Justification::centred);
+
+    // Per-channel peak meter (same column as slice meters, after OUT)
+    {
+        const int mx = colX (ColOut) + kKnobColW + 4;
+        const int mw = getWidth() - mx - 6;
+        if (mw > 20)
+        {
+            // Hold slot: use kMaxHoldSlices - 3 - channel (channels 0-15 get
+            // slots kMaxHoldSlices-3 down to kMaxHoldSlices-18; safely within
+            // the 128-slot array since slice rows use 0..N-1, sf2 header uses
+            // kMaxHoldSlices-2, master uses kMaxHoldSlices-1).
+            const int holdSlot = kMaxHoldSlices - 3 - channel;
+            const float pkL = processor.sfzPlayer.channelPeakL[channel]
+                                  .load (std::memory_order_relaxed);
+            const float pkR = processor.sfzPlayer.channelPeakR[channel]
+                                  .load (std::memory_order_relaxed);
+            holdL[holdSlot] = std::max (holdL[holdSlot], pkL);
+            holdR[holdSlot] = std::max (holdR[holdSlot], pkR);
+            drawMeter (g, mx, ry + 3, mw, kSf2ChRowH - 6, pkL, pkR, chCol, holdSlot);
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
