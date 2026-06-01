@@ -76,6 +76,12 @@ private:
     float getSliceDurMs() const;       // actual selected slice duration in ms
     float envAt (float xn)  const;     // interpolated Y at position xn
 
+    // ── SF-PLAYER mode helpers ────────────────────────────────────────────────
+    bool  isSfPlayerMode() const;      // true when midiRouteMode == SfPlayer
+    void  buildSfEnvelopeNodes();      // read sfzPlayer ADSR → sfEnv / envNodes
+    void  commitSfNodes();             // sfEnv → sfzPlayer setters (no APVTS)
+    void  drawSfPlayerPanel (juce::Graphics& g, const juce::Rectangle<float>& area);
+
     void drawBackground   (juce::Graphics& g);
     void drawWaveform     (juce::Graphics& g, const juce::Rectangle<float>& area);
     void drawEnvelope     (juce::Graphics& g, const juce::Rectangle<float>& area);
@@ -104,6 +110,16 @@ private:
         float rx    { 0.99f };   // release start X  ← init at end of slice
         float sxEnd { 0.99f };   // dynamic sustain plateau end X  ← tracks rx
     } env;
+
+    // ── SF-PLAYER envelope state (sfzPlayer ADSR, no slice) ──────────────────
+    struct {
+        float ax    { 0.07f };   // attack peak X
+        float ay    { 0.04f };   // attack peak Y (near 0 = loud)
+        float dx    { 0.25f };   // decay end X
+        float sy    { 0.30f };   // sustain Y level
+        float rx    { 0.99f };   // release start X
+        float sxEnd { 0.99f };   // sustain plateau end X (tracks rx)
+    } sfEnv;
 
     // Cache of computed nodes (rebuilt each paint + mouse event)
     juce::Array<EnvNode> envNodes;    // P1..P3 + sustain handle

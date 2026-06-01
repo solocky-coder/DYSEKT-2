@@ -41,25 +41,34 @@ void SliceWaveformLcd::repaintLcd()
 {
  if (dragRole == NodeRole::None)
  {
- if (postCommitGuard > 0)
- {
- --postCommitGuard;
- }
- else
- {
- const int ver = processor.getUiSliceSnapshotVersion();
- const int curSel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
+  if (postCommitGuard > 0)
+  {
+   --postCommitGuard;
+  }
+  else
+  {
+   if (isSfPlayerMode())
+   {
+       // SF-PLAYER mode: rebuild envelope from sfzPlayer ADSR atomics.
+       // We rebuild on every timer tick (cheap) so knob changes are instant.
+       buildSfEnvelopeNodes();
+   }
+   else
+   {
+       const int ver = processor.getUiSliceSnapshotVersion();
+       const int curSel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
 
- // Rebuild when snapshot version changes OR when the selected slice changes.
- // Selection changes do not increment the snapshot version, so without the
- // second check R would stay at whatever position it had for the previous slice.
- if (ver != lastEnvSnapVer || curSel != lastBuiltSliceIndex)
- {
-     buildEnvelopeNodes();
-     lastEnvSnapVer = ver;
-     lastBuiltSliceIndex = curSel;
- }
- }
+       // Rebuild when snapshot version changes OR when the selected slice changes.
+       // Selection changes do not increment the snapshot version, so without the
+       // second check R would stay at whatever position it had for the previous slice.
+       if (ver != lastEnvSnapVer || curSel != lastBuiltSliceIndex)
+       {
+           buildEnvelopeNodes();
+           lastEnvSnapVer = ver;
+           lastBuiltSliceIndex = curSel;
+       }
+   }
+  }
  }
  repaint();
 }
@@ -372,7 +381,10 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
 
  if (e.mods.isRightButtonDown())
  {
- // Right-click on a node: toggle that ADSR field's lock for the selected slice
+  // Right-click lock/unlock is only meaningful in slice mode (SF-PLAYER has no per-slice locks)
+  if (isSfPlayerMode()) return;
+
+  // Right-click on a node: toggle that ADSR field's lock for the selected slice
  uint32_t bit = 0;
  if      (hit == NodeRole::Attack)  bit = kLockAttack;
  else if (hit == NodeRole::Decay)   bit = kLockDecay;
@@ -453,6 +465,46 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
 void SliceWaveformLcd::mouseDrag (const juce::MouseEvent& e)
 {
  if (dragRole == NodeRole::None || screenArea.isEmpty()) return;
+
+ // ─── SF-PLAYER mode: drag sfEnv directly, commit to sfzPlayer setters ────
+ if (isSfPlayerMode())
+ {
+     const float W  = screenArea.getWidth();
+     const float H  = screenArea.getHeight();
+     const float ox = screenArea.getX();
+     const float oy = screenArea.getY();
+
+     const float xn = juce::jlimit (0.01f, 0.99f, (e.position.x - ox) / W);
+     const float yn = juce::jlimit (0.02f, 0.98f, (e.position.y - oy) / H);
+
+     static constexpr float kMin = 0.01f, kMax = 0.99f, kGap = 0.01f;
+
+     if (dragRole == NodeRole::Attack)
+         sfEnv.ax = juce::jlimit (kMin, sfEnv.dx - kGap, xn);
+     else if (dragRole == NodeRole::Decay)
+         sfEnv.dx = juce::jlimit (sfEnv.ax + kGap, sfEnv.rx - kGap, xn);
+     else if (dragRole == NodeRole::Sustain)
+         sfEnv.sy = juce::jlimit (0.04f, 0.94f, yn);
+     else if (dragRole == NodeRole::Release)
+         sfEnv.rx = juce::jlimit (sfEnv.dx + kGap, kMax, xn);
+
+     sfEnv.sxEnd = sfEnv.rx;
+
+     // Rebuild envNodes from updated sfEnv
+     envNodes.clear();
+     EnvNode a; a.xn = sfEnv.ax; a.yn = sfEnv.ay; a.role = NodeRole::Attack;
+     a.colour = kColAttack; a.label = "A"; envNodes.add (a);
+     EnvNode d; d.xn = sfEnv.dx; d.yn = sfEnv.sy; d.role = NodeRole::Decay;
+     d.colour = kColDecay;  d.label = "D"; envNodes.add (d);
+     EnvNode s; s.xn = (sfEnv.dx + sfEnv.sxEnd) * 0.5f; s.yn = sfEnv.sy;
+     s.role = NodeRole::Sustain; s.colour = kColSustain; s.label = "S"; envNodes.add (s);
+     EnvNode r; r.xn = sfEnv.rx; r.yn = sfEnv.sy; r.role = NodeRole::Release;
+     r.colour = kColRelease; r.label = "R"; envNodes.add (r);
+
+     commitSfNodes();
+     repaint();
+     return;
+ }
 
  // ═══════════════════════════════════════════════════════════════════════════
  // BUG FIX: Block dragging locked ADSR nodes — check slice's lockMask
@@ -917,18 +969,29 @@ void SliceWaveformLcd::paint (juce::Graphics& g)
  // Clip to rounded LCD boundary — stops accent glow artefacts showing as
  // black corner notches against the plugin background.
  {
- juce::Path clipPath;
- clipPath.addRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
- g.reduceClipRegion (clipPath);
+  juce::Path clipPath;
+  clipPath.addRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
+  g.reduceClipRegion (clipPath);
  }
  buildDisplayData();
  drawBackground (g);
 
+ // ── SF-PLAYER mode: show instrument ADSR panel instead of slice waveform ──
+ if (isSfPlayerMode())
+ {
+     const auto nodeArea = getLocalBounds().reduced (4).toFloat();
+     screenArea = nodeArea;
+     const auto lcdArea  = nodeArea.reduced (2.0f);
+     drawSfPlayerPanel (g, lcdArea);
+     drawNodes (g, nodeArea);
+     return;
+ }
+
  // isDefault (Empty.wav) always shows EMPTY — even if an auto-slice exists
  if (! data.hasSample || ! data.hasSlice || data.isDefault)
  {
- drawNoData (g);
- return;
+  drawNoData (g);
+  return;
  }
 
  // Nodes are rebuilt in repaintLcd() (timer-driven), not here.
@@ -946,4 +1009,172 @@ void SliceWaveformLcd::paint (juce::Graphics& g)
  drawEnvelope (g, lcdArea);
  drawNodes (g, nodeArea);
  drawPlayhead (g, lcdArea);
+}
+
+// ── SF-PLAYER mode helpers ────────────────────────────────────────────────────
+
+bool SliceWaveformLcd::isSfPlayerMode() const
+{
+    // midiRouteMode: 0=Slicer, 1=SfPlayer, 2=Sequencer  (matches MidiRouteMode enum)
+    return processor.midiRouteMode.load (std::memory_order_relaxed) == 1;
+}
+
+// Build envNodes from sfzPlayer's live ADSR atomics.
+// Uses the same normalised mapping as buildEnvelopeNodes() so the node layout
+// is visually consistent between slice and SF-PLAYER modes.
+void SliceWaveformLcd::buildSfEnvelopeNodes()
+{
+    const float attackMs  = processor.sfzPlayer.getSfzAttack()  * 1000.0f;
+    const float decayMs   = processor.sfzPlayer.getSfzDecay()   * 1000.0f;
+    const float sustainPc = processor.sfzPlayer.getSfzSustain();   // already %
+    const float releaseMs = processor.sfzPlayer.getSfzRelease() * 1000.0f;
+
+    // Use a fixed 2-second view window for SF mode (no slice duration).
+    static constexpr float kViewMs = 2000.0f;
+    static constexpr float kMin = 0.01f, kMax = 0.99f, kGap = 0.01f;
+
+    const float attackNorm  = std::sqrt (juce::jmin (attackMs  / kViewMs, 1.0f));
+    const float decayNorm   = std::sqrt (juce::jmin (decayMs   / kViewMs, 1.0f));
+    const float releaseNorm = std::sqrt (juce::jmin (releaseMs / kViewMs, 1.0f));
+
+    const float ax_raw = kMin + attackNorm  * (kMax - kMin);
+    const float rx_raw = (releaseMs < 0.5f)
+                         ? kMax
+                         : juce::jlimit (kMin, kMax, kMax - releaseNorm * (kMax - kMin));
+
+    sfEnv.ax = juce::jlimit (kMin, kMax - 2.0f * kGap, ax_raw);
+    sfEnv.rx = juce::jlimit (sfEnv.ax + 2.0f * kGap, kMax, rx_raw);
+
+    const float dSpan = sfEnv.rx - sfEnv.ax - 2.0f * kGap;
+    sfEnv.dx = juce::jlimit (sfEnv.ax + kGap,
+                              sfEnv.rx - kGap,
+                              sfEnv.ax + kGap + decayNorm * dSpan);
+
+    sfEnv.sy    = juce::jlimit (0.04f, 0.94f, 1.0f - (sustainPc / 100.0f));
+    sfEnv.ay    = 0.04f;
+    sfEnv.sxEnd = sfEnv.rx;
+
+    envNodes.clear();
+
+    EnvNode a; a.xn = sfEnv.ax; a.yn = sfEnv.ay; a.role = NodeRole::Attack;
+    a.colour = kColAttack; a.label = "A"; envNodes.add (a);
+
+    EnvNode d; d.xn = sfEnv.dx; d.yn = sfEnv.sy; d.role = NodeRole::Decay;
+    d.colour = kColDecay;  d.label = "D"; envNodes.add (d);
+
+    EnvNode s;
+    s.xn = (sfEnv.dx + sfEnv.sxEnd) * 0.5f; s.yn = sfEnv.sy;
+    s.role = NodeRole::Sustain; s.colour = kColSustain; s.label = "S"; envNodes.add (s);
+
+    EnvNode r; r.xn = sfEnv.rx; r.yn = sfEnv.sy; r.role = NodeRole::Release;
+    r.colour = kColRelease; r.label = "R"; envNodes.add (r);
+}
+
+// Inverse-map sfEnv back to sfzPlayer ADSR setters.
+// No APVTS writes — sfzAttack/Decay/Sustain/Release have no param IDs.
+void SliceWaveformLcd::commitSfNodes()
+{
+    static constexpr float kViewMs = 2000.0f;
+    static constexpr float kMin = 0.01f, kMax = 0.99f, kGap = 0.01f;
+
+    const float aRatio = (sfEnv.ax - kMin) / juce::jmax (0.001f, kMax - kMin);
+    const float rRatio = (kMax - sfEnv.rx) / juce::jmax (0.001f, kMax - kMin);
+    const float dSpan  = sfEnv.rx - sfEnv.ax - 2.0f * kGap;
+    const float dRatio = (sfEnv.dx - (sfEnv.ax + kGap)) / juce::jmax (0.001f, dSpan);
+
+    const float attackMs  = juce::jlimit (0.0f, kViewMs, aRatio * aRatio * kViewMs);
+    const float decayMs   = juce::jlimit (0.0f, kViewMs, dRatio * dRatio * kViewMs);
+    const float sustainPc = juce::jlimit (0.0f, 100.0f, (1.0f - sfEnv.sy) * 100.0f);
+    const float releaseMs = juce::jlimit (0.0f, kViewMs, rRatio * rRatio * kViewMs);
+
+    // Call sfzPlayer setters directly on the message thread — they are atomic writes.
+    if (dragRole == NodeRole::Attack)
+        processor.sfzPlayer.setSfzAttack  (attackMs  / 1000.0f);
+    else if (dragRole == NodeRole::Decay)
+        processor.sfzPlayer.setSfzDecay   (decayMs   / 1000.0f);
+    else if (dragRole == NodeRole::Sustain)
+        processor.sfzPlayer.setSfzSustain (sustainPc);
+    else if (dragRole == NodeRole::Release)
+        processor.sfzPlayer.setSfzRelease (releaseMs / 1000.0f);
+
+    postCommitGuard = 4;
+}
+
+// Draw the SF-PLAYER ADSR panel: instrument info header + envelope shape.
+// Called from paint() instead of drawWaveform/drawEnvelope in SF mode.
+void SliceWaveformLcd::drawSfPlayerPanel (juce::Graphics& g,
+                                          const juce::Rectangle<float>& area)
+{
+    // ── Header: "SF PLAYER" title + loaded instrument name ───────────────────
+    const float headerH = 18.0f;
+    const auto  headerR = area.removeFromTop (headerH);
+
+    g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
+    g.setColour (lcd2Phosphor().withAlpha (0.55f));
+    g.drawText ("SF PLAYER", headerR.withRight (headerR.getX() + 64.0f),
+                juce::Justification::centredLeft, false);
+
+    // Instrument name from sfzPlayer (empty string when nothing loaded)
+    const juce::String instrName = processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension();
+    if (instrName.isNotEmpty())
+    {
+        g.setFont (DysektLookAndFeel::makeFont (8.0f));
+        g.setColour (lcd2Phosphor().withAlpha (0.38f));
+        g.drawText (instrName, headerR, juce::Justification::centredRight, true);
+    }
+
+    // ── Envelope shape (reuse sfEnv coords, same polyline as slice mode) ─────
+    const float W  = area.getWidth();
+    const float H  = area.getHeight();
+    const float ox = area.getX();
+    const float oy = area.getY();
+
+    auto px = [&] (float xn) { return ox + xn * W; };
+    auto py = [&] (float yn) { return oy + yn * H; };
+
+    juce::Path envFill;
+    envFill.startNewSubPath (px (0.0f),        py (1.0f));
+    envFill.lineTo           (px (sfEnv.ax),   py (sfEnv.ay));
+    envFill.lineTo           (px (sfEnv.dx),   py (sfEnv.sy));
+    envFill.lineTo           (px (sfEnv.sxEnd),py (sfEnv.sy));
+    envFill.lineTo           (px (sfEnv.rx),   py (sfEnv.sy));
+    envFill.lineTo           (px (1.0f),        py (1.0f));
+    envFill.closeSubPath();
+
+    juce::ColourGradient fillGrad (kColDecay.withAlpha (0.07f), 0, oy,
+                                   kColDecay.withAlpha (0.00f), 0, oy + H, false);
+    g.setGradientFill (fillGrad);
+    g.fillPath (envFill);
+
+    juce::Path envLine;
+    envLine.startNewSubPath (px (0.0f),        py (1.0f));
+    envLine.lineTo           (px (sfEnv.ax),   py (sfEnv.ay));
+    envLine.lineTo           (px (sfEnv.dx),   py (sfEnv.sy));
+    envLine.lineTo           (px (sfEnv.sxEnd),py (sfEnv.sy));
+    envLine.lineTo           (px (sfEnv.rx),   py (sfEnv.sy));
+    envLine.lineTo           (px (1.0f),        py (1.0f));
+
+    g.setColour (juce::Colours::white.withAlpha (0.07f));
+    g.strokePath (envLine, juce::PathStrokeType (2.5f));
+
+    juce::Path dashedLine;
+    {
+        juce::PathStrokeType stroke (1.0f);
+        float dashes[] = { 3.0f, 5.0f };
+        stroke.createDashedStroke (dashedLine, envLine, dashes, 2);
+    }
+    g.setColour (juce::Colours::white.withAlpha (0.20f));
+    g.fillPath (dashedLine);
+
+    // Sustain highlight
+    juce::Path susLine;
+    susLine.startNewSubPath (px (sfEnv.dx), py (sfEnv.sy));
+    susLine.lineTo           (px (sfEnv.sxEnd), py (sfEnv.sy));
+    g.setColour (kColSustain.withAlpha (0.35f));
+    g.strokePath (susLine, juce::PathStrokeType (1.0f));
+
+    // Segment labels
+    drawSegmentLabel (g, 0.0f, 1.0f, sfEnv.ax, sfEnv.ay, "ATTACK",  kColAttack,  area);
+    drawSegmentLabel (g, sfEnv.ax, sfEnv.ay, sfEnv.dx, sfEnv.sy, "DECAY", kColDecay, area);
+    drawSegmentLabel (g, sfEnv.rx, sfEnv.sy, 1.0f, 1.0f, "RELEASE", kColRelease, area);
 }
