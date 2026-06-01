@@ -1,5 +1,8 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <unordered_map>
+#include <vector>
+#include "../audio/SfzPlayer.h"   // Sf2PresetInfo
 
 class DysektProcessor;
 
@@ -10,6 +13,11 @@ class DysektProcessor;
  * Clicking a row fires CmdSelectSlice.
  * Knobs write per-slice values directly (no global fallback from this panel).
  * Scrollable — all slices visible.
+ *
+ * Below the slice rows sits the SF-PLAYER section:
+ *   • One header row  (SF-PLAYER label, master SF2 vol/pan, aggregate meter)
+ *   • N channel rows  (one per assigned preset — GAIN · PAN only)
+ * Channel rows are populated via setActiveChannels().
  */
 class MixerPanel : public juce::Component,
                    public juce::Timer
@@ -23,8 +31,10 @@ public:
     static constexpr int kRowH        = 38;
     /** Height of the master row at the bottom. */
     static constexpr int kMasterH     = 42;
-    /** Height of the SF2 player row below master. */
+    /** Height of the SF-PLAYER header row. */
     static constexpr int kSf2RowH     = 38;
+    /** Height of each per-channel sub-row under the SF-PLAYER row. */
+    static constexpr int kSf2ChRowH   = 32;
     /** Width of the slice name column. */
     static constexpr int kNameColW    = 88;
     /** Width of each knob column. */
@@ -50,6 +60,11 @@ public:
     /** Called from editor timer — snapshot version check, repaint if stale. */
     void updateFromSnapshot();
 
+    /** Called when the SF2 preset→channel assignment changes.
+        Rebuilds the per-channel sub-rows under the SF-PLAYER row. */
+    void setActiveChannels (const std::vector<Sf2PresetInfo>& presets,
+                            const std::unordered_map<int,int>& presetChannels);
+
     // Timer (drives hold decay and repaints while voices are active)
     void timerCallback() override
     {
@@ -70,18 +85,22 @@ private:
 
     // ── Hit-test cell ─────────────────────────────────────────────────────
     struct Cell {
-        int row  { -1 };   // -1 = master row
-        Col col  { ColGain };
+        int  row       { -1 };    // >=0 = slice index; -1 = master; -2 = sf2 header; -3+ = sf2 channel
+        Col  col       { ColGain };
         juce::Rectangle<int> bounds;
-        bool isMaster { false };
-        bool isSf2    { false };
+        bool isMaster  { false };
+        bool isSf2     { false }; // true = SF-PLAYER header row
+        bool isSf2Ch   { false }; // true = SF2 per-channel sub-row
+        int  sf2Channel{ -1 };    // FluidSynth channel index (0-based) when isSf2Ch
     };
 
     // ── Drawing helpers ───────────────────────────────────────────────────
-    void drawHeader    (juce::Graphics&) const;
-    void drawSliceRow  (juce::Graphics&, int rowY, int sliceIdx, bool selected) const;
-    void drawMasterRow (juce::Graphics&, int rowY) const;
-    void drawSf2Row    (juce::Graphics&, int rowY) const;
+    void drawHeader       (juce::Graphics&) const;
+    void drawSliceRow     (juce::Graphics&, int rowY, int sliceIdx, bool selected) const;
+    void drawMasterRow    (juce::Graphics&, int rowY) const;
+    void drawSf2Row       (juce::Graphics&, int rowY) const;
+    void drawSf2ChannelRow(juce::Graphics&, int rowY, int channel,
+                           const Sf2PresetInfo& preset) const;
     void drawKnobInRow (juce::Graphics&, int cx, int cy, float norm,
                         bool locked, bool isMaster = false,
                         bool isGain = false) const;
@@ -110,6 +129,8 @@ private:
     int   rowY        (int sliceIdx) const;   // top Y of a slice row in the scroll area
     int   masterRowY  () const;
     int   sf2RowY     () const;
+    int   sf2ChRowY   (int chRowIdx) const;   // top Y of a per-channel sub-row (0-based index)
+    int   sf2TotalH   () const;               // kSf2RowH + N * kSf2ChRowH
     Cell  hitTest     (juce::Point<int> pos) const;
 
     // ── Drag state ────────────────────────────────────────────────────────
@@ -117,6 +138,8 @@ private:
         bool   active    { false };
         bool   isMaster  { false };
         bool   isSf2     { false };
+        bool   isSf2Ch   { false };
+        int    sf2Channel{ -1 };
         int    sliceIdx  { -1 };
         Col    col       { ColGain };
         int    startY    { 0 };
@@ -134,6 +157,12 @@ private:
     // ── State cache ───────────────────────────────────────────────────────
     uint32_t cachedVersion { 0xFFFFFFFF };
     int      cachedNumSlices { -1 };
+
+    // ── SF2 preset→channel map ────────────────────────────────────────────
+    // Populated by setActiveChannels(); drives per-channel sub-rows.
+    // Each entry: { presetInfo, fluidChannel }
+    struct Sf2ChEntry { Sf2PresetInfo preset; int channel; };
+    std::vector<Sf2ChEntry> sf2Channels;
 
     // ── Text editor for double-click ──────────────────────────────────────
     std::unique_ptr<juce::TextEditor> textEditor;
