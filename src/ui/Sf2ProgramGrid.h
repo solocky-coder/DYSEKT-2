@@ -52,8 +52,8 @@ public:
      *  Key = preset index in the list, value = 1-based MIDI channel. */
     /** Called by SfzDropdownPanel whenever sfPlayerChannelMask changes.
      *  lo/hi are the lowest and highest set channel numbers (1-based) derived
-     *  from the mask, used to grey out assigned channels in the grid. */
-        Channels outside [low, high] are greyed out in the right-click menu. */
+     *  from the mask, used to grey out assigned channels in the grid.
+     *  Channels outside [low, high] are greyed out in the right-click menu. */
     void setChannelRange (int low, int high)
     {
         rangeLow  = juce::jlimit (1, 16, low);
