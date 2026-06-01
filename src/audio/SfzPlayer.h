@@ -195,6 +195,31 @@ public:
     void process (const juce::MidiBuffer& midiIn,
                   float* outL, float* outR, int numSamples);
 
+    // ── JUCE ADSR (Option B — applied post-FluidSynth/sfizz in processBlock) ──
+    //  The envelope is owned here so it lives on the audio thread.
+    //  UI thread sets parameters via setJuceAdsr(); noteOn/Off are signalled via
+    //  atomics so the audio thread fires the envelope at the right moment.
+    //  On SF2 load, suppressFluidAdsr() is called once to zero out FluidSynth's
+    //  internal envelope generators so JUCE ADSR has exclusive control.
+
+    /** Update ADSR parameters.  Safe to call from any thread. */
+    void setJuceAdsr (float attackSec, float decaySec,
+                      float sustainLvl, float releaseSec) noexcept;
+
+    /** Signal a note-on to the JUCE envelope (called from UI when key is pressed). */
+    void juceAdsrNoteOn()  noexcept { juceAdsrNoteOnPending .store (true, std::memory_order_relaxed); }
+
+    /** Signal a note-off to the JUCE envelope. */
+    void juceAdsrNoteOff() noexcept { juceAdsrNoteOffPending.store (true, std::memory_order_relaxed); }
+
+    /** True when the JUCE ADSR is active (envelope not idle). */
+    bool juceAdsrIsActive() const noexcept { return juceAdsrActive.load (std::memory_order_relaxed); }
+
+    // ── Per-channel peak meters (public — read by MixerPanel timer) ──────────
+    // Written on audio thread after each process() block; read on UI thread.
+    std::atomic<float> channelPeakL[16] {};
+    std::atomic<float> channelPeakR[16] {};
+
 private:
     // ── Pending load (UI → audio thread handoff) ──────────────────────────────
     struct PendingLoad
@@ -307,13 +332,24 @@ private:
 
     void applyDirtyStrips();   ///< called at top of FluidSynth process block
 
-    // ── Per-channel peak meters ───────────────────────────────────────────────
-    // Written on audio thread after each process() block; read on UI thread
-    // (MixerPanel timer).  One L+R pair per FluidSynth channel (0-based).
-    std::atomic<float> channelPeakL[16] {};
-    std::atomic<float> channelPeakR[16] {};
-
     void measureChannelPeaks (int numSamples);   ///< called at end of SF2 render block
+
+    // ── JUCE ADSR private state (audio-thread owned) ─────────────────────────
+    juce::ADSR                 juceAdsr;
+    juce::ADSR::Parameters     juceAdsrParams { 0.005f, 0.1f, 1.0f, 0.05f };
+    std::atomic<bool>          juceAdsrParamsDirty   { false };
+    std::atomic<float>         juceAdsrAttack        { 0.005f };
+    std::atomic<float>         juceAdsrDecay         { 0.1f   };
+    std::atomic<float>         juceAdsrSustain        { 1.0f   };
+    std::atomic<float>         juceAdsrRelease        { 0.05f  };
+    std::atomic<bool>          juceAdsrNoteOnPending  { false  };
+    std::atomic<bool>          juceAdsrNoteOffPending { false  };
+    std::atomic<bool>          juceAdsrActive         { false  };
+
+    /** Called once after a successful SF2/SFZ load to zero FluidSynth's internal
+     *  envelope generators on all channels so JUCE ADSR has exclusive control.
+     *  No-op for SFZ (sfizz envelope is bypassed differently). */
+    void suppressFluidAdsr();
 
     // ── Private helpers ───────────────────────────────────────────────────────
     void applyPendingLoad();             ///< called at top of process()

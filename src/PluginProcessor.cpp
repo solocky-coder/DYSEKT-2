@@ -1552,6 +1552,14 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
                         case FieldSfzRelease: sfzPlayer.setSfzRelease (val); break;
                         default: break;
                     }
+
+                    // Keep JUCE ADSR (Option B — post-render envelope) in sync
+                    // with the sfizz ADSR atomics whenever any of the four params change.
+                    sfzPlayer.setJuceAdsr (
+                        sfzPlayer.getSfzAttack(),
+                        sfzPlayer.getSfzDecay(),
+                        sfzPlayer.getSfzSustain() * 0.01f,   // sfizz stores 0-100%; JUCE wants 0-1
+                        sfzPlayer.getSfzRelease());
                     uiSnapshotDirty.store (true, std::memory_order_release);
                     continue;
                 }
@@ -2529,6 +2537,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 const int w = noteOn < 64 ? 0 : 1;
                 const int b = noteOn < 64 ? noteOn : noteOn - 64;
                 sfzActiveNotes[w].fetch_or ((uint64_t)1 << b, std::memory_order_relaxed);
+                sfzPlayer.juceAdsrNoteOn();   // trigger JUCE ADSR envelope
             }
             if (noteOff >= 0 && noteOff <= 127)
             {
@@ -2542,6 +2551,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     const int b = noteOff < 64 ? noteOff : noteOff - 64;
                     sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
                 }
+                sfzPlayer.juceAdsrNoteOff();   // release JUCE ADSR envelope
             }
         }
     }
