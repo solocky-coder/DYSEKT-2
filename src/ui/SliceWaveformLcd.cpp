@@ -1107,7 +1107,8 @@ void SliceWaveformLcd::drawSfPlayerPanel (juce::Graphics& g,
 {
     // ── Header: "SF PLAYER" title + loaded instrument name ───────────────────
     const float headerH = 18.0f;
-    const auto  headerR = area.removeFromTop (headerH);
+    auto        bounds  = area;                          // mutable copy
+    const auto  headerR = bounds.removeFromTop (headerH);
 
     g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
     g.setColour (lcd2Phosphor().withAlpha (0.55f));
