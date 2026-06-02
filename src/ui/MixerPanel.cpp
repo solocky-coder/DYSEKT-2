@@ -925,7 +925,7 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
     // Name column: indent + "ch N  PresetName"
     g.setFont (DysektLookAndFeel::makeFont (11.0f));
     g.setColour (chCol.withAlpha (0.55f));
-    g.drawText (juce::String ("ch") + juce::String (channel + 1),
+    g.drawText (juce::String ("ch") + juce::String (channel),
                 6, ry, 28, kSf2ChRowH, juce::Justification::centredLeft);
 
     g.setColour (theme.foreground.withAlpha (0.55f));
@@ -934,8 +934,8 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
                                      : (juce::String (preset.bank) + ":" + juce::String (preset.preset));
     g.drawText (nameStr, 34, ry, kNameColW - 36, kSf2ChRowH, juce::Justification::centredLeft);
 
-    // Fetch current channel strip
-    const auto strip = processor.sfzPlayer.getChannelStrip (channel);
+    // Fetch current channel strip (channel is 1-based; strip array is 0-based)
+    const auto strip = processor.sfzPlayer.getChannelStrip (channel - 1);
     const float volDb = juce::Decibels::gainToDecibels (strip.volume, -100.f);
 
     // GAIN knob
@@ -1125,8 +1125,8 @@ void MixerPanel::mouseDown (const juce::MouseEvent& e)
     // SF2 channel mute toggle — ColFcut column holds the M badge
     if (c.isSf2Ch && c.col == ColFcut)
     {
-        const auto strip = processor.sfzPlayer.getChannelStrip (c.sf2Channel);
-        processor.sfzPlayer.setChannelMuted (c.sf2Channel, !strip.muted);
+        const auto strip = processor.sfzPlayer.getChannelStrip (c.sf2Channel - 1);
+        processor.sfzPlayer.setChannelMuted (c.sf2Channel - 1, !strip.muted);
         repaint(); return;
     }
 
@@ -1227,7 +1227,7 @@ void MixerPanel::mouseDown (const juce::MouseEvent& e)
 
     if (c.isSf2Ch)
     {
-        const auto strip = processor.sfzPlayer.getChannelStrip (c.sf2Channel);
+        const auto strip = processor.sfzPlayer.getChannelStrip (c.sf2Channel - 1);
         if (c.col == ColGain)
             drag.startVal = juce::Decibels::gainToDecibels (strip.volume, -100.f);
         else if (c.col == ColPan)
@@ -1280,12 +1280,12 @@ void MixerPanel::mouseDrag (const juce::MouseEvent& e)
         if (drag.col == ColGain)
         {
             const float newDb = juce::jlimit (-100.f, 24.f, drag.startVal + dy * 0.5f * fineMult);
-            processor.sfzPlayer.setChannelVolume (drag.sf2Channel,
+            processor.sfzPlayer.setChannelVolume (drag.sf2Channel - 1,
                 juce::Decibels::decibelsToGain (newDb, -100.f));
         }
         else if (drag.col == ColPan)
         {
-            processor.sfzPlayer.setChannelPan (drag.sf2Channel,
+            processor.sfzPlayer.setChannelPan (drag.sf2Channel - 1,
                 juce::jlimit (-1.f, 1.f, drag.startVal + dx * 0.01f * fineMult));
         }
         repaint(); return;
@@ -1425,7 +1425,7 @@ void MixerPanel::mouseDoubleClick (const juce::MouseEvent& e)
 
     if (c.isSf2Ch)
     {
-        const auto strip = processor.sfzPlayer.getChannelStrip (c.sf2Channel);
+        const auto strip = processor.sfzPlayer.getChannelStrip (c.sf2Channel - 1);
         currentVal = (c.col == ColGain)
             ? juce::Decibels::gainToDecibels (strip.volume, -100.f)
             : strip.pan;
@@ -1489,10 +1489,10 @@ void MixerPanel::mouseDoubleClick (const juce::MouseEvent& e)
         if (isSf2Ch)
         {
             if (col == ColGain)
-                processor.sfzPlayer.setChannelVolume (sf2ChIdx,
+                processor.sfzPlayer.setChannelVolume (sf2ChIdx - 1,
                     juce::Decibels::decibelsToGain (juce::jlimit (-100.f, 24.f, v), -100.f));
             else if (col == ColPan)
-                processor.sfzPlayer.setChannelPan (sf2ChIdx, juce::jlimit (-1.f, 1.f, v));
+                processor.sfzPlayer.setChannelPan (sf2ChIdx - 1, juce::jlimit (-1.f, 1.f, v));
             repaint(); return;
         }
 

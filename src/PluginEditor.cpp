@@ -123,6 +123,10 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      };
      const int colIdx = (preset.bank * 128 + preset.preset) % 6;
      pianoRollPanel.addOrUpdateSfPresetTrack (preset, midiChannel1Based, kPalette[colIdx]);
+
+     // Rebuild the live MIDI channel mask so the newly assigned channel
+     // is included immediately (without requiring the user to re-select the track).
+     syncMidiRouteMode();
  };
 
  // Track-header right-click on an SF track → change MIDI channel.
