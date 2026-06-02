@@ -1001,6 +1001,7 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
 
 void SfzDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
 {
+    const auto& theme = getTheme();
     drawPresetPicker (g);
 
     const auto& f = processor.sfzPlayer.getLoadedFile();
