@@ -26,12 +26,12 @@ void MixerPanel::setActiveChannels (const std::vector<Sf2PresetInfo>& presets,
 {
     sf2Channels.clear();
     // Build ordered list: for each preset that has a channel assignment, add entry.
-    for (const auto& p : presets)
+    // Key is preset index (0, 1, 2...), NOT bank*128+preset.
+    for (int i = 0; i < (int) presets.size(); ++i)
     {
-        const int key = p.bank * 128 + p.preset;
-        auto it = presetChannels.find (key);
-        if (it != presetChannels.end())
-            sf2Channels.push_back ({ p, it->second });
+        auto it = presetChannels.find (i);   // key is preset index, not bank*128+preset
+        if (it != presetChannels.end() && it->second >= 1 && it->second <= 16)
+            sf2Channels.push_back ({ presets[(size_t) i], it->second });
     }
     repaint();
 }

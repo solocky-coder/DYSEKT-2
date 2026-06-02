@@ -425,6 +425,19 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
 
             if (onPresetChannelAssigned)
                 onPresetChannelAssigned (info, 0);
+
+            // Rebuild sfPlayerChannelMask from the presets that are still assigned.
+            {
+                uint32_t mask = 0u;
+                const auto& chMap2 = programGrid.getPresetChannels();
+                for (const auto& kv : chMap2)
+                {
+                    if (kv.first == presetIdx) continue; // this one is being removed
+                    if (kv.second >= 1 && kv.second <= 16)
+                        mask |= (1u << kv.second);
+                }
+                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+            }
         }
         else
         {
@@ -434,14 +447,19 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
             // sends on the assigned MIDI channel.
             processor.sfzPlayer.setPresetOnChannel (ch - 1, info.bank, info.preset);
 
+            // Add this channel to sfPlayerChannelMask so MIDI on ch N reaches the SF player.
+            {
+                uint32_t mask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+                mask |= (1u << ch);
+                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+            }
+
             if (onPresetChannelAssigned)
                 onPresetChannelAssigned (info, ch);
         }
 
-        // Rebuild sfPlayerChannelMask from the current grid state.
-        // NOTE: the grid only assigns presets to channels within the SF player's
-        // spinner-defined range — it does NOT determine which channels the SF
-        // player owns.  The mask is owned exclusively by the CH spinners.
+        // sfPlayerChannelMask is now updated above on both assign and deactivate,
+        // so MIDI routing stays in sync with the grid's channel assignments.
     };
 
     // ── Preview toggle: left-click radio ─────────────────────────────────────
