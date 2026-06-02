@@ -134,6 +134,12 @@ private:
     float holdL  { 0.f }, holdR  { 0.f };
     static constexpr float kHoldDecay = 0.93f;
 
+    // ── MIDI activity LED ─────────────────────────────────────────────────────
+    juce::Rectangle<int> midiLedZone;
+    bool  midiLedOn   { false };
+    int   midiLedHold { 0 };
+    static constexpr int kMidiLedHoldTicks = 4;  // ~133 ms at 30 Hz
+
     // ── Cached preset list ────────────────────────────────────────────────────
     std::vector<Sf2PresetInfo> presetList;
 

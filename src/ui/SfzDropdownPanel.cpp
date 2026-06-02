@@ -532,6 +532,14 @@ void SfzDropdownPanel::resized()
     meterZone   = strip.removeFromRight (kMeterW);
     strip.removeFromRight (kPad);
 
+    // MIDI activity LED — immediately left of VU meter
+    {
+        const int ledSize = juce::jmin (14, strip.getHeight() - 4);
+        midiLedZone = strip.removeFromRight (ledSize + 4)
+                          .withSizeKeepingCentre (ledSize, ledSize);
+    }
+    strip.removeFromRight (kPad);
+
     volZone    = strip.removeFromRight (kKnobW);
     strip.removeFromRight (kKnobGap);
     panZone    = strip.removeFromRight (kKnobW);
@@ -833,6 +841,7 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     }
 
     processor.sfzPlayer.loadFile (f);
+    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (f);
     closeBrowser();
     if (f.getFileExtension().toLowerCase() == ".sf2")
@@ -1040,6 +1049,27 @@ void SfzDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
               }());
 
     drawMeter (g);
+
+    // ── MIDI activity LED ─────────────────────────────────────────────────────
+    if (! midiLedZone.isEmpty())
+    {
+        const juce::Colour ledColour = midiLedOn
+            ? theme.accent.brighter (0.3f)
+            : theme.darkBar.darker (0.2f);
+        const juce::Colour borderColour = midiLedOn
+            ? theme.accent
+            : theme.foreground.withAlpha (0.15f);
+
+        g.setColour (ledColour);
+        g.fillEllipse (midiLedZone.toFloat());
+        g.setColour (borderColour);
+        g.drawEllipse (midiLedZone.toFloat().reduced (0.5f), 1.0f);
+
+        g.setColour (theme.foreground.withAlpha (0.55f));
+        g.setFont (juce::Font (7.0f));
+        g.drawText ("M", midiLedZone.translated (0, midiLedZone.getHeight() + 1),
+                    juce::Justification::centredTop, false);
+    }
 }
 
 // =============================================================================
@@ -1248,6 +1278,20 @@ void SfzDropdownPanel::timerCallback()
     holdR *= kHoldDecay;
     meterL = newL;
     meterR = newR;
+
+    // ── MIDI activity LED ─────────────────────────────────────────────────────
+    const int activity = processor.sfzMidiActivity.load (std::memory_order_relaxed);
+    const bool newLedOn = (activity > 0) || (midiLedHold > 0);
+    if (activity > 0)
+        midiLedHold = kMidiLedHoldTicks;
+    else if (midiLedHold > 0)
+        --midiLedHold;
+
+    if (newLedOn != midiLedOn)
+    {
+        midiLedOn = newLedOn;
+        repaint (midiLedZone);
+    }
 
     presetList = processor.sfzPlayer.getPresetList();
 
@@ -1698,6 +1742,7 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
         {
             juce::File file (f);
             processor.sfzPlayer.loadFile (file);
+            processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
             reloadZones (file);
             closeBrowser();
             if (ext == ".sf2")
@@ -1766,6 +1811,7 @@ void SfzDropdownPanel::initEmptySfz()
         sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
 
     processor.sfzPlayer.loadFile (sfz);   // sfizz handles empty file gracefully (silence)
+    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }
 
@@ -2257,6 +2303,7 @@ void SfzDropdownPanel::writeSfzZoneChange (const juce::File& f,
 
     // Hot-reload the SFZ player so changes take effect immediately
     processor.sfzPlayer.loadFile (f);
+    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
 }
 
 // =============================================================================
@@ -2324,6 +2371,7 @@ void SfzDropdownPanel::showAddZoneOverlay (const juce::File& sfzFile,
         }
 
         processor.sfzPlayer.loadFile (sfzFile);
+        processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (sfzFile);
         keysPanel.autoScrollToZones();
         repaint();
@@ -2385,6 +2433,7 @@ void SfzDropdownPanel::openSaveAsNewForZone (const juce::File& sampleFile)
         addZoneTargetSfz = dest;
 
         processor.sfzPlayer.loadFile (dest);
+        processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (dest);
         repaint();
 
