@@ -45,7 +45,7 @@ public:
 private:
     // ── Layout zones (computed in resized) ────────────────────────────────────
     juce::Rectangle<int> nameZone, loadBtnZone, saveAsBtnZone, volZone, transZone,
-                          chZone, meterZone, statusZone,
+                          chZone, meterZone, midiLedZone, statusZone,
                           atkZone, decZone, susZone, relZone,  ///< ADSR knobs
                           rvSizeZone, rvDampZone, rvWidthZone, rvMixZone, rvFreezeZone; ///< Reverb knobs
 
@@ -60,6 +60,11 @@ private:
     float meterL { 0.f }, meterR { 0.f };
     float holdL  { 0.f }, holdR  { 0.f };
     static constexpr float kHoldDecay = 0.93f;
+
+    // ── MIDI activity LED ─────────────────────────────────────────────────────
+    bool  midiLedOn    { false };
+    int   midiLedHold  { 0 };   // timer ticks remaining to keep LED lit after last NoteOff
+    static constexpr int kMidiLedHoldTicks = 4; // ~133 ms at 30 Hz
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     void openFileChooser();

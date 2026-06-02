@@ -2952,6 +2952,23 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float* sfzL = sfzBuf.getWritePointer (0);
         float* sfzR = sfzBuf.getWritePointer (1);
 
+        // Track MIDI activity for the SF-player LED in SfzModulePanel.
+        // Increment on NoteOn, decrement (clamped) on NoteOff.
+        for (const auto meta : sfzMidiBuf)
+        {
+            const auto& msg = meta.getMessage();
+            if (msg.isNoteOn (true))
+                sfzMidiActivity.fetch_add (1, std::memory_order_relaxed);
+            else if (msg.isNoteOff (true))
+            {
+                int prev = sfzMidiActivity.load (std::memory_order_relaxed);
+                while (prev > 0 &&
+                       !sfzMidiActivity.compare_exchange_weak (prev, prev - 1,
+                           std::memory_order_relaxed, std::memory_order_relaxed))
+                {}
+            }
+        }
+
         // Pass the clean, pre-filtered buffer; sfzPlayer's internal channel filter
         // now acts as a redundant safety check rather than the primary split point.
         sfzPlayer.process (sfzMidiBuf, sfzL, sfzR, numSamples);

@@ -383,6 +383,8 @@ public:
     // Peak meters written by processBlock, read by SfzModulePanel timer
     std::atomic<float> sfzPeakL { 0.0f };
     std::atomic<float> sfzPeakR { 0.0f };
+    // MIDI activity counter for SF player LED: +1 on NoteOn, -1 on NoteOff (clamped ≥0)
+    std::atomic<int>   sfzMidiActivity { 0 };
     // Live drag bounds (UI -> audio thread, bypasses FIFO for low latency)
     std::atomic<int> liveDragBoundsStart { 0 };
     std::atomic<int> liveDragBoundsEnd   { 0 };

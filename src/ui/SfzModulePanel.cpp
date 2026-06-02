@@ -120,6 +120,14 @@ void SfzModulePanel::resized()
     meterZone = area.removeFromRight (kMeterW);
     area.removeFromRight (kPad);
 
+    // MIDI activity LED — immediately left of VU meter (square, centred vertically)
+    {
+        const int ledSize = juce::jmin (14, area.getHeight() - 4);
+        midiLedZone = area.removeFromRight (ledSize + 4)
+                          .withSizeKeepingCentre (ledSize, ledSize);
+    }
+    area.removeFromRight (kPad);
+
     chZone   = {};
     nameZone = area;
 
@@ -230,6 +238,29 @@ void SfzModulePanel::paint (juce::Graphics& g)
 
     // ── VU meter ─────────────────────────────────────────────────────────────
     drawMeter (g);
+
+    // ── MIDI activity LED ─────────────────────────────────────────────────────
+    if (! midiLedZone.isEmpty())
+    {
+        const juce::Colour ledColour = midiLedOn
+            ? theme.accent.brighter (0.3f)
+            : theme.darkBar.darker (0.2f);
+        const juce::Colour borderColour = midiLedOn
+            ? theme.accent
+            : theme.foreground.withAlpha (0.15f);
+
+        g.setColour (ledColour);
+        g.fillEllipse (midiLedZone.toFloat());
+
+        g.setColour (borderColour);
+        g.drawEllipse (midiLedZone.toFloat().reduced (0.5f), 1.0f);
+
+        // Tiny "M" label below LED
+        g.setColour (theme.foreground.withAlpha (0.55f));
+        g.setFont (juce::Font (7.0f));
+        g.drawText ("M", midiLedZone.translated (0, midiLedZone.getHeight() + 1),
+                    juce::Justification::centredTop, false);
+    }
 
     // ── ADSR row background ───────────────────────────────────────────────────
     {
@@ -443,6 +474,20 @@ void SfzModulePanel::timerCallback()
     holdR *= kHoldDecay;
     meterL = newL;
     meterR = newR;
+
+    // ── MIDI activity LED ─────────────────────────────────────────────────────
+    const int activity = processor.sfzMidiActivity.load (std::memory_order_relaxed);
+    const bool newLedOn = (activity > 0) || (midiLedHold > 0);
+    if (activity > 0)
+        midiLedHold = kMidiLedHoldTicks;
+    else if (midiLedHold > 0)
+        --midiLedHold;
+
+    if (newLedOn != midiLedOn)
+    {
+        midiLedOn = newLedOn;
+        repaint (midiLedZone);
+    }
 
     repaint();
 }
@@ -736,6 +781,7 @@ void SfzModulePanel::filesDropped (const juce::StringArray& files, int, int)
         {
             juce::File file (f);
             processor.sfzPlayer.loadFile (file);
+            processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
             reloadZones (file);
             repaint();
             return;
@@ -760,6 +806,7 @@ void SfzModulePanel::openFileChooser()
             if (result.existsAsFile())
             {
                 processor.sfzPlayer.loadFile (result);
+                processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
                 reloadZones (result);
                 repaint();
             }
@@ -852,6 +899,7 @@ void SfzModulePanel::showAddZoneOverlay (const juce::File& sfzFile,
         }
 
         processor.sfzPlayer.loadFile (sfzFile);
+        processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (sfzFile);
         keysPanel.autoScrollToZones();
         repaint();
@@ -934,6 +982,7 @@ void SfzModulePanel::openSaveAsOverlay (bool thenOpenAddZone)
 
         // Switch sfzPlayer and zone matrix to the new file
         processor.sfzPlayer.loadFile (dest);
+        processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (dest);
         repaint();
 
@@ -987,6 +1036,7 @@ void SfzModulePanel::initEmptySfz()
         sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
 
     processor.sfzPlayer.loadFile (sfz);   // sfizz handles empty file gracefully (silence)
+    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }
 
