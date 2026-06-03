@@ -8,7 +8,10 @@
 //  called from the audio thread (processBlock) or UI thread (load/param set).
 //
 //  Thread safety:
-//    loadFile()           — UI thread; PendingLoad posted via atomic
+//    loadFile()           — UI thread; dispatches a juce::ThreadPool job
+//                           that builds the synth on a bg thread, then
+//                           posts the finished ReadySynth via a lock-free
+//                           atomic pointer (pendingReady)
 //    setVolume/Trans()    — UI thread; stored as std::atomic<float>
 //    setPresetByIndex()   — UI thread; sets atomics + programChangePending flag
 //    prepare()            — audio thread (prepareToPlay)
@@ -53,8 +56,11 @@ public:
 
     // ── Called from UI thread ─────────────────────────────────────────────────
 
-    /** Queue a new SF2 file for loading. Returns immediately. */
-    void loadFile (const juce::File& f);
+    /** Queue a new SF2 file for loading.
+     *  Dispatches a background job on @p pool that builds the synth
+     *  object; the audio thread picks it up in the next process() call.
+     *  Returns immediately — safe to call from the UI thread. */
+    void loadFile (const juce::File& f, juce::ThreadPool& pool);
 
     /** Unload current instrument (silent output). */
     void unload();
@@ -221,13 +227,44 @@ public:
     std::atomic<float> channelPeakR[16] {};
 
 private:
-    // ── Pending load (UI → audio thread handoff) ──────────────────────────────
-    struct PendingLoad
+    // ── ReadySynth: pre-built synth object posted from a bg thread ────────────
+    //  loadFile() launches a juce::ThreadPoolJob that constructs the full
+    //  FluidSynth / sfizz object off the audio thread, then stores the result
+    //  here.  applyPendingLoad() (called at the top of process()) does nothing
+    //  more than a pointer swap — safe on the real-time thread.
+    struct ReadySynth
     {
-        juce::File file;
-        bool       shouldUnload { false };
+        juce::File  file;
+        bool        isSfz        { false };
+        bool        shouldUnload { false };
+
+#if DYSEKT_HAS_FLUIDSYNTH
+        fluid_settings_t*          settings    { nullptr };
+        fluid_synth_t*             synth       { nullptr };
+        int                        sfontId     { -1      };
+        std::vector<Sf2PresetInfo> presets;
+        int                        initBank    { 0       };
+        int                        initProgram { 0       };
+#endif
+
+#if DYSEKT_HAS_SFIZZ
+        sfizz_synth_t* sfizz { nullptr };
+#endif
+
+        // Destructor frees any synth objects that were NOT transferred to the
+        // audio thread (e.g. when a newer load supersedes this one).
+        ~ReadySynth()
+        {
+#if DYSEKT_HAS_FLUIDSYNTH
+            if (synth    != nullptr) { delete_fluid_synth    (synth);    synth    = nullptr; }
+            if (settings != nullptr) { delete_fluid_settings (settings); settings = nullptr; }
+#endif
+#if DYSEKT_HAS_SFIZZ
+            if (sfizz != nullptr) { sfizz_free (sfizz); sfizz = nullptr; }
+#endif
+        }
     };
-    std::atomic<PendingLoad*> pendingLoad { nullptr };
+    std::atomic<ReadySynth*> pendingReady { nullptr };
 
     // Stores the path of the most recently queued file (set by loadFile() on
     // the UI thread; safe to read via getPendingFilePath() at any time).

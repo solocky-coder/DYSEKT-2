@@ -123,10 +123,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      };
      const int colIdx = (preset.bank * 128 + preset.preset) % 6;
      pianoRollPanel.addOrUpdateSfPresetTrack (preset, midiChannel1Based, kPalette[colIdx]);
-
-     // Rebuild the live MIDI channel mask so the newly assigned channel
-     // is included immediately (without requiring the user to re-select the track).
-     syncMidiRouteMode();
  };
 
  // Track-header right-click on an SF track → change MIDI channel.
@@ -196,7 +192,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      const auto ext = f.getFileExtension().toLowerCase();
      if (ext == ".sfz" || ext == ".sf2")
      {
-         processor.sfzPlayer.loadFile (f);
+         processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
          sfzDropdown.reloadZones (f);
          if (uiMode != 1) setUiMode (1);
      }

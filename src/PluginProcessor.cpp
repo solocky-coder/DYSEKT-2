@@ -2630,42 +2630,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // liveCh == 0 means an SF-player track is selected: sfzPlayer owns live
         // input via liveInputChannelMask; clear the slicer buffer entirely.
         const int liveCh = sequencer.getSelectedLiveChannel();
-
-        // Preserve live controller MIDI for sfzPlayer BEFORE any midi.clear().
-        // When an SF-player track is selected (liveCh == 0), midi.clear() below
-        // would wipe out live notes -- sfzMidiBuf (built from `midi` later) would
-        // be empty and FluidSynth would never receive the note-ons.
-        juce::MidiBuffer liveMidiForSfz;
-        if (liveCh == 0)
-        {
-            const uint32_t sfMaskLive = sfPlayerChannelMask.load (std::memory_order_relaxed);
-            if (sfMaskLive != 0)
-            {
-                // Fan out ch-1 controller messages to all SF-player-assigned channels
-                // so that a controller sending on ch 1 reaches every assigned preset.
-                const uint16_t liveMask = sfzPlayer.getLiveInputChannelMask();
-                for (const auto meta : midi)
-                {
-                    const auto& msg = meta.getMessage();
-                    const int ch = msg.getChannel();
-                    if (ch < 1 || ch > 16) continue;
-                    if (ch == 1 && liveMask != 0)
-                    {
-                        for (int fch = 1; fch <= 16; ++fch)
-                            if (liveMask & (1u << (fch - 1)))
-                            {
-                                auto m = msg; m.setChannel (fch);
-                                liveMidiForSfz.addEvent (m, meta.samplePosition);
-                            }
-                    }
-                    else if (sfMaskLive & (1u << ch))
-                    {
-                        liveMidiForSfz.addEvent (msg, meta.samplePosition);
-                    }
-                }
-            }
-        }
-
         if (liveCh > 0)
         {
             juce::MidiBuffer restamped;
@@ -2681,17 +2645,10 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         else
         {
             // SF-player track selected (or nothing selected): VoicePool only sees
-            // slicer sequencer events -- live notes go to sfzPlayer only.
+            // slicer sequencer events — live notes go to sfzPlayer only.
             midi.clear();
             midi.addEvents (slicerSeqEvents, 0, buffer.getNumSamples(), 0);
         }
-
-        // Re-inject saved live SF MIDI so sfzMidiBuf (built below from `midi`)
-        // includes it. These events are on their proper SF-player channels so
-        // the sfPlayerChannelMask gate passes them, and processMidi/VoicePool
-        // excludes them via the same gate.
-        if (!liveMidiForSfz.isEmpty())
-            midi.addEvents (liveMidiForSfz, 0, buffer.getNumSamples(), 0);
     }
 #endif
 
@@ -3410,7 +3367,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             const juce::File sfzFile (sfzPath);
             if (sfzFile.existsAsFile())
             {
-                sfzPlayer.loadFile (sfzFile);
+                sfzPlayer.loadFile (sfzFile, fileLoadPool);
                 // Store the preset index so the audio thread can select it
                 // once the soundfont finishes loading and posts its preset list.
                 sfzPlayer.setPresetByIndex (sfzPresetIdx);
