@@ -577,6 +577,29 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         scratchR.assign ((size_t) numSamples, 0.0f);
     }
 
+    // ── Auto-trigger JUCE ADSR from any incoming note-on / note-off ──────────
+    // The JUCE ADSR multiplies the rendered output — without a noteOn() it
+    // stays at 0 and silences everything.  The UI keyboard path calls
+    // juceAdsrNoteOn() explicitly, but external MIDI (DAW, controller) arrives
+    // here directly and must also drive the envelope.
+    // We snoop midiIn here (before backend-specific forwarding) so both the
+    // sfizz and FluidSynth paths benefit from a single code site.
+    {
+        bool anyOn  = false;
+        bool anyOff = false;
+        for (const auto meta : midiIn)
+        {
+            const auto msg = meta.getMessage();
+            if      (msg.isNoteOn (true))  anyOn  = true;
+            else if (msg.isNoteOff (true)) anyOff = true;
+        }
+        // Flush any pending explicit signals first, then apply the snoop result.
+        if (juceAdsrNoteOnPending.exchange (false, std::memory_order_acquire) || anyOn)
+            juceAdsr.noteOn();
+        if (juceAdsrNoteOffPending.exchange (false, std::memory_order_acquire) || anyOff)
+            juceAdsr.noteOff();
+    }
+
 #if DYSEKT_HAS_SFIZZ
     if (isSfzFile && sfizzSynth != nullptr)
     {
@@ -694,7 +717,7 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         }
 
         // ── Apply JUCE ADSR (Option B) ────────────────────────────────────────
-        // Flush param changes first, then handle note-on/off atomics.
+        // Param changes flushed here; noteOn/Off already consumed at top of process().
         if (juceAdsrParamsDirty.exchange (false, std::memory_order_acquire))
         {
             juceAdsrParams = { juceAdsrAttack .load (std::memory_order_relaxed),
@@ -703,10 +726,6 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
                                juceAdsrRelease.load (std::memory_order_relaxed) };
             juceAdsr.setParameters (juceAdsrParams);
         }
-        if (juceAdsrNoteOnPending .exchange (false, std::memory_order_acquire))
-            juceAdsr.noteOn();
-        if (juceAdsrNoteOffPending.exchange (false, std::memory_order_acquire))
-            juceAdsr.noteOff();
 
         {
             // Apply envelope to L and R using per-sample loop
@@ -864,10 +883,7 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
                            juceAdsrRelease.load (std::memory_order_relaxed) };
         juceAdsr.setParameters (juceAdsrParams);
     }
-    if (juceAdsrNoteOnPending .exchange (false, std::memory_order_acquire))
-        juceAdsr.noteOn();
-    if (juceAdsrNoteOffPending.exchange (false, std::memory_order_acquire))
-        juceAdsr.noteOff();
+    // noteOn/Off already consumed at top of process() — do not re-consume here.
 
     for (int i = 0; i < numSamples; ++i)
     {
