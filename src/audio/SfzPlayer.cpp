@@ -31,8 +31,8 @@ SfzPlayer::SfzPlayer()
 
 SfzPlayer::~SfzPlayer()
 {
-    // Drain any pending ReadySynth so we don't leak.
-    delete pendingReady.exchange (nullptr, std::memory_order_acq_rel);
+    // Drain any pending load so we don't leak.
+    delete pendingLoad.exchange (nullptr, std::memory_order_acq_rel);
 
     // Drain any pending preset list.
     delete freshPresets.exchange (nullptr, std::memory_order_acq_rel);
@@ -53,97 +53,19 @@ SfzPlayer::~SfzPlayer()
 
 void SfzPlayer::loadFile (const juce::File& f, juce::ThreadPool& pool)
 {
-    pendingFilePath = f.getFullPathName();   // record immediately for UI queries
-
-    const double sr    = currentSR;
-    const int    block = currentBlock;
-
-    pool.addJob ([this, f, sr, block]
-    {
-        auto* pkg  = new ReadySynth();
-        pkg->file  = f;
-
-        const auto ext = f.getFileExtension().toLowerCase();
-
-#if DYSEKT_HAS_SFIZZ
-        if (ext == ".sfz")
-        {
-            pkg->isSfz = true;
-            pkg->sfizz = sfizz_create_synth();
-            sfizz_set_sample_rate       (pkg->sfizz, (float) sr);
-            sfizz_set_samples_per_block (pkg->sfizz, block);
-
-            if (! sfizz_load_file (pkg->sfizz, f.getFullPathName().toRawUTF8()))
-            {
-                sfizz_free (pkg->sfizz);
-                pkg->sfizz = nullptr;
-                // pkg is still posted so the audio thread can clear the old state
-            }
-
-            delete pendingReady.exchange (pkg, std::memory_order_acq_rel);
-            return;
-        }
-#endif
-
-#if DYSEKT_HAS_FLUIDSYNTH
-        pkg->settings = new_fluid_settings();
-
-  #if JUCE_DEBUG
-        fluid_settings_setint (pkg->settings, "synth.verbose", 0);
-  #endif
-        fluid_settings_setint (pkg->settings, "synth.reverb.active", 1);
-        fluid_settings_setint (pkg->settings, "synth.chorus.active", 1);
-
-        pkg->synth = new_fluid_synth (pkg->settings);
-        fluid_synth_set_sample_rate (pkg->synth, (float) sr);
-        fluid_synth_set_gain        (pkg->synth, 2.0f);
-
-        pkg->sfontId = fluid_synth_sfload (pkg->synth,
-                           f.getFullPathName().toRawUTF8(), 1);
-
-        if (pkg->sfontId == FLUID_FAILED)
-        {
-            delete_fluid_synth    (pkg->synth);    pkg->synth    = nullptr;
-            delete_fluid_settings (pkg->settings); pkg->settings = nullptr;
-        }
-        else
-        {
-            // Build preset list here on the background thread so the audio
-            // thread's applyPendingLoad() becomes a trivial pointer swap.
-            fluid_sfont_t* sfont =
-                fluid_synth_get_sfont_by_id (pkg->synth, pkg->sfontId);
-            if (sfont != nullptr)
-            {
-                fluid_sfont_iteration_start (sfont);
-                for (fluid_preset_t* p = fluid_sfont_iteration_next (sfont);
-                     p != nullptr;
-                     p = fluid_sfont_iteration_next (sfont))
-                {
-                    Sf2PresetInfo info;
-                    info.bank   = fluid_preset_get_banknum (p);
-                    info.preset = fluid_preset_get_num     (p);
-                    info.name   = juce::String::fromUTF8   (fluid_preset_get_name (p));
-                    pkg->presets.push_back (info);
-                }
-
-                if (! pkg->presets.empty())
-                {
-                    pkg->initBank    = pkg->presets.front().bank;
-                    pkg->initProgram = pkg->presets.front().preset;
-                }
-            }
-        }
-#endif  // DYSEKT_HAS_FLUIDSYNTH
-
-        delete pendingReady.exchange (pkg, std::memory_order_acq_rel);
-    });
+    juce::ignoreUnused (pool);
+    pendingFilePath  = f.getFullPathName();   // record immediately for UI queries
+    auto* pkg        = new PendingLoad();
+    pkg->file        = f;
+    pkg->shouldUnload = false;
+    delete pendingLoad.exchange (pkg, std::memory_order_acq_rel);
 }
 
 void SfzPlayer::unload()
 {
-    auto* pkg         = new ReadySynth();
+    auto* pkg        = new PendingLoad();
     pkg->shouldUnload = true;
-    delete pendingReady.exchange (pkg, std::memory_order_acq_rel);
+    delete pendingLoad.exchange (pkg, std::memory_order_acq_rel);
 }
 
 void SfzPlayer::setVolume      (float g) { volume.store (g, std::memory_order_relaxed); }
@@ -604,15 +526,6 @@ void SfzPlayer::prepare (double sampleRate, int maxBlockSize)
     scratchL.assign ((size_t) maxBlockSize, 0.0f);
     scratchR.assign ((size_t) maxBlockSize, 0.0f);
 
-    // Pre-size pitch shift buffers to the worst-case source length so we never
-    // reallocate on the audio thread.  Worst case = +24 semitones → ratio = 4.
-    {
-        const int worstCase = (int) std::ceil ((float) maxBlockSize
-                                               * std::pow (2.0f, 24.0f / 12.0f)) + 2;
-        pitchBufL.assign ((size_t) worstCase, 0.0f);
-        pitchBufR.assign ((size_t) worstCase, 0.0f);
-    }
-
     // ── Prepare post-processing reverb ────────────────────────────────────────
     {
         juce::dsp::ProcessSpec spec;
@@ -746,10 +659,12 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         }
         else
         {
-            // pitchBufL/R are pre-sized in prepare() to the worst-case srcLen;
-            // a smaller-than-expected buffer here means prepare() was never
-            // called or maxBlockSize was under-reported.
-            jassert ((int) pitchBufL.size() >= srcLen);
+            // Grow pitch buffers if needed
+            if ((int) pitchBufL.size() < srcLen)
+            {
+                pitchBufL.assign ((size_t) srcLen, 0.0f);
+                pitchBufR.assign ((size_t) srcLen, 0.0f);
+            }
             std::fill (pitchBufL.begin(), pitchBufL.begin() + srcLen, 0.0f);
             std::fill (pitchBufR.begin(), pitchBufR.begin() + srcLen, 0.0f);
 
@@ -1064,19 +979,11 @@ void SfzPlayer::suppressFluidAdsr()
 
 void SfzPlayer::applyPendingLoad()
 {
-    // ── Lightweight RT-safe swap ──────────────────────────────────────────────
-    // The heavy FluidSynth / sfizz construction was done on the background
-    // thread inside loadFile().  All we do here is:
-    //   1. Tear down the previously-active synth objects
-    //   2. Take ownership of the pre-built ones from the ReadySynth packet
-    //   3. Set a handful of atomics / call lightweight re-apply helpers
-    // No allocations, no file I/O, no lock contention.
-
-    auto* pkg = pendingReady.exchange (nullptr, std::memory_order_acq_rel);
+    auto* pkg = pendingLoad.exchange (nullptr, std::memory_order_acq_rel);
     if (pkg == nullptr)
         return;
 
-    std::unique_ptr<ReadySynth> owner (pkg);
+    std::unique_ptr<PendingLoad> owner (pkg);
 
     // ── Tear down whatever is currently loaded ────────────────────────────────
     loaded.store (false, std::memory_order_release);
@@ -1109,26 +1016,30 @@ void SfzPlayer::applyPendingLoad()
     delete freshPresets.exchange (new std::vector<Sf2PresetInfo>(),
                                   std::memory_order_acq_rel);
 
-    // Clear any stale per-channel preset assignments from the previous load.
+    // Clear any stale per-channel preset assignments from a previous load.
     clearChannelPresets();
 
     if (owner->shouldUnload)
         return;
 
-    // ── SFZ path (sfizz pre-built on bg thread) ───────────────────────────────
+    const auto ext = owner->file.getFileExtension().toLowerCase();
+
+    // ── SFZ path (sfizz) ─────────────────────────────────────────────────────
 #if DYSEKT_HAS_SFIZZ
-    if (owner->isSfz)
+    if (ext == ".sfz")
     {
-        if (owner->sfizz == nullptr)
-            return;   // load failed on the background thread
-
         isSfzFile  = true;
-        sfizzSynth = owner->sfizz;
-        owner->sfizz = nullptr;   // transfer ownership — ReadySynth dtor won't free it
-
-        // Resync in case prepare() ran with a different rate/block since the bg job started.
+        sfizzSynth = sfizz_create_synth();
         sfizz_set_sample_rate       (sfizzSynth, (float) currentSR);
         sfizz_set_samples_per_block (sfizzSynth, currentBlock);
+
+        if (! sfizz_load_file (sfizzSynth, owner->file.getFullPathName().toRawUTF8()))
+        {
+            sfizz_free (sfizzSynth);
+            sfizzSynth = nullptr;
+            isSfzFile  = false;
+            return;
+        }
 
         activeFile = owner->file;
         loaded.store (true, std::memory_order_release);
@@ -1145,18 +1056,30 @@ void SfzPlayer::applyPendingLoad()
     }
 #endif
 
-    // ── SF2 path (FluidSynth pre-built on bg thread) ─────────────────────────
+    // ── SF2 path (FluidSynth) ─────────────────────────────────────────────────
 #if DYSEKT_HAS_FLUIDSYNTH
-    if (owner->synth == nullptr)
-        return;   // load failed on the background thread
+    settings = new_fluid_settings();
 
-    // Transfer ownership — ReadySynth dtor must NOT free these.
-    settings        = owner->settings;  owner->settings = nullptr;
-    synth           = owner->synth;     owner->synth    = nullptr;
-    sfontId         = owner->sfontId;
+#if JUCE_DEBUG
+    fluid_settings_setint (settings, "synth.verbose", 0);
+#endif
 
-    // Resync sample rate in case prepare() ran after the bg job started.
+    fluid_settings_setint (settings, "synth.reverb.active", 1);
+    fluid_settings_setint (settings, "synth.chorus.active", 1);
+
+    synth = new_fluid_synth (settings);
     fluid_synth_set_sample_rate (synth, (float) currentSR);
+    fluid_synth_set_gain        (synth, 2.0f);
+
+    sfontId = fluid_synth_sfload (synth,
+                  owner->file.getFullPathName().toRawUTF8(), 1);
+
+    if (sfontId == FLUID_FAILED)
+    {
+        delete_fluid_synth    (synth);    synth    = nullptr;
+        delete_fluid_settings (settings); settings = nullptr;
+        return;
+    }
 
     activeFile = owner->file;
     loaded.store (true, std::memory_order_release);
@@ -1168,24 +1091,30 @@ void SfzPlayer::applyPendingLoad()
     setChorus   (chorus.load   (std::memory_order_relaxed));
 
     presetIndex.store (0, std::memory_order_relaxed);
+    postPresetList();
 
-    // Publish the preset list that was built on the bg thread.
-    if (! owner->presets.empty())
+    // Seed bank/program for the initial program change (preset 0).
+    // We can't use cachedPresets here (audio thread), so read directly from FluidSynth.
     {
-        auto* list = new std::vector<Sf2PresetInfo> (std::move (owner->presets));
-        delete freshPresets.exchange (list, std::memory_order_acq_rel);
+        fluid_sfont_t* sfont = fluid_synth_get_sfont_by_id (synth, sfontId);
+        if (sfont != nullptr)
+        {
+            fluid_sfont_iteration_start (sfont);
+            fluid_preset_t* first = fluid_sfont_iteration_next (sfont);
+            if (first != nullptr)
+            {
+                pendingBank   .store (fluid_preset_get_banknum (first), std::memory_order_relaxed);
+                pendingProgram.store (fluid_preset_get_num     (first), std::memory_order_relaxed);
+            }
+        }
     }
 
-    // Seed bank/program for the initial program change.
-    pendingBank   .store (owner->initBank,    std::memory_order_relaxed);
-    pendingProgram.store (owner->initProgram, std::memory_order_relaxed);
-    presetIndex   .store (0,                  std::memory_order_relaxed);
-    programChangePending.store (true, std::memory_order_release);
+    // Assign first preset (bank 0, preset 0) to channel 0 as default.
+    // The sequencer will call setPresetOnChannel() to populate other channels.
+    applyPendingChannelChanges();  // all slots are -1 at this point; no-op but clears dirty flag
+    setPresetByIndex (0);          // triggers applyProgramChange() on next process() tick
 
-    // Assign first preset to channel 0 as default; clear dirty flag.
-    applyPendingChannelChanges();
-
-    // Suppress FluidSynth's internal ADSR so JUCE ADSR has exclusive control.
+    // Suppress FluidSynth's internal ADSR so JUCE ADSR has exclusive envelope control.
     suppressFluidAdsr();
 
     // Switch to omni so all incoming MIDI reaches FluidSynth without needing
@@ -1193,6 +1122,9 @@ void SfzPlayer::applyPendingLoad()
     // blocks the slicer/VoicePool when SF-Player mode is active, so omni is
     // safe in both standalone and plugin builds.
     midiChannel.store (0, std::memory_order_relaxed);
+
+#else
+    juce::ignoreUnused (owner);
 #endif
 }
 
@@ -1245,10 +1177,31 @@ void SfzPlayer::applyProgramChange()
 
 void SfzPlayer::postPresetList()
 {
-    // No-op: the preset list is now built on the background thread inside
-    // loadFile() and stored directly in ReadySynth::presets.
-    // applyPendingLoad() publishes it to freshPresets in one pointer swap.
-    // This function is kept to avoid breaking the existing declaration.
+#if DYSEKT_HAS_FLUIDSYNTH
+    if (synth == nullptr || sfontId == FLUID_FAILED)
+        return;
+
+    fluid_sfont_t* sfont = fluid_synth_get_sfont_by_id (synth, sfontId);
+    if (sfont == nullptr)
+        return;
+
+    auto* list = new std::vector<Sf2PresetInfo>();
+
+    fluid_sfont_iteration_start (sfont);
+    for (fluid_preset_t* p = fluid_sfont_iteration_next (sfont);
+         p != nullptr;
+         p = fluid_sfont_iteration_next (sfont))
+    {
+        Sf2PresetInfo info;
+        info.bank   = fluid_preset_get_banknum (p);
+        info.preset = fluid_preset_get_num     (p);
+        info.name   = juce::String::fromUTF8   (fluid_preset_get_name (p));
+        list->push_back (info);
+    }
+
+    // Discard any previous unread list and post the fresh one.
+    delete freshPresets.exchange (list, std::memory_order_acq_rel);
+#endif
 }
 
 // ── Pitch shift helper ────────────────────────────────────────────────────────

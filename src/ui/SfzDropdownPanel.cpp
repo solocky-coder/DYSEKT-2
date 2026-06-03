@@ -840,7 +840,7 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
         return;
     }
 
-    processor.sfzPlayer.loadFile (f);
+    processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
     processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (f);
     closeBrowser();
@@ -1742,7 +1742,7 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
         if (ext == ".sf2" || ext == ".sfz")
         {
             juce::File file (f);
-            processor.sfzPlayer.loadFile (file);
+            processor.sfzPlayer.loadFile (file, processor.fileLoadPool);
             processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
             reloadZones (file);
             closeBrowser();
@@ -1811,7 +1811,7 @@ void SfzDropdownPanel::initEmptySfz()
     if (! sfz.existsAsFile())
         sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
 
-    processor.sfzPlayer.loadFile (sfz);   // sfizz handles empty file gracefully (silence)
+    processor.sfzPlayer.loadFile (sfz, processor.fileLoadPool);   // sfizz handles empty file gracefully (silence)
     processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }
@@ -2303,7 +2303,7 @@ void SfzDropdownPanel::writeSfzZoneChange (const juce::File& f,
     f.replaceWithText (newContent);
 
     // Hot-reload the SFZ player so changes take effect immediately
-    processor.sfzPlayer.loadFile (f);
+    processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
     processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
 }
 
@@ -2371,7 +2371,7 @@ void SfzDropdownPanel::showAddZoneOverlay (const juce::File& sfzFile,
             return;
         }
 
-        processor.sfzPlayer.loadFile (sfzFile);
+        processor.sfzPlayer.loadFile (sfzFile, processor.fileLoadPool);
         processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (sfzFile);
         keysPanel.autoScrollToZones();
@@ -2433,7 +2433,7 @@ void SfzDropdownPanel::openSaveAsNewForZone (const juce::File& sampleFile)
 
         addZoneTargetSfz = dest;
 
-        processor.sfzPlayer.loadFile (dest);
+        processor.sfzPlayer.loadFile (dest, processor.fileLoadPool);
         processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (dest);
         repaint();
@@ -2484,7 +2484,7 @@ void SfzDropdownPanel::openSaveAsOverlay()
             dest.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
         }
 
-        processor.sfzPlayer.loadFile (dest);
+        processor.sfzPlayer.loadFile (dest, processor.fileLoadPool);
         reloadZones (dest);
         repaint();
     };

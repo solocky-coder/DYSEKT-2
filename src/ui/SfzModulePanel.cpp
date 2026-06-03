@@ -780,7 +780,7 @@ void SfzModulePanel::filesDropped (const juce::StringArray& files, int, int)
         if (ext == ".sf2" || ext == ".sfz")
         {
             juce::File file (f);
-            processor.sfzPlayer.loadFile (file);
+            processor.sfzPlayer.loadFile (file, processor.fileLoadPool);
             processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
             reloadZones (file);
             repaint();
@@ -805,7 +805,7 @@ void SfzModulePanel::openFileChooser()
             auto result = fc.getResult();
             if (result.existsAsFile())
             {
-                processor.sfzPlayer.loadFile (result);
+                processor.sfzPlayer.loadFile (result, processor.fileLoadPool);
                 processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
                 reloadZones (result);
                 repaint();
@@ -898,7 +898,7 @@ void SfzModulePanel::showAddZoneOverlay (const juce::File& sfzFile,
             return;
         }
 
-        processor.sfzPlayer.loadFile (sfzFile);
+        processor.sfzPlayer.loadFile (sfzFile, processor.fileLoadPool);
         processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (sfzFile);
         keysPanel.autoScrollToZones();
@@ -981,7 +981,7 @@ void SfzModulePanel::openSaveAsOverlay (bool thenOpenAddZone)
         }
 
         // Switch sfzPlayer and zone matrix to the new file
-        processor.sfzPlayer.loadFile (dest);
+        processor.sfzPlayer.loadFile (dest, processor.fileLoadPool);
         processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (dest);
         repaint();
@@ -1035,7 +1035,7 @@ void SfzModulePanel::initEmptySfz()
     if (! sfz.existsAsFile())
         sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
 
-    processor.sfzPlayer.loadFile (sfz);   // sfizz handles empty file gracefully (silence)
+    processor.sfzPlayer.loadFile (sfz, processor.fileLoadPool);   // sfizz handles empty file gracefully (silence)
     processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }

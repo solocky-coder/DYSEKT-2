@@ -588,8 +588,9 @@ private:
     bool gestureSnapshotCaptured    { false };
     int  blocksSinceGestureActivity { 0 };
 
+public:
     // =========================================================================
-    // Sample loading
+    // Sample loading (public so UI thread can dispatch SFZ/SF2 loads)
     // =========================================================================
     juce::ThreadPool fileLoadPool { 1 };
     bool             defaultSampleScheduled { false }; // true once default or saved sample is queued
