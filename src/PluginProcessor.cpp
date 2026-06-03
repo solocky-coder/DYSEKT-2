@@ -3367,7 +3367,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             const juce::File sfzFile (sfzPath);
             if (sfzFile.existsAsFile())
             {
-                sfzPlayer.loadFile (sfzFile);
+                sfzPlayer.loadFile (sfzFile, fileLoadPool);
                 // Store the preset index so the audio thread can select it
                 // once the soundfont finishes loading and posts its preset list.
                 sfzPlayer.setPresetByIndex (sfzPresetIdx);
