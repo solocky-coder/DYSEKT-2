@@ -184,8 +184,17 @@ DysektProcessor::DysektProcessor()
 
 DysektProcessor::~DysektProcessor()
 {
+    // Poison callbacks first — any job that finishes after this point will
+    // check the flag and return without touching `this`.
     loadCallbacksValid->store (false, std::memory_order_seq_cst);
-    fileLoadPool.removeAllJobs (true, 5000);
+
+    // Signal all jobs to exit and abandon them — do NOT block (waitForJobsToFinish=false,
+    // timeoutMs=0).  Nuendo (and some other hosts) SIGKILL the plugin if the destructor
+    // takes more than ~2 seconds; the old 5 s wait was the crash.  The callbacks are
+    // already neutralised above so it is safe to let any in-flight job finish on its
+    // own thread after we return.
+    fileLoadPool.removeAllJobs (false, 0);
+
     auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
     delete pending;
     auto* failed = completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
