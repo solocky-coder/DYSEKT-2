@@ -184,6 +184,7 @@ DysektProcessor::DysektProcessor()
 
 DysektProcessor::~DysektProcessor()
 {
+    loadCallbacksValid->store (false, std::memory_order_seq_cst);
     fileLoadPool.removeAllJobs (true, 5000);
     auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
     delete pending;
@@ -291,9 +292,16 @@ void DysektProcessor::requestSampleLoad (const juce::File& file, LoadKind kind)
 
     const double sr = currentSampleRate > 0.0 ? currentSampleRate : 44100.0;
 
-    auto onSuccess = [this] (int finishedToken, LoadKind finishedKind,
+    // Capture a shared_ptr copy — the lambda stays safe even if the processor
+    // is destroyed before the job thread finishes (e.g. removeAllJobs timeout).
+    auto guard = loadCallbacksValid;
+
+    auto onSuccess = [this, guard] (int finishedToken, LoadKind finishedKind,
                              std::unique_ptr<SampleData::DecodedSample> decoded)
     {
+        if (! guard->load (std::memory_order_acquire))
+            return;
+
         if (finishedToken != latestLoadToken.load (std::memory_order_acquire))
             return;
 
@@ -302,8 +310,11 @@ void DysektProcessor::requestSampleLoad (const juce::File& file, LoadKind kind)
         latestLoadKind.store ((int) finishedKind, std::memory_order_release);
     };
 
-    auto onFailure = [this] (int finishedToken, LoadKind finishedKind, const juce::File& failedFile)
+    auto onFailure = [this, guard] (int finishedToken, LoadKind finishedKind, const juce::File& failedFile)
     {
+        if (! guard->load (std::memory_order_acquire))
+            return;
+
         if (finishedToken != latestLoadToken.load (std::memory_order_acquire))
             return;
 

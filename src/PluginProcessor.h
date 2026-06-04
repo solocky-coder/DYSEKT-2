@@ -110,6 +110,11 @@ private:
 //==============================================================================
 class DysektProcessor : public juce::AudioProcessor
 {
+    // ── Crash logger ──────────────────────────────────────────────────────────
+    // Declared FIRST so it is constructed before all other members and destroyed
+    // after all other members, ensuring the log captures the full object lifetime.
+    CrashLogger crashLogger;
+
 public:
     // =========================================================================
     // Inner types
@@ -592,6 +597,11 @@ public:
     // =========================================================================
     // Sample loading (public so UI thread can dispatch SFZ/SF2 loads)
     // =========================================================================
+    // Shared flag poisoned in the destructor before the thread pool is torn down.
+    // Load callbacks capture this by shared_ptr so they can safely check it even
+    // if the job thread outlives the 5-second removeAllJobs timeout.
+    std::shared_ptr<std::atomic<bool>> loadCallbacksValid
+        { std::make_shared<std::atomic<bool>>(true) };
     juce::ThreadPool fileLoadPool { 1 };
     bool             defaultSampleScheduled { false }; // true once default or saved sample is queued
     std::atomic<int>  nextLoadToken  { 0 };
@@ -656,11 +666,6 @@ public:
     std::vector<float> masterPitchScratchR;
 
     friend class SoundFontLoader;
-
-    // ── Crash logger ──────────────────────────────────────────────────────────
-    // Declared last so it is constructed first and destroyed last,
-    // ensuring the log captures the full object lifetime.
-    CrashLogger crashLogger;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DysektProcessor)
 };
