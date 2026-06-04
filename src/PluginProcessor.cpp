@@ -184,21 +184,21 @@ DysektProcessor::DysektProcessor()
 
 DysektProcessor::~DysektProcessor()
 {
-    // Poison callbacks first — any job that finishes after this point will
-    // check the flag and return without touching `this`.
+    crashLogger.log ("dtor step 1: poisoning callbacks");
     loadCallbacksValid->store (false, std::memory_order_seq_cst);
 
-    // Signal all jobs to exit and abandon them — do NOT block (waitForJobsToFinish=false,
-    // timeoutMs=0).  Nuendo (and some other hosts) SIGKILL the plugin if the destructor
-    // takes more than ~2 seconds; the old 5 s wait was the crash.  The callbacks are
-    // already neutralised above so it is safe to let any in-flight job finish on its
-    // own thread after we return.
+    crashLogger.log ("dtor step 2: removing jobs");
     fileLoadPool.removeAllJobs (false, 0);
 
+    crashLogger.log ("dtor step 3: draining atomics");
     auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
     delete pending;
     auto* failed = completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
     delete failed;
+
+    crashLogger.log ("dtor step 4: explicit body complete — member destructors running next");
+    // After this closing brace, C++ destroys members in reverse declaration order.
+    // If the log ends here, a member destructor is the one blocking.
 }
 
 bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
