@@ -339,8 +339,12 @@ public:
      *  Safe to call from the UI (message) thread. */
     float getWaveformPeakAt (int samplePosition) const noexcept
     {
-        // UI-thread safe: reads through the atomic snapshot, never touches
-        // activeDecoded directly.  Called from paint() and timer callbacks.
+        // IMPORTANT: must use the atomic snapshot, NOT sampleData.getBuffer().
+        // getBuffer() returns a reference to the raw AudioBuffer member which is
+        // replaced (via move-assignment) on the audio thread in applyDecodedSample.
+        // Reading it here from the message thread is a data race on the AudioBuffer's
+        // internal channel pointer — causing heap corruption (0xC0000005).
+        // The snapshot is published atomically, so it is always safe to read here.
         const auto snap = sampleData.getSnapshot();
         if (snap == nullptr) return 0.0f;
         const auto& buf = snap->buffer;
@@ -509,10 +513,7 @@ public:
     // Sample availability (see SampleAvailabilityState enum)
     std::atomic<int>  sampleAvailability { (int) SampleStateEmpty };
     std::atomic<bool> sampleMissing      { false };
-    // missingFilePath removed: sampleData.getFilePath() always holds the same
-    // value and is only written/read on the audio thread, avoiding the data race
-    // that occurred when both setStateInformation (message thread) and
-    // processBlock (audio thread) wrote to a plain juce::String concurrently.
+    juce::String      missingFilePath;
 
     /** Set by setStateInformation when restoring an SF2 preset index.
      *  The editor polls this on its timer and applies it once the preset
