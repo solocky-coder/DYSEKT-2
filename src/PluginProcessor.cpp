@@ -31,7 +31,8 @@ public:
 
     JobStatus runJob() override
     {
-        auto decoded = SampleData::decodeFromFile (file, sampleRate);
+        auto decoded = SampleData::decodeFromFile (file, sampleRate,
+                                                    [this] { return shouldExit(); });
         if (shouldExit())
             return jobHasFinished;
 
@@ -184,21 +185,20 @@ DysektProcessor::DysektProcessor()
 
 DysektProcessor::~DysektProcessor()
 {
-    crashLogger.log ("dtor step 1: poisoning callbacks");
+    // Poison callbacks first — any job that finishes after this point will
+    // check the flag and return without touching `this`.
     loadCallbacksValid->store (false, std::memory_order_seq_cst);
 
-    crashLogger.log ("dtor step 2: removing jobs");
+    // Signal all jobs to exit and abandon — do NOT block.
+    // Nuendo SIGKILLs the plugin if the destructor takes more than ~2 seconds.
+    // Callbacks are neutralised above so in-flight jobs can finish safely on
+    // their own thread after we return.
     fileLoadPool.removeAllJobs (false, 0);
 
-    crashLogger.log ("dtor step 3: draining atomics");
     auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
     delete pending;
     auto* failed = completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
     delete failed;
-
-    crashLogger.log ("dtor step 4: explicit body complete — member destructors running next");
-    // After this closing brace, C++ destroys members in reverse declaration order.
-    // If the log ends here, a member destructor is the one blocking.
 }
 
 bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const

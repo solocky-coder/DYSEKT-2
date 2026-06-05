@@ -3,6 +3,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <atomic>
 #include <array>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -37,7 +38,8 @@ public:
     SampleData();
 
     static std::unique_ptr<DecodedSample> decodeFromFile (const juce::File& file,
-                                                           double projectSampleRate);
+                                                           double projectSampleRate,
+                                                           std::function<bool()> shouldExit = nullptr);
     void applyDecodedSample (std::unique_ptr<DecodedSample> decoded);
 
     /** Build peak mipmaps for a DecodedSample whose buffer has already been

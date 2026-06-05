@@ -57,7 +57,8 @@ void buildMipmapsForBuffer (const juce::AudioBuffer<float>& src,
 SampleData::SampleData() = default;
 
 std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juce::File& file,
-                                                                         double projectSampleRate)
+                                                                         double projectSampleRate,
+                                                                         std::function<bool()> shouldExit)
 {
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -107,7 +108,23 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
 
     juce::AudioBuffer<float> sourceBuffer (numChannels, allocFrames);
     sourceBuffer.clear();
-    reader->read (&sourceBuffer, 0, numFrames, 0, true, true);
+
+    // ── Chunked decode with cancellation support ──────────────────────────────
+    // MP3 and FLAC decode frame-by-frame inside reader->read(). Reading the
+    // entire file in one call can block for several seconds on large files,
+    // which prevents clean shutdown when the host closes the plugin.
+    // Reading in chunks lets us bail out between chunks if shouldExit fires.
+    static constexpr int kDecodeChunk = 4096;  // frames per chunk
+    int framesRead = 0;
+    while (framesRead < numFrames)
+    {
+        if (shouldExit && shouldExit())
+            return nullptr;
+
+        const int toRead = std::min (kDecodeChunk, numFrames - framesRead);
+        reader->read (&sourceBuffer, framesRead, toRead, framesRead, true, true);
+        framesRead += toRead;
+    }
 
     // ── Scrub non-finite samples ──────────────────────────────────────────────
     // A corrupt MP3 frame, a truncated file, or a partial dr_mp3 decode can
@@ -131,6 +148,9 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
     // ── Resample if needed ────────────────────────────────────────────────────
     if (std::abs (sourceSampleRate - projectSampleRate) > 0.01)
     {
+        if (shouldExit && shouldExit())
+            return nullptr;
+
         double ratio = sourceSampleRate / projectSampleRate;
 
         // Guard: a ratio outside [0.1, 10.0] means the reader returned garbage
@@ -156,6 +176,9 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
         sourceBuffer = std::move (resampledBuffer);
         numFrames    = resampledLen;
     }
+
+    if (shouldExit && shouldExit())
+        return nullptr;
 
     // ── Up-mix to stereo ──────────────────────────────────────────────────────
     juce::AudioBuffer<float> newBuffer (2, numFrames);
