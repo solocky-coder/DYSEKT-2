@@ -1062,7 +1062,8 @@ void SliceControlBar::paint (juce::Graphics& g)
  int adsrGroupX1 = x, adsrGroupX2 = x;
 float relMaxSec = 5.0f;
 {
-    const int total = processor.sampleData.getNumFrames();
+    const auto  scbSnap = processor.sampleData.getSnapshot();
+    const int total = scbSnap ? scbSnap->buffer.getNumSamples() : 0;
     if (total > 0)
     {
         const int sliceEnd = processor.sliceManager.getEndForSlice (idx, total);

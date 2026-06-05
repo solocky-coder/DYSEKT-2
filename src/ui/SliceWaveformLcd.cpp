@@ -132,7 +132,8 @@ float SliceWaveformLcd::getSliceDurMs() const
  return kDefaultMs;
 
  const auto& s = processor.sliceManager.getSlice (sel);
- const int total = processor.sampleData.getNumFrames();
+ const auto lcdSnap = processor.sampleData.getSnapshot();
+ const int total = lcdSnap ? lcdSnap->buffer.getNumSamples() : 0;
  if (total <= 0)
  return kDefaultMs;
 
