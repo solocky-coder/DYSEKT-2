@@ -333,15 +333,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
 DysektEditor::~DysektEditor()
 {
-    // Stop the timer BEFORE member components are destroyed.
-    // The timer fires on the message thread at 30 Hz; without this, a tick can
-    // arrive after waveformView / sliceControlBar / etc. have been freed but
-    // before the juce::Timer base destructor runs — causing a vtable read
-    // through a dangling pointer (seen as DYSEKT+0x2ea90c access violation).
-    stopTimer();
-
-    juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
-    setLookAndFeel (nullptr);
+ juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+ setLookAndFeel (nullptr);
 }
 
 // ── MIDI route mode helper ────────────────────────────────────────────────────
@@ -483,42 +476,67 @@ void DysektEditor::showTrimDialog (const juce::File& file, bool isRelink)
  return;
  }
  if (pref == DysektProcessor::TrimPrefAsk) {
- juce::AudioFormatManager fm;
- fm.registerBasicFormats();
- std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (file));
- double duration = 0.0;
- if (reader != nullptr && reader->sampleRate > 0.0)
- duration = (double) reader->lengthInSamples / reader->sampleRate;
+  // Move createReaderFor off the message thread — a corrupt MP3/FLAC can
+  // segfault inside the decoder before returning nullptr, crashing the DAW.
+  processor.fileLoadPool.addJob ([this, file]
+  {
+   juce::AudioFormatManager fm;
+   fm.registerBasicFormats();
 
- if (duration < 5.0)
- {
- processor.loadFileAsync (file);
- processor.zoom.store (1.0f);
- processor.scroll.store (0.0f);
- return;
- }
+   double duration = 0.0;
+   bool   readable = false;
 
- confirmOverlay = std::make_unique<ConfirmOverlay> (
- "Trim Sample?",
- "This sample is long. Would you like to trim it before slicing?",
- "Trim",
- "No Thanks");
- addAndMakeVisible (*confirmOverlay);
- confirmOverlay->setBounds (getLocalBounds());
- confirmOverlay->toFront (true);
- confirmOverlay->onResult = [this, file] (bool trim)
- {
- confirmOverlay.reset();
- if (trim)
- showTrimMode (file);
- else
- {
- processor.loadFileAsync (file);
- processor.zoom.store (1.0f);
- processor.scroll.store (0.0f);
- }
- };
- return;
+   std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (file));
+   if (reader != nullptr && reader->sampleRate > 0.0)
+   {
+    duration = (double) reader->lengthInSamples / reader->sampleRate;
+    readable = true;
+   }
+
+   juce::MessageManager::callAsync ([this, file, duration, readable]
+   {
+    if (! readable)
+    {
+     juce::AlertWindow::showMessageBoxAsync (
+      juce::AlertWindow::WarningIcon,
+      "Cannot Load File",
+      "\"" + file.getFileName() + "\" could not be read.\n\n"
+      "The file may be corrupt or in an unsupported format.",
+      "OK");
+     return;
+    }
+
+    if (duration < 5.0)
+    {
+     processor.loadFileAsync (file);
+     processor.zoom.store (1.0f);
+     processor.scroll.store (0.0f);
+     return;
+    }
+
+    confirmOverlay = std::make_unique<ConfirmOverlay> (
+     "Trim Sample?",
+     "This sample is long. Would you like to trim it before slicing?",
+     "Trim",
+     "No Thanks");
+    addAndMakeVisible (*confirmOverlay);
+    confirmOverlay->setBounds (getLocalBounds());
+    confirmOverlay->toFront (true);
+    confirmOverlay->onResult = [this, file] (bool trim)
+    {
+     confirmOverlay.reset();
+     if (trim)
+      showTrimMode (file);
+     else
+     {
+      processor.loadFileAsync (file);
+      processor.zoom.store (1.0f);
+      processor.scroll.store (0.0f);
+     }
+    };
+   });
+  }, true);
+  return;
  }
  showTrimMode (file);
 }

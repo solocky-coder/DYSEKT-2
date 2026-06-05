@@ -536,8 +536,6 @@ void FileBrowserPanel::startPreview (const juce::File& f)
     if (! f.existsAsFile()) return;
 
     // ── Safely tear down any current playback before touching readerSource ──
-    // transport.stop() is synchronous but the audio callback may still be
-    // running — setSource(nullptr) blocks until the audio thread is done.
     transport.stop();
     transport.setSource (nullptr);   // blocks until audio thread releases reader
     readerSource.reset();            // now safe to destroy
@@ -548,16 +546,31 @@ void FileBrowserPanel::startPreview (const juce::File& f)
         deviceManager.addAudioCallback (&sourcePlayer);
     }
 
-    auto* reader = formatManager.createReaderFor (f);
-    if (reader == nullptr) return;   // unsupported format or file not ready
+    // ── Move createReaderFor off the message thread ───────────────────────────
+    // A corrupt MP3/FLAC can segfault inside JUCE's dr_mp3/FLAC decoder before
+    // returning nullptr. Running it on a worker thread keeps the DAW alive if
+    // that happens.  The result is posted back to the message thread to update
+    // the transport.
+    processor.fileLoadPool.addJob ([this, f]
+    {
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
 
-    readerSource = std::make_unique<juce::AudioFormatReaderSource> (reader, true);
-    transport.setSource (readerSource.get(), 0, nullptr, reader->sampleRate);
-    transport.setGain ((float) volumeSlider.getValue());
-    transport.setPosition (0.0);
-    transport.start();
+        // Dangerous call — isolated to worker thread.
+        juce::AudioFormatReader* rawReader = fm.createReaderFor (f);
 
-    updatePlayButton();
+        juce::MessageManager::callAsync ([this, rawReader]
+        {
+            if (rawReader == nullptr) { updatePlayButton(); return; }
+
+            readerSource = std::make_unique<juce::AudioFormatReaderSource> (rawReader, true);
+            transport.setSource (readerSource.get(), 0, nullptr, rawReader->sampleRate);
+            transport.setGain ((float) volumeSlider.getValue());
+            transport.setPosition (0.0);
+            transport.start();
+            updatePlayButton();
+        });
+    }, true);
 }
 
 void FileBrowserPanel::stopPreview()
