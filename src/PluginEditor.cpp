@@ -2,6 +2,47 @@
 #include "ui/DysektLookAndFeel.h"
 #include "ui/PluginEditorConstants.h"
 
+// ========================== THREAD POOL JOBS ==========================
+namespace
+{
+class FormatProbeJob final : public juce::ThreadPoolJob
+{
+public:
+    using DoneFn = std::function<void (double duration, bool readable)>;
+
+    FormatProbeJob (juce::File f, DoneFn cb)
+        : juce::ThreadPoolJob ("FormatProbeJob"),
+          file (std::move (f)),
+          onDone (std::move (cb))
+    {}
+
+    JobStatus runJob() override
+    {
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+
+        double duration = 0.0;
+        bool   readable = false;
+
+        std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (file));
+        if (reader != nullptr && reader->sampleRate > 0.0)
+        {
+            duration = (double) reader->lengthInSamples / reader->sampleRate;
+            readable = true;
+        }
+
+        if (! shouldExit())
+            juce::MessageManager::callAsync ([cb = onDone, duration, readable] { cb (duration, readable); });
+
+        return jobHasFinished;
+    }
+
+private:
+    juce::File file;
+    DoneFn     onDone;
+};
+} // namespace
+
 // ========================== FILEPATH HELPERS ==========================
 static juce::File getSettingsDir()
 {
@@ -478,64 +519,48 @@ void DysektEditor::showTrimDialog (const juce::File& file, bool isRelink)
  if (pref == DysektProcessor::TrimPrefAsk) {
   // Move createReaderFor off the message thread — a corrupt MP3/FLAC can
   // segfault inside the decoder before returning nullptr, crashing the DAW.
-  processor.fileLoadPool.addJob ([this, file]
+  processor.fileLoadPool.addJob (new FormatProbeJob (file, [this, file] (double duration, bool readable)
   {
-   juce::AudioFormatManager fm;
-   fm.registerBasicFormats();
-
-   double duration = 0.0;
-   bool   readable = false;
-
-   std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (file));
-   if (reader != nullptr && reader->sampleRate > 0.0)
+   if (! readable)
    {
-    duration = (double) reader->lengthInSamples / reader->sampleRate;
-    readable = true;
+    juce::AlertWindow::showMessageBoxAsync (
+     juce::AlertWindow::WarningIcon,
+     "Cannot Load File",
+     "\"" + file.getFileName() + "\" could not be read.\n\n"
+     "The file may be corrupt or in an unsupported format.",
+     "OK");
+    return;
    }
 
-   juce::MessageManager::callAsync ([this, file, duration, readable]
+   if (duration < 5.0)
    {
-    if (! readable)
-    {
-     juce::AlertWindow::showMessageBoxAsync (
-      juce::AlertWindow::WarningIcon,
-      "Cannot Load File",
-      "\"" + file.getFileName() + "\" could not be read.\n\n"
-      "The file may be corrupt or in an unsupported format.",
-      "OK");
-     return;
-    }
+    processor.loadFileAsync (file);
+    processor.zoom.store (1.0f);
+    processor.scroll.store (0.0f);
+    return;
+   }
 
-    if (duration < 5.0)
+   confirmOverlay = std::make_unique<ConfirmOverlay> (
+    "Trim Sample?",
+    "This sample is long. Would you like to trim it before slicing?",
+    "Trim",
+    "No Thanks");
+   addAndMakeVisible (*confirmOverlay);
+   confirmOverlay->setBounds (getLocalBounds());
+   confirmOverlay->toFront (true);
+   confirmOverlay->onResult = [this, file] (bool trim)
+   {
+    confirmOverlay.reset();
+    if (trim)
+     showTrimMode (file);
+    else
     {
      processor.loadFileAsync (file);
      processor.zoom.store (1.0f);
      processor.scroll.store (0.0f);
-     return;
     }
-
-    confirmOverlay = std::make_unique<ConfirmOverlay> (
-     "Trim Sample?",
-     "This sample is long. Would you like to trim it before slicing?",
-     "Trim",
-     "No Thanks");
-    addAndMakeVisible (*confirmOverlay);
-    confirmOverlay->setBounds (getLocalBounds());
-    confirmOverlay->toFront (true);
-    confirmOverlay->onResult = [this, file] (bool trim)
-    {
-     confirmOverlay.reset();
-     if (trim)
-      showTrimMode (file);
-     else
-     {
-      processor.loadFileAsync (file);
-      processor.zoom.store (1.0f);
-      processor.scroll.store (0.0f);
-     }
-    };
-   });
-  }, true);
+   };
+  }), true);
   return;
  }
  showTrimMode (file);

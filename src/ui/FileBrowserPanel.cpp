@@ -4,6 +4,42 @@
 
 #include <windows.h>
 
+// ========================== THREAD POOL JOBS ==========================
+namespace
+{
+class PreviewProbeJob final : public juce::ThreadPoolJob
+{
+public:
+    using DoneFn = std::function<void (juce::AudioFormatReader*)>;
+
+    PreviewProbeJob (juce::File f, DoneFn cb)
+        : juce::ThreadPoolJob ("PreviewProbeJob"),
+          file (std::move (f)),
+          onDone (std::move (cb))
+    {}
+
+    JobStatus runJob() override
+    {
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+
+        // Dangerous call — isolated to worker thread.
+        juce::AudioFormatReader* rawReader = fm.createReaderFor (file);
+
+        if (! shouldExit())
+            juce::MessageManager::callAsync ([cb = onDone, rawReader] { cb (rawReader); });
+        else
+            delete rawReader;
+
+        return jobHasFinished;
+    }
+
+private:
+    juce::File file;
+    DoneFn     onDone;
+};
+} // namespace
+
 // ── ArchiveListModel ─────────────────────────────────────────────────────────
 
 int FileBrowserPanel::ArchiveListModel::getNumRows()
@@ -551,26 +587,17 @@ void FileBrowserPanel::startPreview (const juce::File& f)
     // returning nullptr. Running it on a worker thread keeps the DAW alive if
     // that happens.  The result is posted back to the message thread to update
     // the transport.
-    processor.fileLoadPool.addJob ([this, f]
+    processor.fileLoadPool.addJob (new PreviewProbeJob (f, [this] (juce::AudioFormatReader* rawReader)
     {
-        juce::AudioFormatManager fm;
-        fm.registerBasicFormats();
+        if (rawReader == nullptr) { updatePlayButton(); return; }
 
-        // Dangerous call — isolated to worker thread.
-        juce::AudioFormatReader* rawReader = fm.createReaderFor (f);
-
-        juce::MessageManager::callAsync ([this, rawReader]
-        {
-            if (rawReader == nullptr) { updatePlayButton(); return; }
-
-            readerSource = std::make_unique<juce::AudioFormatReaderSource> (rawReader, true);
-            transport.setSource (readerSource.get(), 0, nullptr, rawReader->sampleRate);
-            transport.setGain ((float) volumeSlider.getValue());
-            transport.setPosition (0.0);
-            transport.start();
-            updatePlayButton();
-        });
-    }, true);
+        readerSource = std::make_unique<juce::AudioFormatReaderSource> (rawReader, true);
+        transport.setSource (readerSource.get(), 0, nullptr, rawReader->sampleRate);
+        transport.setGain ((float) volumeSlider.getValue());
+        transport.setPosition (0.0);
+        transport.start();
+        updatePlayButton();
+    }), true);
 }
 
 void FileBrowserPanel::stopPreview()
