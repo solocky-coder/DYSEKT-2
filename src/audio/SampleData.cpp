@@ -110,20 +110,36 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
     sourceBuffer.clear();
 
     // ── Chunked decode with cancellation support ──────────────────────────────
-    // MP3 and FLAC decode frame-by-frame inside reader->read(). Reading the
-    // entire file in one call can block for several seconds on large files,
-    // which prevents clean shutdown when the host closes the plugin.
-    // Reading in chunks lets us bail out between chunks if shouldExit fires.
+    // MP3 and FLAC decode frame-by-frame and can block for several seconds on
+    // large files. We read in chunks so we can bail out between them if
+    // shouldExit fires (e.g. Nuendo closing the plugin mid-load).
+    //
+    // WMA / Windows Media readers use WMCreateSyncReader (a COM object with
+    // internal sequential state) and are NOT safe to read in chunks — doing so
+    // can corrupt internal buffers and cause a memcpy access violation. For
+    // those formats we fall back to a single blocking read; the guard flag in
+    // the job callbacks still prevents the use-after-free on the processor side.
+    const bool isFlac = file.hasFileExtension ("flac|FLAC");
+    const bool useChunkedRead = isMp3 || isFlac;
+
     static constexpr int kDecodeChunk = 4096;  // frames per chunk
     int framesRead = 0;
-    while (framesRead < numFrames)
-    {
-        if (shouldExit && shouldExit())
-            return nullptr;
 
-        const int toRead = std::min (kDecodeChunk, numFrames - framesRead);
-        reader->read (&sourceBuffer, framesRead, toRead, framesRead, true, true);
-        framesRead += toRead;
+    if (useChunkedRead)
+    {
+        while (framesRead < numFrames)
+        {
+            if (shouldExit && shouldExit())
+                return nullptr;
+
+            const int toRead = std::min (kDecodeChunk, numFrames - framesRead);
+            reader->read (&sourceBuffer, framesRead, toRead, framesRead, true, true);
+            framesRead += toRead;
+        }
+    }
+    else
+    {
+        reader->read (&sourceBuffer, 0, numFrames, 0, true, true);
     }
 
     // ── Scrub non-finite samples ──────────────────────────────────────────────
