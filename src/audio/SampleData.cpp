@@ -223,23 +223,20 @@ void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
     if (decoded == nullptr)
         return;
 
-    buffer        = std::move (decoded->buffer);
-    peakMipmaps   = std::move (decoded->peakMipmaps);
-    loadedFileName = decoded->fileName;
-    loadedFilePath = decoded->filePath;
+    // Promote the unique_ptr directly to a shared_ptr — zero copy of the buffer.
+    // activeDecoded is the audio-thread strong reference; snapshot is the
+    // const alias published for UI-thread readers via getSnapshot().
+    activeDecoded = std::move (decoded);
 
-    auto view          = std::make_shared<DecodedSample>();
-    view->buffer       = buffer;
-    view->peakMipmaps  = peakMipmaps;
-    view->fileName     = loadedFileName;
-    view->filePath     = loadedFilePath;
+    loadedFileName = activeDecoded->fileName;
+    loadedFilePath = activeDecoded->filePath;
 
 #if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
-    snapshot.store (std::static_pointer_cast<const DecodedSample> (view),
+    snapshot.store (std::static_pointer_cast<const DecodedSample> (activeDecoded),
                     std::memory_order_release);
 #else
     std::atomic_store_explicit (&snapshot,
-                                std::static_pointer_cast<const DecodedSample> (view),
+                                std::static_pointer_cast<const DecodedSample> (activeDecoded),
                                 std::memory_order_release);
 #endif
     loaded = true;
@@ -262,21 +259,19 @@ bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
 
 void SampleData::clear()
 {
-    buffer.setSize (2, 0, false, false, true);
-    for (auto& m : peakMipmaps)
-    {
-        m.samplesPerPeak = 0;
-        m.maxPeaks.clear();
-        m.minPeaks.clear();
-    }
+    // Release the audio-thread strong reference first, then null the snapshot.
+    // Order matters: the snapshot atomic must not outlive activeDecoded's
+    // reference, though in practice both will decrement the same refcount.
+    activeDecoded.reset();
+
 #if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
     snapshot.store (std::shared_ptr<const DecodedSample>{}, std::memory_order_release);
 #else
     std::atomic_store_explicit (&snapshot, std::shared_ptr<const DecodedSample>{},
                                 std::memory_order_release);
 #endif
-    loadedFileName.clear();
-    loadedFilePath.clear();
+    loadedFileName = {};
+    loadedFilePath = {};
     loaded = false;
 }
 
@@ -294,13 +289,18 @@ float SampleData::getInterpolatedSample (double pos, int channel) const
     if (! loaded || channel < 0 || channel > 1)
         return 0.0f;
 
+    // Read through activeDecoded — no separate buffer member needed.
+    const auto* buf = activeDecoded ? &activeDecoded->buffer : nullptr;
+    if (buf == nullptr)
+        return 0.0f;
+
     int   ipos = (int) pos;
     float frac = (float) (pos - ipos);
 
-    if (ipos < 0 || ipos >= buffer.getNumSamples() - 1)
+    if (ipos < 0 || ipos >= buf->getNumSamples() - 1)
         return 0.0f;
 
-    auto* data = buffer.getReadPointer (channel);
+    const float* data = buf->getReadPointer (channel);
     if (data == nullptr)
         return 0.0f;
 

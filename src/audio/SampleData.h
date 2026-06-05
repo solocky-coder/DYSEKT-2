@@ -58,10 +58,19 @@ public:
 
     float getInterpolatedSample (double pos, int channel) const;
 
-    int getNumFrames() const { return buffer.getNumSamples(); }
+    // Audio-thread accessors — read from activeDecoded; no redundant member copies.
+    int  getNumFrames() const
+    {
+        return activeDecoded ? activeDecoded->buffer.getNumSamples() : 0;
+    }
+
     bool isLoaded() const { return loaded; }
 
-    const juce::AudioBuffer<float>& getBuffer() const { return buffer; }
+    const juce::AudioBuffer<float>& getBuffer() const
+    {
+        static const juce::AudioBuffer<float> kEmpty;
+        return activeDecoded ? activeDecoded->buffer : kEmpty;
+    }
 
     const juce::String& getFileName() const { return loadedFileName; }
     void setFileName (const juce::String& name) { loadedFileName = name; }
@@ -70,13 +79,18 @@ public:
     void setFilePath (const juce::String& path) { loadedFilePath = path; }
 
 private:
-    juce::AudioBuffer<float> buffer;  // always stereo
-    std::array<PeakMipmap, kNumMipmapLevels> peakMipmaps;
+    // Strong reference held on the audio thread.
+    // Written only in applyDecodedSample() and clear(), both called from
+    // processBlock() — single writer, no lock needed.
+    std::shared_ptr<DecodedSample> activeDecoded;
+
+    // Atomic snapshot for UI / message-thread read access.
 #if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
     std::atomic<std::shared_ptr<const DecodedSample>> snapshot;
 #else
     std::shared_ptr<const DecodedSample> snapshot;
 #endif
+
     juce::String loadedFileName;
     juce::String loadedFilePath;
     bool loaded = false;
