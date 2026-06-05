@@ -333,8 +333,15 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
 DysektEditor::~DysektEditor()
 {
- juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
- setLookAndFeel (nullptr);
+    // Stop the timer BEFORE member components are destroyed.
+    // The timer fires on the message thread at 30 Hz; without this, a tick can
+    // arrive after waveformView / sliceControlBar / etc. have been freed but
+    // before the juce::Timer base destructor runs — causing a vtable read
+    // through a dangling pointer (seen as DYSEKT+0x2ea90c access violation).
+    stopTimer();
+
+    juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+    setLookAndFeel (nullptr);
 }
 
 // ── MIDI route mode helper ────────────────────────────────────────────────────
