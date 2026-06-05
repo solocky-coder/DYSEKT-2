@@ -450,9 +450,9 @@ void DysektProcessor::publishUiSliceSnapshot()
             snap.sampleFileName = {};
         snap.isDefaultSample = snap.sampleFileName.isEmpty();
     }
-    else if (snap.sampleMissing && missingFilePath.isNotEmpty())
+    else if (snap.sampleMissing && sampleData.getFilePath().isNotEmpty())
     {
-        snap.sampleFileName  = juce::File (missingFilePath).getFileName();
+        snap.sampleFileName  = juce::File (sampleData.getFilePath()).getFileName();
         snap.isDefaultSample = false;
     }
     else if (sampleData.getFileName().isNotEmpty())
@@ -1289,7 +1289,6 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 && cmd.intParam2 == (int) LoadKindRelink)
             {
                 sampleMissing.store (true);
-                missingFilePath = cmd.fileParam.getFullPathName();
                 sampleData.setFileName (cmd.fileParam.getFileName());
                 sampleData.setFilePath (cmd.fileParam.getFullPathName());
                 sampleAvailability.store ((int) SampleStateMissingAwaitingRelink,
@@ -2364,7 +2363,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             clearVoicesBeforeSampleSwap();
             sampleData.applyDecodedSample (std::move (decoded));
             sampleMissing.store (false);
-            missingFilePath.clear();
             sampleAvailability.store ((int) SampleStateLoaded, std::memory_order_relaxed);
 
             if (latestLoadKind.load (std::memory_order_acquire) == (int) LoadKindReplace)
@@ -2417,7 +2415,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 && failed->kind == LoadKindRelink)
             {
                 sampleMissing.store (true);
-                missingFilePath = failed->file.getFullPathName();
                 sampleData.setFileName (failed->file.getFileName());
                 sampleData.setFilePath (failed->file.getFullPathName());
                 sampleAvailability.store ((int) SampleStateMissingAwaitingRelink,
@@ -3292,7 +3289,6 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     {
         const juce::File restoredFile (filePath);
         sampleMissing.store (false);
-        missingFilePath.clear();
         sampleData.setFileName (fileName.isNotEmpty() ? fileName : restoredFile.getFileName());
         sampleData.setFilePath (filePath);
         sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
@@ -3302,7 +3298,6 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     else
     {
         sampleMissing.store (false);
-        missingFilePath.clear();
         sampleData.setFileName ({});
         sampleData.setFilePath ({});
         sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);

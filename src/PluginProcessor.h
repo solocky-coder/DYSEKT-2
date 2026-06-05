@@ -509,7 +509,10 @@ public:
     // Sample availability (see SampleAvailabilityState enum)
     std::atomic<int>  sampleAvailability { (int) SampleStateEmpty };
     std::atomic<bool> sampleMissing      { false };
-    juce::String      missingFilePath;
+    // missingFilePath removed: sampleData.getFilePath() always holds the same
+    // value and is only written/read on the audio thread, avoiding the data race
+    // that occurred when both setStateInformation (message thread) and
+    // processBlock (audio thread) wrote to a plain juce::String concurrently.
 
     /** Set by setStateInformation when restoring an SF2 preset index.
      *  The editor polls this on its timer and applies it once the preset
