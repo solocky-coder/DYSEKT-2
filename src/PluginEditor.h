@@ -20,6 +20,8 @@
 #include "TrimSession.h"
 #include "ui/SliceLcdDisplay.h"
 #include "ui/SliceWaveformLcd.h"
+#include "ui/SfzLcdDisplay.h"
+#include "ui/SfzWaveformLcd.h"
 #include "ui/WaveformOverview.h"
 #include "ui/SfzDropdownPanel.h"
 #include "ui/GlobalEqPanel.h"
@@ -125,6 +127,9 @@ private:
 
     SliceLcdDisplay  sliceLcd;
     SliceWaveformLcd sliceWaveformLcd;
+
+    SfzLcdDisplay    sfzLcd;
+    SfzWaveformLcd   sfzWaveformLcd;
 
     SliceLane        sliceLane;
     WaveformView     waveformView;

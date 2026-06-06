@@ -2,47 +2,6 @@
 #include "ui/DysektLookAndFeel.h"
 #include "ui/PluginEditorConstants.h"
 
-// ========================== THREAD POOL JOBS ==========================
-namespace
-{
-class FormatProbeJob final : public juce::ThreadPoolJob
-{
-public:
-    using DoneFn = std::function<void (double duration, bool readable)>;
-
-    FormatProbeJob (juce::File f, DoneFn cb)
-        : juce::ThreadPoolJob ("FormatProbeJob"),
-          file (std::move (f)),
-          onDone (std::move (cb))
-    {}
-
-    JobStatus runJob() override
-    {
-        juce::AudioFormatManager fm;
-        fm.registerBasicFormats();
-
-        double duration = 0.0;
-        bool   readable = false;
-
-        std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (file));
-        if (reader != nullptr && reader->sampleRate > 0.0)
-        {
-            duration = (double) reader->lengthInSamples / reader->sampleRate;
-            readable = true;
-        }
-
-        if (! shouldExit())
-            juce::MessageManager::callAsync ([cb = onDone, duration, readable] { cb (duration, readable); });
-
-        return jobHasFinished;
-    }
-
-private:
-    juce::File file;
-    DoneFn     onDone;
-};
-} // namespace
-
 // ========================== FILEPATH HELPERS ==========================
 static juce::File getSettingsDir()
 {
@@ -60,6 +19,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar (p),
  sliceLcd (p),
  sliceWaveformLcd (p),
+ sfzLcd (p),
+ sfzWaveformLcd (p),
  sliceLane (p),
  waveformView (p),
  waveformOverview (p),
@@ -79,6 +40,12 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  addAndMakeVisible (sliceLcd);
  addAndMakeVisible (sliceWaveformLcd);
+
+ // SF-player LCDs: constructed but hidden until uiMode == 1
+ addAndMakeVisible (sfzLcd);
+ addAndMakeVisible (sfzWaveformLcd);
+ sfzLcd.setVisible (false);
+ sfzWaveformLcd.setVisible (false);
  if (auto* cf = headerBar.getControlFrame())
  addAndMakeVisible (*cf);
 
@@ -194,13 +161,11 @@ DysektEditor::DysektEditor (DysektProcessor& p)
     arrangeView.onTrackTypeSelected = [this] (TrackType type, bool hasSelection)
     {
         if (activeSlot != SlotContent::Seq) return;
-        if (! hasSelection)
-            processor.sequencer.setSelectedSfLiveChannels (0);
-        else if (type == TrackType::SfPlayer)
-            processor.sequencer.setSelectedSfLiveChannels (
-                processor.sequencer.getAllSfPlayerChannelMask());
-        else
-            processor.sequencer.setSelectedSfLiveChannels (0);
+        using Mode = DysektProcessor::MidiRouteMode;
+        processor.setMidiRouteMode (
+            (hasSelection && type != TrackType::SfPlayer)
+                ? Mode::Slicer
+                : Mode::Sequencer);
     };
 #endif
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
@@ -381,8 +346,14 @@ DysektEditor::~DysektEditor()
 }
 
 // ── MIDI route mode helper ────────────────────────────────────────────────────
-// MidiRouteMode replaced by channelOwnerMap (Ch1=Slicer, Ch2=SfPlayer hardwired).
-void DysektEditor::syncMidiRouteMode() {}
+void DysektEditor::syncMidiRouteMode()
+{
+    using Mode = DysektProcessor::MidiRouteMode;
+    const Mode mode = (activeSlot == SlotContent::Seq) ? Mode::Sequencer
+                    : (uiMode == 1)                    ? Mode::SfPlayer
+                                                       : Mode::Slicer;
+    processor.setMidiRouteMode (mode);
+}
 
 // ── Interface mode switch ─────────────────────────────────────────────────────
 void DysektEditor::setUiMode (int mode)
@@ -400,6 +371,13 @@ void DysektEditor::setUiMode (int mode)
  // any soundfont has been loaded, so the KeysPanel guard works from the
  // very first paint in that mode.
  sfzDropdown.keysPanel.setSlicerHighlightEnabled (uiMode == 0);
+
+ // ── Swap the LCD pair ─────────────────────────────────────────────────────
+ const bool isSfz = (uiMode == 1);
+ sliceLcd.setVisible       (! isSfz);
+ sliceWaveformLcd.setVisible (! isSfz);
+ sfzLcd.setVisible          (isSfz);
+ sfzWaveformLcd.setVisible  (isSfz);
 
  // Route live MIDI to the active front-end.
  syncMidiRouteMode();
@@ -513,51 +491,42 @@ void DysektEditor::showTrimDialog (const juce::File& file, bool isRelink)
  return;
  }
  if (pref == DysektProcessor::TrimPrefAsk) {
-  // Move createReaderFor off the message thread — a corrupt MP3/FLAC can
-  // segfault inside the decoder before returning nullptr, crashing the DAW.
-  processor.fileLoadPool.addJob (new FormatProbeJob (file, [this, file] (double duration, bool readable)
-  {
-   if (! readable)
-   {
-    juce::AlertWindow::showMessageBoxAsync (
-     juce::AlertWindow::WarningIcon,
-     "Cannot Load File",
-     "\"" + file.getFileName() + "\" could not be read.\n\n"
-     "The file may be corrupt or in an unsupported format.",
-     "OK");
-    return;
-   }
+ juce::AudioFormatManager fm;
+ fm.registerBasicFormats();
+ std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (file));
+ double duration = 0.0;
+ if (reader != nullptr && reader->sampleRate > 0.0)
+ duration = (double) reader->lengthInSamples / reader->sampleRate;
 
-   if (duration < 5.0)
-   {
-    processor.loadFileAsync (file);
-    processor.zoom.store (1.0f);
-    processor.scroll.store (0.0f);
-    return;
-   }
+ if (duration < 5.0)
+ {
+ processor.loadFileAsync (file);
+ processor.zoom.store (1.0f);
+ processor.scroll.store (0.0f);
+ return;
+ }
 
-   confirmOverlay = std::make_unique<ConfirmOverlay> (
-    "Trim Sample?",
-    "This sample is long. Would you like to trim it before slicing?",
-    "Trim",
-    "No Thanks");
-   addAndMakeVisible (*confirmOverlay);
-   confirmOverlay->setBounds (getLocalBounds());
-   confirmOverlay->toFront (true);
-   confirmOverlay->onResult = [this, file] (bool trim)
-   {
-    confirmOverlay.reset();
-    if (trim)
-     showTrimMode (file);
-    else
-    {
-     processor.loadFileAsync (file);
-     processor.zoom.store (1.0f);
-     processor.scroll.store (0.0f);
-    }
-   };
-  }), true);
-  return;
+ confirmOverlay = std::make_unique<ConfirmOverlay> (
+ "Trim Sample?",
+ "This sample is long. Would you like to trim it before slicing?",
+ "Trim",
+ "No Thanks");
+ addAndMakeVisible (*confirmOverlay);
+ confirmOverlay->setBounds (getLocalBounds());
+ confirmOverlay->toFront (true);
+ confirmOverlay->onResult = [this, file] (bool trim)
+ {
+ confirmOverlay.reset();
+ if (trim)
+ showTrimMode (file);
+ else
+ {
+ processor.loadFileAsync (file);
+ processor.zoom.store (1.0f);
+ processor.scroll.store (0.0f);
+ }
+ };
+ return;
  }
  showTrimMode (file);
 }
@@ -839,6 +808,12 @@ void DysektEditor::resized()
 
  const int sideW = (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2;
  sliceLcd.setBounds (topRow.removeFromLeft (sideW));
+ if (uiMode == 1)
+ {
+     // In SF-player mode the SFZ LCDs sit at the same pixel positions;
+     // we re-use the just-computed bounds so both pairs are always sync'd.
+     sfzLcd.setBounds (sliceLcd.getBounds());
+ }
  topRow.removeFromLeft (si (kMargin));
 
  auto centreCol = topRow.removeFromLeft (si (kCtrlFrameW));
@@ -863,6 +838,7 @@ void DysektEditor::resized()
 
  topRow.removeFromLeft (si (kMargin));
  sliceWaveformLcd.setBounds (topRow);
+ sfzWaveformLcd.setBounds (sliceWaveformLcd.getBounds());
 
  auto actionArea = area.removeFromTop (si (kActionH));
  const int kFX = si (kMargin);
@@ -1442,8 +1418,16 @@ void DysektEditor::timerCallback()
      }
  }
 
- sliceLcd.repaintLcd();
- sliceWaveformLcd.repaintLcd();
+ if (uiMode == 0)
+ {
+     sliceLcd.repaintLcd();
+     sliceWaveformLcd.repaintLcd();
+ }
+ else
+ {
+     sfzLcd.repaintLcd();
+     sfzWaveformLcd.repaintLcd();
+ }
 
  {
  auto timerSnap = processor.sampleData.getSnapshot();
@@ -1629,6 +1613,13 @@ void DysektEditor::loadUserSettings()
  headerBar.dualFrame().setPadGridActive (uiMode == 1);
  headerBar.setWaveMode (waveformMode);
  headerBar.setMidiFollowActive (processor.midiSelectsSlice.load());
+
+ // Sync LCD pair visibility to the restored uiMode
+ const bool isSfz = (uiMode == 1);
+ sliceLcd.setVisible        (! isSfz);
+ sliceWaveformLcd.setVisible (! isSfz);
+ sfzLcd.setVisible           (isSfz);
+ sfzWaveformLcd.setVisible   (isSfz);
 }
 
 
