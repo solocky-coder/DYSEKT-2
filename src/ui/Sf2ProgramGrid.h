@@ -50,14 +50,15 @@ public:
     /** Restore channel assignments from persisted state (e.g. after plugin reload).
      *  Must be called on the message thread after setPresets().
      *  Key = preset index in the list, value = 1-based MIDI channel. */
-    /** Called by SfzDropdownPanel whenever sfPlayerChannelMask changes.
+    /** Called by SfzDropdownPanel whenever the available channel set changes.
      *  lo/hi are the lowest and highest set channel numbers (1-based) derived
      *  from the mask, used to grey out assigned channels in the grid.
-     *  Channels outside [low, high] are greyed out in the right-click menu. */
-    void setChannelRange (int low, int high)
+     *  availableMask is a bitmask (bit N = ch N, 1-based) of channels that
+     *  may be assigned — channels not in this mask are greyed out in the menu. */
+    void setAvailableChannelMask (uint32_t mask)
     {
-        rangeLow  = juce::jlimit (1, 16, low);
-        rangeHigh = juce::jlimit (1, 16, high);
+        availableChannelMask = mask;
+        repaint();
     }
 
     void setPresetChannels (const std::unordered_map<int,int>& channels)
@@ -112,8 +113,7 @@ private:
     int   editingIdx     { -1 };  ///< preset being edited for per-channel FX, or -1
     // Maps preset index → assigned MIDI channel (1-16). 0/absent = not assigned.
     std::unordered_map<int,int> presetChannels;
-    int rangeLow  { 1 };   ///< lowest channel in sfPlayerChannelMask  — set by SfzDropdownPanel
-    int rangeHigh { 16 };  ///< highest channel in sfPlayerChannelMask — set by SfzDropdownPanel
+    uint32_t availableChannelMask { 0x1FFFFCu };  // bits 2-16 by default (ch 3-16 usable)
     int   hoveredCell    { -1 };
     int   previewIdx     { -1 };  ///< index of currently-previewing preset, or -1
 

@@ -456,19 +456,22 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
 
     const int current = presetChannels.count (presetIdx) ? presetChannels.at (presetIdx) : 0;
 
-    for (int ch = 1; ch <= 16; ++ch)
+    // Ch 1 = Slicer (hardwired), Ch 2 = SF-Player base (hardwired) — never shown.
+    // Ch 3-16 = dynamic pool: enabled if bit is set in availableChannelMask.
+    for (int ch = 3; ch <= 16; ++ch)
     {
-        // Mark channel as used by another preset so user can see what's taken
+        const bool isAvailable = (availableChannelMask & (1u << ch)) != 0;
+
+        // Mark channels used by another preset
         bool usedByOther = false;
         for (auto& kv : presetChannels)
             if (kv.first != presetIdx && kv.second == ch)
                 usedByOther = true;
 
-        const bool inRange = (ch >= rangeLow && ch <= rangeHigh);
         const juce::String label = "Channel " + juce::String (ch)
-                                   + (usedByOther ? "  [in use]" : "")
-                                   + (! inRange   ? "  [out of range]" : "");
-        menu.addItem (100 + ch, label, /*isEnabled=*/ inRange, current == ch);
+                                   + (usedByOther  ? "  [in use]"      : "")
+                                   + (! isAvailable ? "  [chromatic]"   : "");
+        menu.addItem (100 + ch, label, /*isEnabled=*/ isAvailable && ! usedByOther, current == ch);
     }
 
     menu.addSeparator();

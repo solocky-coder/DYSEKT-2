@@ -156,15 +156,6 @@ private:
     std::vector<AssignedPreset>            sf2Presets;
     int                                    selectedSf2Ch { -1 };
 
-    // ── MIDI channel-range spinners (replaces sf2ChCombo) ────────────────
-    // Drawn as:  CH [◂ 1 ▸] – [◂ 16 ▸]  inside the SF2 strip.
-    // Hit-zones laid out in resized(); clicks handled in mouseDown().
-    juce::Rectangle<int> chLowDec,  chLowLabel,  chLowInc;
-    juce::Rectangle<int> chHighDec, chHighLabel, chHighInc;
-    juce::Rectangle<int> chRangeLabelZone;
-    int cachedChLow  { 1 };   ///< polled from processor each timer tick
-    int cachedChHigh { 16 };
-
     void buildSf2Combo();  ///< kept for grid-channel compat; now a no-op
 
 
