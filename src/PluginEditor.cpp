@@ -194,11 +194,13 @@ DysektEditor::DysektEditor (DysektProcessor& p)
     arrangeView.onTrackTypeSelected = [this] (TrackType type, bool hasSelection)
     {
         if (activeSlot != SlotContent::Seq) return;
-        using Mode = DysektProcessor::MidiRouteMode;
-        processor.setMidiRouteMode (
-            (hasSelection && type != TrackType::SfPlayer)
-                ? Mode::Slicer
-                : Mode::Sequencer);
+        if (! hasSelection)
+            processor.sequencer.setSelectedSfLiveChannels (0);
+        else if (type == TrackType::SfPlayer)
+            processor.sequencer.setSelectedSfLiveChannels (
+                processor.sequencer.getAllSfPlayerChannelMask());
+        else
+            processor.sequencer.setSelectedSfLiveChannels (0);
     };
 #endif
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
@@ -379,14 +381,8 @@ DysektEditor::~DysektEditor()
 }
 
 // ── MIDI route mode helper ────────────────────────────────────────────────────
-void DysektEditor::syncMidiRouteMode()
-{
-    using Mode = DysektProcessor::MidiRouteMode;
-    const Mode mode = (activeSlot == SlotContent::Seq) ? Mode::Sequencer
-                    : (uiMode == 1)                    ? Mode::SfPlayer
-                                                       : Mode::Slicer;
-    processor.setMidiRouteMode (mode);
-}
+// MidiRouteMode replaced by channelOwnerMap (Ch1=Slicer, Ch2=SfPlayer hardwired).
+void DysektEditor::syncMidiRouteMode() {}
 
 // ── Interface mode switch ─────────────────────────────────────────────────────
 void DysektEditor::setUiMode (int mode)

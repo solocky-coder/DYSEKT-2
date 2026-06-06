@@ -1024,8 +1024,7 @@ void SliceWaveformLcd::paint (juce::Graphics& g)
 
 bool SliceWaveformLcd::isSfPlayerMode() const
 {
-    // midiRouteMode: 0=Slicer, 1=SfPlayer, 2=Sequencer  (matches MidiRouteMode enum)
-    return processor.midiRouteMode.load (std::memory_order_relaxed) == 1;
+    return processor.sfzPlayer.isLoaded();
 }
 
 // Build envNodes from sfzPlayer's live ADSR atomics.

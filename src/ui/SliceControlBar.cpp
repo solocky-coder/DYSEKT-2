@@ -1571,14 +1571,13 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  }
  else if (fieldId == F::FieldChromaticChannel)
  {
- int cur = sl.chromaticChannel;  // always read from slice
- // Channels owned by the SF player are not available to the slicer.
- const uint32_t sfMask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+ int cur = sl.chromaticChannel;
+ // Ch 1+2 hardwired. Ch 3-16 owned by Sf2Preset are unavailable to chromatic slices.
  juce::StringArray names; names.add ("Off");
- for (int i = 1; i <= 16; ++i)
+ for (int i = 3; i <= 16; ++i)
  {
-     if (sfMask != 0 && (sfMask & (1u << i)))
-         continue;  // owned by SF player — skip
+     if (processor.getChannelOwner (i) == DysektProcessor::ChOwner::Sf2Preset)
+         continue;
      names.add ("Channel " + juce::String (i));
  }
  addItems (names, cur);
