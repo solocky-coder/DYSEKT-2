@@ -567,7 +567,13 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     if (! loaded.load (std::memory_order_relaxed))
         return;
 
-    const int filterCh = midiChannel.load (std::memory_order_relaxed);
+    // NOTE: midiChannel / filterCh is intentionally NOT applied here.
+    // The sfzMidiBuf arriving in process() has already been pre-filtered by
+    // sfPlayerChannelMask in PluginProcessor::processBlock().  Applying a
+    // second per-channel filter here would drop messages on any channel that
+    // doesn't exactly match midiChannel, silencing SFZ playback whenever the
+    // mask spans multiple channels.  Let every message in sfzMidiBuf through.
+    const int filterCh = 0;   // 0 = omni (no secondary filter)
     const int trans    = transpose.load   (std::memory_order_relaxed);
     const float vol    = volume.load      (std::memory_order_relaxed);
 

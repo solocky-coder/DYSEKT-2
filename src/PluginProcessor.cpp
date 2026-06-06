@@ -1406,10 +1406,11 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
         const auto msg = metadata.getMessage();
 
         // Skip messages on SF-player-owned channels — they belong to DY-SFP.
+        // Channel 1 is always reserved for the slicer and is never skipped.
         if (sfMask != 0)
         {
             const int ch = msg.getChannel();   // 1-based
-            if (ch >= 1 && ch <= 16 && (sfMask & (1u << ch)))
+            if (ch >= 2 && ch <= 16 && (sfMask & (1u << ch)))
                 continue;
         }
 
@@ -2945,7 +2946,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
             if (sfMaskBuild != 0)
             {
-                const bool allChannels = ((sfMaskBuild & 0x1FFFEu) == 0x1FFFEu); // bits 1-16 all set
+                const bool allChannels = ((sfMaskBuild & 0x1fffcu) == 0x1fffcu); // bits 2-16 all set (ch1 reserved for slicer)
                 if (allChannels)
                 {
                     sfzMidiBuf = midi;
@@ -2956,7 +2957,8 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     {
                         const auto& msg = meta.getMessage();
                         const int ch = msg.getChannel();   // 1-based
-                        if (ch >= 1 && ch <= 16 && (sfMaskBuild & (1u << ch)))
+                        // Channel 1 always belongs to the slicer — never route to sfzPlayer.
+                        if (ch >= 2 && ch <= 16 && (sfMaskBuild & (1u << ch)))
                             sfzMidiBuf.addEvent (msg, meta.samplePosition);
                     }
                 }
