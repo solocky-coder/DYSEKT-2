@@ -143,6 +143,9 @@ private:
     // Shared with crash handlers (static so no heap access needed in handler).
     static juce::String s_logFilePath;
     static juce::String s_dumpDirPath;
+#if JUCE_WINDOWS
+    static LPTOP_LEVEL_EXCEPTION_FILTER s_previousFilter;
+#endif
 
     // ── Log directory ─────────────────────────────────────────────────────────
 
@@ -165,7 +168,11 @@ private:
     static void installHandlers()
     {
 #if JUCE_WINDOWS
-        SetUnhandledExceptionFilter (windowsExceptionFilter);
+        // Chain rather than replace: save whatever filter the DAW installed
+        // (Nuendo/Cubase reinstall their own filter after each plugin load and
+        // will silently overwrite a flat SetUnhandledExceptionFilter call).
+        // We install ours on top and call theirs afterward so both run.
+        s_previousFilter = SetUnhandledExceptionFilter (windowsExceptionFilter);
 #else
         struct sigaction sa {};
         sa.sa_handler = posixSignalHandler;
@@ -246,6 +253,12 @@ private:
         snprintf (buf, sizeof (buf), "%08lX\n", (unsigned long) code);
         crashWrite (buf);
 
+        // Chain to the previous filter (e.g. the DAW's handler) so it still runs
+        // and writes its own crash dump. Without this, installing our filter on top
+        // of the DAW's silently suppresses the DAW's dump.
+        if (s_previousFilter != nullptr)
+            return s_previousFilter (info);
+
         return EXCEPTION_CONTINUE_SEARCH;   // let default handler terminate
     }
 
@@ -297,3 +310,6 @@ private:
 // acceptable for a header-only utility class in a single-plugin project).
 inline juce::String CrashLogger::s_logFilePath;
 inline juce::String CrashLogger::s_dumpDirPath;
+#if JUCE_WINDOWS
+inline LPTOP_LEVEL_EXCEPTION_FILTER CrashLogger::s_previousFilter = nullptr;
+#endif
