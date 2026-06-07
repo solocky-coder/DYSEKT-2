@@ -156,6 +156,8 @@ target_sources(Dysekt PRIVATE
     src/ui/ShortcutsPanel.cpp
     src/ui/PadGridView.cpp
     src/ui/SliceWaveformLcd.cpp
+    src/ui/SfzLcdDisplay.cpp
+    src/ui/SfzWaveformLcd.cpp
     src/ui/DualLcdControlFrame.cpp
     src/ui/SfzDropdownPanel.cpp
     src/ui/Sf2ProgramGrid.cpp
@@ -241,6 +243,8 @@ target_sources(DysektStandalone PRIVATE
     src/ui/ShortcutsPanel.cpp
     src/ui/PadGridView.cpp
     src/ui/SliceWaveformLcd.cpp
+    src/ui/SfzLcdDisplay.cpp
+    src/ui/SfzWaveformLcd.cpp
     src/ui/DualLcdControlFrame.cpp
     src/ui/SfzDropdownPanel.cpp
     src/ui/Sf2ProgramGrid.cpp
