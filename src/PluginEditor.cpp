@@ -161,11 +161,9 @@ DysektEditor::DysektEditor (DysektProcessor& p)
     arrangeView.onTrackTypeSelected = [this] (TrackType type, bool hasSelection)
     {
         if (activeSlot != SlotContent::Seq) return;
-        using Mode = DysektProcessor::MidiRouteMode;
-        processor.setMidiRouteMode (
-            (hasSelection && type != TrackType::SfPlayer)
-                ? Mode::Slicer
-                : Mode::Sequencer);
+        // Sequencer track-type selection: no global mode change needed;
+        // Ch 1 (Slicer) and Ch 2 (SfPlayer) are managed by syncMidiRouteMode.
+        // The ArrangeView manages per-channel claims for chromatic/SF2 tracks.
     };
 #endif
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
@@ -348,11 +346,12 @@ DysektEditor::~DysektEditor()
 // ── MIDI route mode helper ────────────────────────────────────────────────────
 void DysektEditor::syncMidiRouteMode()
 {
-    using Mode = DysektProcessor::MidiRouteMode;
-    const Mode mode = (activeSlot == SlotContent::Seq) ? Mode::Sequencer
-                    : (uiMode == 1)                    ? Mode::SfPlayer
-                                                       : Mode::Slicer;
-    processor.setMidiRouteMode (mode);
+    // Ch 1 (Slicer) is hardwired in the processor and never changes.
+    // Ch 2 is claimed for SfPlayer when in SF-player mode, released otherwise.
+    if (uiMode == 1)
+        processor.claimChannel (2, DysektProcessor::ChOwner::SfPlayer);
+    else
+        processor.releaseChannel (2);
 }
 
 // ── Interface mode switch ─────────────────────────────────────────────────────
