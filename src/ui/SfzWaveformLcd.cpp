@@ -36,7 +36,10 @@ void SfzWaveformLcd::repaintLcd()
         if (postCommitGuard > 0)
             --postCommitGuard;
         else
+        {
             buildEnvelopeNodes();
+            buildWaveformPeaks();
+        }
     }
     repaint();
 }
@@ -212,6 +215,61 @@ void SfzWaveformLcd::mouseUp (const juce::MouseEvent&)
     postCommitGuard = 6;
     repaint();
 }
+
+// ── Waveform backdrop ─────────────────────────────────────────────────────────
+
+void SfzWaveformLcd::buildWaveformPeaks()
+{
+    peaks.clearQuick();
+    peaks.insertMultiple (-1, 0.0f, kPeaks);
+
+    const auto snap = processor.sampleData.getSnapshot();
+    if (snap == nullptr) return;
+    const int totalFrames = snap->buffer.getNumSamples();
+    if (totalFrames <= 0) return;
+
+    for (int i = 0; i < kPeaks; ++i)
+    {
+        const float t   = (float) i / (float) kPeaks;
+        const int   pos = (int) (t * (float) totalFrames);
+        peaks.set (i, processor.getWaveformPeakAt (pos));
+    }
+}
+
+void SfzWaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
+                                            const juce::Rectangle<float>& area)
+{
+    if (peaks.isEmpty()) return;
+
+    const float W  = area.getWidth();
+    const float H  = area.getHeight();
+    const float cx = area.getX();
+    const float cy = area.getY() + H * 0.5f;
+
+    const auto col = sfzLcd2Phosphor().withAlpha (0.12f);
+
+    juce::Path top, bot;
+    top.startNewSubPath (cx, cy);
+    bot.startNewSubPath (cx, cy);
+
+    const int n = peaks.size();
+    for (int i = 0; i < n; ++i)
+    {
+        const float x   = cx + ((float) i / (float) n) * W;
+        const float amp = juce::jlimit (0.0f, 1.0f, peaks[i]) * H * 0.45f;
+        top.lineTo (x, cy - amp);
+        bot.lineTo (x, cy + amp);
+    }
+    top.lineTo (cx + W, cy);
+    bot.lineTo (cx + W, cy);
+
+    bot.closeSubPath();
+    top.addPath (bot);
+
+    g.setColour (col);
+    g.fillPath (top);
+}
+
 
 // ── Draw helpers ──────────────────────────────────────────────────────────────
 
@@ -421,7 +479,8 @@ void SfzWaveformLcd::paint (juce::Graphics& g)
         return;
     }
 
-    drawHeader   (g, lcdArea);
-    drawEnvelope (g, lcdArea);
+    drawHeader           (g, lcdArea);
+    drawWaveformBackdrop (g, lcdArea);
+    drawEnvelope         (g, lcdArea);
     drawNodes    (g, nodeArea);
 }

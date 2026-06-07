@@ -346,12 +346,11 @@ DysektEditor::~DysektEditor()
 // ── MIDI route mode helper ────────────────────────────────────────────────────
 void DysektEditor::syncMidiRouteMode()
 {
-    // Ch 1 (Slicer) is hardwired in the processor and never changes.
-    // Ch 2 is claimed for SfPlayer when in SF-player mode, released otherwise.
-    if (uiMode == 1)
-        processor.claimChannel (2, DysektProcessor::ChOwner::SfPlayer);
-    else
-        processor.releaseChannel (2);
+    // Ch 1 (Slicer) and Ch 2 (SfPlayer) are hardwired at construction and
+    // never released — releaseChannel() only operates on Ch 3-16.
+    // Chromatic slice channels (3-16) are managed internally by the processor
+    // via rebuildChromaticChannelMask() whenever slice data changes.
+    // Nothing for the editor to do here.
 }
 
 // ── Interface mode switch ─────────────────────────────────────────────────────

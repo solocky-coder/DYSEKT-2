@@ -76,6 +76,12 @@ private:
 
     DysektProcessor& processor;
 
+    // ── Waveform backdrop ─────────────────────────────────────────────────────
+    static constexpr int kPeaks = 256;
+    juce::Array<float> peaks;
+    void buildWaveformPeaks();
+    void drawWaveformBackdrop (juce::Graphics& g, const juce::Rectangle<float>& area);
+
     NodeRole dragRole { NodeRole::None };
     NodeRole hovRole  { NodeRole::None };
     int      postCommitGuard { 0 };
