@@ -170,10 +170,21 @@ void SliceWaveformLcd::buildEnvelopeNodes()
  if (sel >= 0 && sel < processor.sliceManager.getNumSlices())
  {
      const auto& s = processor.sliceManager.getSlice (sel);
-     attackMs  = s.attackSec    * 1000.0f;
-     decayMs   = s.decaySec     * 1000.0f;
-     sustainPc = s.sustainLevel * 100.0f;
-     releaseMs = s.releaseSec   * 1000.0f;
+
+     // Resolve: if lock bit is set → use the slice's own stored value;
+     // otherwise → fall back to the global APVTS knob value.
+     // This matches the audio thread (VoicePool) and SliceControlBar behaviour
+     // so the waveform LCD nodes always reflect what will actually be played.
+     // Previously this block read s.attackSec etc. unconditionally, so fresh
+     // slices (all zeros) always produced identical node positions.
+     auto resolveF = [&] (uint32_t bit, float sliceVal, float globalVal) -> float {
+         return (s.lockMask & bit) ? sliceVal : globalVal;
+     };
+
+     attackMs  = resolveF (kLockAttack,   s.attackSec    * 1000.0f, apvtsMs  (ParamIds::defaultAttack));
+     decayMs   = resolveF (kLockDecay,    s.decaySec     * 1000.0f, apvtsMs  (ParamIds::defaultDecay));
+     sustainPc = resolveF (kLockSustain,  s.sustainLevel * 100.0f,  apvtsPct (ParamIds::defaultSustain));
+     releaseMs = resolveF (kLockRelease,  s.releaseSec   * 1000.0f, apvtsMs  (ParamIds::defaultRelease));
  }
 
     // Free layout — A, D, R travel the full [0..1] width with only a small
