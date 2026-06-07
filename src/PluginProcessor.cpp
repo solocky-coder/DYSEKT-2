@@ -361,7 +361,9 @@ void DysektProcessor::loadFileAsync (const juce::File& file)
 // ─────────────────────────────────────────────────────────────────────────────
 void DysektProcessor::applyTrimToCurrentSample (int trimStart, int trimEnd)
 {
-    const int total = sampleData.getBuffer().getNumSamples();
+    // Use snapshot — this is the message thread; getBufferAudioThread() is not safe here.
+    const auto trimSnap = sampleData.getSnapshot();
+    const int total = trimSnap ? trimSnap->buffer.getNumSamples() : 0;
     trimStart = juce::jlimit (0, juce::jmax (0, total - 1), trimStart);
     trimEnd   = juce::jlimit (trimStart + 1, total, trimEnd);
 
@@ -852,7 +854,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 psp.sampleRate     = currentSampleRate;
                 psp.sample         = &sampleData;
                 lazyChop.start (sampleData.getNumFrames(), sliceManager, psp,
-                                true /*snap always on*/, &sampleData.getBuffer());
+                                true /*snap always on*/, &sampleData.getBufferAudioThread());
             }
             break;
 
@@ -866,7 +868,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             if (sel >= 0 && sel < sliceManager.getNumSlices())
             {
                 auto& s = sliceManager.getSlice (sel);
-                const int stretchSliceEnd = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
+                const int stretchSliceEnd = sliceManager.getEndForSlice (sel, sampleData.getBufferAudioThread().getNumSamples());
                 float newBpm = GrainEngine::calcStretchBpm (
                     s.startSample, stretchSliceEnd, cmd.floatParam1, currentSampleRate);
                 s.bpm = newBpm;
@@ -1098,7 +1100,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 // switching CC control between adjacent slices.
                 if (end - start < 64)
                     start = juce::jmax (0, end - 64);
-                const int totalF = sampleData.getBuffer().getNumSamples();
+                const int totalF = sampleData.getBufferAudioThread().getNumSamples();
                 int oldEnd = sliceManager.getEndForSlice (idx, totalF);
                 // Clamp start against the PREVIOUS slice to prevent overlap.
                 // Slices are sorted by startSample, so slices[idx-1].startSample
@@ -1184,7 +1186,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             {
                 Slice srcCopy = sliceManager.getSlice (sel);
                 int startS = srcCopy.startSample;
-                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
+                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBufferAudioThread().getNumSamples());
                 int count = juce::jlimit (2, 128, cmd.intParam1);
                 int len = endS - startS;
 
@@ -1199,9 +1201,9 @@ void DysektProcessor::handleCommand (const Command& cmd)
                     if (doSnap)
                     {
                         if (i > 0)
-                            s = AudioAnalysis::findNearestZeroCrossing (sampleData.getBuffer(), s);
+                            s = AudioAnalysis::findNearestZeroCrossing (sampleData.getBufferAudioThread(), s);
                         if (i < count - 1)
-                            e = AudioAnalysis::findNearestZeroCrossing (sampleData.getBuffer(), e);
+                            e = AudioAnalysis::findNearestZeroCrossing (sampleData.getBufferAudioThread(), e);
                     }
                     if (e - s < 64) e = s + 64;
                     int idx = sliceManager.createSlice (s, e);
@@ -1234,7 +1236,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             {
                 Slice srcCopy = sliceManager.getSlice (sel);
                 int startS = srcCopy.startSample;
-                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
+                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBufferAudioThread().getNumSamples());
 
                 sliceManager.deleteSlice (sel);
 
@@ -1278,7 +1280,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
         case CmdEqualChop:
         {
             const int n     = juce::jlimit (2, 32, cmd.intParam1);
-            const int total = sampleData.getBuffer().getNumSamples();
+            const int total = sampleData.getBufferAudioThread().getNumSamples();
             if (total < n * 64) break;   // sample too short for requested count
 
             // Clear all existing slices
@@ -3140,6 +3142,11 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     stream.writeInt (sliceManager.rootNote.load());
 
     // Slice data
+    // Snapshot the sample buffer length once before the loop — getStateInformation runs
+    // on the message thread and getBufferAudioThread() is not safe here.
+    const auto stateSampleSnap = sampleData.getSnapshot();
+    const int stateSampleLen = stateSampleSnap ? stateSampleSnap->buffer.getNumSamples() : 0;
+
     int numSlices = sliceManager.getNumSlices();
     stream.writeInt (numSlices);
     for (int i = 0; i < numSlices; ++i)
@@ -3147,7 +3154,7 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
         const auto& s = sliceManager.getSlice (i);
         stream.writeBool (s.active);
         stream.writeInt (s.startSample);
-        stream.writeInt (sliceManager.getEndForSlice (i, sampleData.getBuffer().getNumSamples()));
+        stream.writeInt (sliceManager.getEndForSlice (i, stateSampleLen));
         stream.writeInt (s.midiNote);
         stream.writeFloat (s.bpm);
         stream.writeFloat (s.pitchSemitones);

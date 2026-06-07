@@ -133,7 +133,10 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
                 return nullptr;
 
             const int toRead = std::min (kDecodeChunk, numFrames - framesRead);
-            reader->read (&sourceBuffer, framesRead, toRead, framesRead, true, true);
+            // Pass -1 as startSampleInFile so the reader continues from its current
+            // sequential position rather than re-seeking (and for MP3/dr_mp3, potentially
+            // re-decoding from the start of the file) on every chunk.
+            reader->read (&sourceBuffer, framesRead, toRead, -1, true, true);
             framesRead += toRead;
         }
     }

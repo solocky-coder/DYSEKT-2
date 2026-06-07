@@ -66,7 +66,11 @@ public:
 
     bool isLoaded() const { return loaded; }
 
-    const juce::AudioBuffer<float>& getBuffer() const
+    /** Audio-thread ONLY. Returns the raw buffer from activeDecoded without snapshot
+     *  protection. Safe to call from processBlock and its callees (single writer,
+     *  same thread). NEVER call from the message thread, timers, or editor code —
+     *  use getSnapshot() instead, which is atomically published and safe everywhere. */
+    const juce::AudioBuffer<float>& getBufferAudioThread() const noexcept
     {
         static const juce::AudioBuffer<float> kEmpty;
         return activeDecoded ? activeDecoded->buffer : kEmpty;

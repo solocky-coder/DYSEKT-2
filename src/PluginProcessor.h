@@ -353,12 +353,12 @@ public:
      *  Safe to call from the UI (message) thread. */
     float getWaveformPeakAt (int samplePosition) const noexcept
     {
-        // IMPORTANT: must use the atomic snapshot, NOT sampleData.getBuffer().
-        // getBuffer() returns a reference to the raw AudioBuffer member which is
-        // replaced (via move-assignment) on the audio thread in applyDecodedSample.
-        // Reading it here from the message thread is a data race on the AudioBuffer's
-        // internal channel pointer — causing heap corruption (0xC0000005).
-        // The snapshot is published atomically, so it is always safe to read here.
+        // IMPORTANT: must use the atomic snapshot, NOT sampleData.getBufferAudioThread().
+        // getBufferAudioThread() returns a reference to activeDecoded->buffer which is
+        // replaced (via shared_ptr move-assignment) on the audio thread in applyDecodedSample.
+        // Reading it here from the message thread is a data race on the shared_ptr object —
+        // causing heap corruption (0xC0000005). The snapshot is published atomically,
+        // so it is always safe to read here.
         const auto snap = sampleData.getSnapshot();
         if (snap == nullptr) return 0.0f;
         const auto& buf = snap->buffer;
