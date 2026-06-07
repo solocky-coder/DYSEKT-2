@@ -235,6 +235,8 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+  try
+  {
 #if DYSEKT_STANDALONE
     sequencer.setAbletonLink (&abletonLink);
     sequencer.setSfzPlayer   (&sfzPlayer);
@@ -274,6 +276,9 @@ void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         globalEq.prepare (spec);
         globalEqNeedsUpdate = true;
     }
+  }
+  catch (const std::exception& e) { crashLogger.log (juce::String ("prepareToPlay exception: ") + e.what()); }
+  catch (...) { crashLogger.log ("prepareToPlay: unknown exception caught"); }
 }
 
 void DysektProcessor::releaseResources() {}
@@ -2127,33 +2132,42 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
                 heldNotes[note] = true;
 
                 // Build params once; all param loads happen here, not inside the slice loop.
+                // Guard every raw pointer before dereferencing — getRawParameterValue()
+                // returns nullptr if the param ID is not registered (e.g. a version
+                // mismatch between ParamLayout and a saved project).  Dereferencing a
+                // null std::atomic<float>* at offset +0x18 was the cause of the worker-
+                // thread null-deref crash (DYSEKT+0x674eb7, rdi=NULL in the dump).
+                auto safeLoad = [] (const std::atomic<float>* p, float fallback = 0.0f) noexcept {
+                    return p ? p->load (std::memory_order_relaxed) : fallback;
+                };
+
                 VoiceStartParams p;
                 p.note             = note;
                 p.velocity         = velocity;
-                p.globalBpm        = bpmParam->load();
-                p.globalPitch      = pitchParam->load();
+                p.globalBpm        = safeLoad (bpmParam,         120.0f);
+                p.globalPitch      = safeLoad (pitchParam,         0.0f);
                 // globalAlgorithm removed — algo derived from stretchOn flag
-                p.globalAttackSec  = attackParam->load()  / 1000.0f;
-                p.globalHoldSec    = holdParam->load()    / 1000.0f;
-                p.globalDecaySec   = decayParam->load()   / 1000.0f;
-                p.globalSustain    = sustainParam->load() / 100.0f;
-                p.globalReleaseSec = releaseParam->load() / 1000.0f;
-                p.globalMuteGroup  = (int) muteGroupParam->load();
-                p.globalStretch    = stretchParam->load()      > 0.5f;
+                p.globalAttackSec  = safeLoad (attackParam,        0.0f) / 1000.0f;
+                p.globalHoldSec    = safeLoad (holdParam,          0.0f) / 1000.0f;
+                p.globalDecaySec   = safeLoad (decayParam,         0.0f) / 1000.0f;
+                p.globalSustain    = safeLoad (sustainParam,     100.0f) / 100.0f;
+                p.globalReleaseSec = safeLoad (releaseParam,      10.0f) / 1000.0f;
+                p.globalMuteGroup  = (int) safeLoad (muteGroupParam, 1.0f);
+                p.globalStretch    = safeLoad (stretchParam,       0.0f) > 0.5f;
                 p.dawBpm           = dawBpm.load();
-                p.globalTonality   = tonalityParam->load();
-                p.globalFormant    = formantParam->load();
-                p.globalFormantComp = formantCompParam->load() > 0.5f;
+                p.globalTonality   = safeLoad (tonalityParam,     0.0f);
+                p.globalFormant    = safeLoad (formantParam,      0.0f);
+                p.globalFormantComp = safeLoad (formantCompParam, 0.0f) > 0.5f;
                 // globalGrainMode removed — Grain was a duplicate of Tonal
-                p.globalVolume     = masterVolParam->load();
-                p.globalReleaseTail = releaseTailParam->load() > 0.5f;
-                p.globalReverse    = reverseParam->load()      > 0.5f;
-                p.globalLoopMode   = (int) loopParam->load();
+                p.globalVolume     = safeLoad (masterVolParam,    0.0f);
+                p.globalReleaseTail = safeLoad (releaseTailParam, 0.0f) > 0.5f;
+                p.globalReverse    = safeLoad (reverseParam,      0.0f) > 0.5f;
+                p.globalLoopMode   = (int) safeLoad (loopParam,   0.0f);
                 p.globalOneShot    = false;  // One Shot is per-slice only; Hold is always the global default
-                p.globalCentsDetune  = centsDetuneParam->load();
-                p.globalPan          = panParam->load();
-                p.globalFilterCutoff = filterCutoffParam->load();
-                p.globalFilterRes    = filterResParam->load();
+                p.globalCentsDetune  = safeLoad (centsDetuneParam,  0.0f);
+                p.globalPan          = safeLoad (panParam,          0.0f);
+                p.globalFilterCutoff = safeLoad (filterCutoffParam, 20000.0f);
+                p.globalFilterRes    = safeLoad (filterResParam,    0.0f);
 
                 // ── v24: per-slice EQ defaults ─────────────────────────────────
                 if (auto* pEqLow  = apvts.getRawParameterValue (ParamIds::defaultEqLowGain))
@@ -2317,6 +2331,8 @@ static inline float sanitiseSample (float x)
 void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                             juce::MidiBuffer& midi)
 {
+  try
+  {
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
@@ -3068,14 +3084,43 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         v = slicePeakR[si].load (std::memory_order_relaxed) * kDecayPerBlock;
         slicePeakR[si].store (v, std::memory_order_relaxed);
     }
+  }
+  catch (const std::exception& e)
+  {
+      // An exception escaped processBlock — log it and return silence.
+      // Letting it propagate into the host is undefined behaviour and will
+      // crash Nuendo (Bug 2: DYSEKT+0x98284c, 0xE06D7363 in crash dump).
+      crashLogger.log (juce::String ("processBlock exception: ") + e.what());
+      buffer.clear();
+  }
+  catch (...)
+  {
+      crashLogger.log ("processBlock: unknown exception caught — returning silence");
+      buffer.clear();
+  }
 }
 juce::AudioProcessorEditor* DysektProcessor::createEditor()
 {
+  try
+  {
     return new DysektEditor (*this);
+  }
+  catch (const std::exception& e)
+  {
+    crashLogger.log (juce::String ("createEditor exception: ") + e.what());
+    return nullptr;
+  }
+  catch (...)
+  {
+    crashLogger.log ("createEditor: unknown exception caught");
+    return nullptr;
+  }
 }
 
 void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+  try
+  {
     juce::MemoryOutputStream stream (destData, false);
 
     // Version
@@ -3195,10 +3240,15 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
 #if DYSEKT_STANDALONE
     sequencer.writeToStream (stream);
 #endif
+  }
+  catch (const std::exception& e) { crashLogger.log (juce::String ("getStateInformation exception: ") + e.what()); }
+  catch (...) { crashLogger.log ("getStateInformation: unknown exception caught"); }
 }
 
 void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+  try
+  {
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
 
     int version = stream.readInt();
@@ -3396,6 +3446,9 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
 
     // Rebuild ChromaticSlice ownership from restored slice data.
     rebuildChromaticChannelMask();
+  }
+  catch (const std::exception& e) { crashLogger.log (juce::String ("setStateInformation exception: ") + e.what()); }
+  catch (...) { crashLogger.log ("setStateInformation: unknown exception caught"); }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

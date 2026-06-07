@@ -341,6 +341,11 @@ public:
         return (int) uiSnapshotVersion.load (std::memory_order_acquire);
     }
 
+    /** Log a message through the crash logger.  Used by PluginEditor and other
+     *  UI components whose try/catch handlers need to record exceptions without
+     *  direct access to the private crashLogger member. */
+    void logCrash (const juce::String& message) { crashLogger.log (message); }
+
     void publishUiSliceSnapshot();
 
     /** Returns the peak amplitude (0..1) at a given sample position in the

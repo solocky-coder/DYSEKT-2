@@ -1237,6 +1237,8 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
 
 void DysektEditor::timerCallback()
 {
+ try
+ {
  bool uiChanged = false, viewportChanged = false;
  const bool previewActive = waveformView.hasActiveSlicePreview();
  const bool waveformInteracting = waveformView.isInteracting();
@@ -1502,6 +1504,18 @@ if (activeSlot == SlotContent::Seq)   pianoRollPanel.syncSnap();
             }
         }
     }
+ }
+ catch (const std::exception& e)
+ {
+     // An exception in timerCallback must not propagate into the host's
+     // message loop — it was the escape route for Bug 2 (0xE06D7363 throw
+     // after 3x recursive DispatchMessageW re-entry, DYSEKT+0x98284c).
+     processor.logCrash (juce::String ("timerCallback exception: ") + e.what());
+ }
+ catch (...)
+ {
+     processor.logCrash ("timerCallback: unknown exception caught");
+ }
 }
 
 void DysektEditor::ensureDefaultThemes()
