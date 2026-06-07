@@ -132,6 +132,17 @@ public:
     /** Return the path to the current log file (useful for a "Show log" menu item). */
     juce::File getLogFile() const { return logFile; }
 
+    /** Call this from DysektProcessor::prepareToPlay() to re-install the crash
+     *  handler on top of the DAW's filter chain.  Hosts like Nuendo and Cubase
+     *  replace SetUnhandledExceptionFilter after every plugin load; calling this
+     *  from prepareToPlay() (which fires after the DAW's post-load window) puts
+     *  us back on top so our handler still runs in the event of a crash. */
+    void prepareToPlayCalled()
+    {
+        installHandlers();
+        log ("prepareToPlay called — crash handler re-installed");
+    }
+
 private:
     // ── State ─────────────────────────────────────────────────────────────────
 
