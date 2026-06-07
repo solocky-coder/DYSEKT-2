@@ -110,11 +110,6 @@ private:
 //==============================================================================
 class DysektProcessor : public juce::AudioProcessor
 {
-    // ── Crash logger ──────────────────────────────────────────────────────────
-    // Declared FIRST so it is constructed before all other members and destroyed
-    // after all other members, ensuring the log captures the full object lifetime.
-    CrashLogger crashLogger;
-
 public:
     // =========================================================================
     // Inner types
@@ -679,6 +674,10 @@ public:
     std::vector<float> masterPitchScratchR;
 
     friend class SoundFontLoader;
+
+    // ── Crash logger ──────────────────────────────────────────────────────────
+    // Declared LAST so it is destroyed FIRST — see ~DysektProcessor() for rationale.
+    CrashLogger crashLogger;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DysektProcessor)
 };

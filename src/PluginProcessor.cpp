@@ -190,6 +190,15 @@ DysektProcessor::DysektProcessor()
 
 DysektProcessor::~DysektProcessor()
 {
+    // !! MEMBER DESTRUCTION ORDER NOTE !!
+    // crashLogger must be declared as the LAST member in PluginProcessor.h so it
+    // destructs FIRST (C++ destructs members in reverse declaration order).
+    // This ensures crashLogger is still alive when all other members destruct,
+    // and its own destructor removes the sentinel file + logs "session ended cleanly"
+    // AFTER all subsystems have torn down cleanly.
+    // If crashLogger is declared first, it destructs last and the sentinel is
+    // never removed on clean exit — every session looks like a crash.
+
     // Poison callbacks first — any job that finishes after this point will
     // check the flag and return without touching `this`.
     loadCallbacksValid->store (false, std::memory_order_seq_cst);
@@ -235,6 +244,12 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+  // Re-install our UnhandledExceptionFilter now that the DAW has finished its
+  // own post-load setup (Nuendo/Cubase stomp the filter after each plugin load;
+  // prepareToPlay fires after that window, so this is the earliest safe point
+  // to put ourselves back on top of the chain).
+  crashLogger.prepareToPlayCalled();
+
   try
   {
 #if DYSEKT_STANDALONE
