@@ -311,9 +311,9 @@ void SfzLcdDisplay::paint (juce::Graphics& g)
     // ── Row 2: VOL + TRANSPOSE ────────────────────────────────────────────────
     {
         const float v = data.volume;
-        juce::String volStr  = "VOL:" + (v >= 0.0f ? "+" : "") + juce::String (v, 1) + "dB";
+        juce::String volStr  = juce::String ("VOL:") + (v >= 0.0f ? "+" : "") + juce::String (v, 1) + "dB";
         const int    tr = data.transpose;
-        juce::String trStr   = "TRNS:" + (tr >= 0 ? "+" : "") + juce::String (tr) + "st";
+        juce::String trStr   = juce::String ("TRNS:") + (tr >= 0 ? "+" : "") + juce::String (tr) + "st";
         drawRowPair (g, 2, volStr, trStr);
     }
 
