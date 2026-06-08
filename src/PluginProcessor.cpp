@@ -1369,7 +1369,10 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 {
                     auto trimmed = SampleData::createTrimmed (*snap, tStart, tEnd);
                     if (trimmed != nullptr)
+                    {
+                        clearVoicesBeforeSampleSwap();          // FIX #1: prevent use-after-free
                         sampleData.applyDecodedSample (std::move (trimmed));
+                    }
                 }
 
                 const int totalFrames = sampleData.getNumFrames();
