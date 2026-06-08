@@ -101,6 +101,17 @@ jobs:
         shell: pwsh
         run: cmake --build build --config RelWithDebInfo --target Dysekt_VST3 --parallel
 
+      - name: Verify PDBs exist
+        shell: pwsh
+        run: |
+          $pdbs = Get-ChildItem -Recurse -Filter "*.pdb" build/
+          if ($pdbs.Count -eq 0) {
+            Write-Error "NO PDB FILES FOUND — check /Zi and /DEBUG flags in CMakeLists.txt"
+            exit 1
+          }
+          Write-Host "Found $($pdbs.Count) PDB(s):"
+          $pdbs | ForEach-Object { Write-Host "  $($_.FullName)" }
+
       - name: Collect artifacts
         shell: pwsh
         run: |
@@ -113,10 +124,15 @@ jobs:
             Copy-Item -Force $e.FullName artifacts/Standalone/
           }
 
-          # PDB for crash symbolication
-          $pdbs = Get-ChildItem -Recurse -Filter "DYSEKT.pdb" build/
+          # ALL PDBs — route by name: Standalone PDB goes to Standalone folder,
+          # everything else (VST3, DLL-level) goes to VST3 folder
+          $pdbs = Get-ChildItem -Recurse -Filter "*.pdb" build/
           foreach ($p in $pdbs) {
-            Copy-Item -Force $p.FullName artifacts/Standalone/
+            if ($p.Name -like "*Standalone*") {
+              Copy-Item -Force $p.FullName artifacts/Standalone/
+            } else {
+              Copy-Item -Force $p.FullName artifacts/VST3/
+            }
           }
 
           # VST3 bundle (JUCE outputs a .vst3 folder, not a file)

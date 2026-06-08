@@ -113,9 +113,13 @@ juce_add_plugin(Dysekt
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
 )
 
-# Use source-charset ONLY — do NOT add /execution-charset (breaks Nuendo/Cubase).
-if (MSVC)
-    target_compile_options(Dysekt PRIVATE /source-charset:utf-8)
+# MSVC compile + link flags:
+#   /source-charset:utf-8  — consistent source encoding (do NOT add /execution-charset)
+#   /Zi                    — write debug info to a separate .pdb file
+#   /DEBUG                 — linker: produce .pdb alongside the binary
+if(MSVC)
+    target_compile_options(Dysekt PRIVATE /source-charset:utf-8 /Zi)
+    target_link_options(Dysekt PRIVATE /DEBUG /PDB:DYSEKT.pdb)
 endif()
 
 juce_add_binary_data(DysektFonts SOURCES
@@ -211,8 +215,10 @@ juce_add_gui_app(DysektStandalone
     PRODUCT_NAME "DYSEKT"
 )
 
-if (MSVC)
-    target_compile_options(DysektStandalone PRIVATE /source-charset:utf-8)
+# Same PDB flags for the Standalone target
+if(MSVC)
+    target_compile_options(DysektStandalone PRIVATE /source-charset:utf-8 /Zi)
+    target_link_options(DysektStandalone PRIVATE /DEBUG /PDB:DysektStandalone.pdb)
 endif()
 
 target_sources(DysektStandalone PRIVATE
