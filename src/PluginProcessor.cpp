@@ -203,11 +203,13 @@ DysektProcessor::~DysektProcessor()
     // check the flag and return without touching `this`.
     loadCallbacksValid->store (false, std::memory_order_seq_cst);
 
-    // Signal all jobs to exit and abandon — do NOT block.
-    // Nuendo SIGKILLs the plugin if the destructor takes more than ~2 seconds.
-    // Callbacks are neutralised above so in-flight jobs can finish safely on
-    // their own thread after we return.
-    fileLoadPool.removeAllJobs (false, 0);
+    // Block until all in-flight jobs have exited (up to 1500 ms).
+    // This closes the TOCTOU gap between a job's guard->load() check and its
+    // subsequent completedLoadData.exchange() — without the wait, the destructor
+    // can delete completedLoadData in that narrow window causing a double-free.
+    // 1500 ms is safely under Nuendo's ~2 s SIGKILL timeout and well above the
+    // worst-case chunked MP3 decode iteration time.
+    fileLoadPool.removeAllJobs (true, 1500);
 
     auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
     delete pending;

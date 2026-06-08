@@ -289,6 +289,11 @@ SampleData::SnapshotPtr SampleData::getSnapshot() const
 
 float SampleData::getInterpolatedSample (double pos, int channel) const
 {
+    // activeDecoded is owned by the audio thread. Calling this from the message
+    // thread or a timer races with applyDecodedSample()'s move-assignment.
+    // Use getSnapshot() if you need cross-thread access.
+    jassert (! juce::MessageManager::existsAndIsCurrentThread());
+
     if (! loaded || channel < 0 || channel > 1)
         return 0.0f;
 

@@ -587,17 +587,31 @@ void FileBrowserPanel::startPreview (const juce::File& f)
     // returning nullptr. Running it on a worker thread keeps the DAW alive if
     // that happens.  The result is posted back to the message thread to update
     // the transport.
-    processor.fileLoadPool.addJob (new PreviewProbeJob (f, [this] (juce::AudioFormatReader* rawReader)
-    {
-        if (rawReader == nullptr) { updatePlayButton(); return; }
+    //
+    // SafePointer + streamGeneration guard: if FileBrowserPanel is destroyed
+    // (or stopPreview() increments the generation) before callAsync fires,
+    // the callback bails out safely instead of touching freed memory.
+    juce::Component::SafePointer<FileBrowserPanel> safeThis (this);
+    const int myGen = ++streamGeneration;
 
-        readerSource = std::make_unique<juce::AudioFormatReaderSource> (rawReader, true);
-        transport.setSource (readerSource.get(), 0, nullptr, rawReader->sampleRate);
-        transport.setGain ((float) volumeSlider.getValue());
-        transport.setPosition (0.0);
-        transport.start();
-        updatePlayButton();
-    }), true);
+    processor.fileLoadPool.addJob (new PreviewProbeJob (f,
+        [safeThis, myGen] (juce::AudioFormatReader* rawReader)
+        {
+            if (safeThis == nullptr || safeThis->streamGeneration.load() != myGen)
+            {
+                delete rawReader;   // no owner now — must free to avoid leak
+                return;
+            }
+
+            if (rawReader == nullptr) { safeThis->updatePlayButton(); return; }
+
+            safeThis->readerSource = std::make_unique<juce::AudioFormatReaderSource> (rawReader, true);
+            safeThis->transport.setSource (safeThis->readerSource.get(), 0, nullptr, rawReader->sampleRate);
+            safeThis->transport.setGain ((float) safeThis->volumeSlider.getValue());
+            safeThis->transport.setPosition (0.0);
+            safeThis->transport.start();
+            safeThis->updatePlayButton();
+        }), true);
 }
 
 void FileBrowserPanel::stopPreview()
