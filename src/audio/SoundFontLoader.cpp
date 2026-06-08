@@ -39,8 +39,7 @@ public:
           file (std::move (f)),
           sampleRate (sr),
           token (tok),
-          processor (proc),
-          guard (proc.loadCallbacksValid)   // shared_ptr copy — safe after processor dtor
+          processor (proc)
     {}
 
     // ── Main entry point ──────────────────────────────────────────────────────
@@ -61,7 +60,7 @@ public:
         }
 
         // ── Step 1: discover active notes ─────────────────────────────────────
-        std::vector<int> activeNotes = discoverActiveNotes (sfz, *this);
+        std::vector<int> activeNotes = discoverActiveNotes (sfz);
         if (shouldExit()) { sfizz_free (sfz); return jobHasFinished; }
 
         if (activeNotes.empty())
@@ -174,10 +173,6 @@ public:
         SampleData::buildPeakMipmaps (*decoded);
 
         // ── Step 4: post results ──────────────────────────────────────────────
-        // Guard against the processor having been destroyed while we were rendering.
-        if (! guard->load (std::memory_order_acquire))
-            return jobHasFinished;
-
         // Post slice layout (processBlock picks this up right after applyDecodedSample)
         auto* oldPayload = processor.pendingSfzSlices.exchange (payload,
                                                                  std::memory_order_acq_rel);
@@ -245,8 +240,7 @@ private:
     }
 
     // Fast pass to find which notes produce audio
-    static std::vector<int> discoverActiveNotes (sfizz_synth_t* sfz,
-                                                 const juce::ThreadPoolJob& job)
+    static std::vector<int> discoverActiveNotes (sfizz_synth_t* sfz)
     {
         std::vector<int> found;
         std::vector<float> probeL (SfzConst::kProbeSize, 0.f);
@@ -255,8 +249,6 @@ private:
 
         for (int n = 0; n <= 127; ++n)
         {
-            if (job.shouldExit()) return {};   // bail early on shutdown
-
             std::fill (probeL.begin(), probeL.end(), 0.f);
             std::fill (probeR.begin(), probeR.end(), 0.f);
 
@@ -276,9 +268,6 @@ private:
 
     void postFailure()
     {
-        if (! guard->load (std::memory_order_acquire))
-            return;
-
         auto* payload = new DysektProcessor::FailedLoadResult();
         payload->token = token;
         payload->kind  = DysektProcessor::LoadKindReplace;
@@ -292,7 +281,6 @@ private:
     double           sampleRate;
     int              token;
     DysektProcessor& processor;
-    std::shared_ptr<std::atomic<bool>> guard;  // copy of processor.loadCallbacksValid
 };
 
 // =============================================================================

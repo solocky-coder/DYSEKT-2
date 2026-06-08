@@ -197,12 +197,10 @@ public:
 
     // ── JUCE ADSR (Option B — applied post-FluidSynth/sfizz in processBlock) ──
     //  The envelope is owned here so it lives on the audio thread.
-    //  UI thread sets parameters via setJuceAdsr(); for SF2, noteOn/Off are
-    //  fired directly from the MIDI fan-out loop in process() so real MIDI
-    //  input triggers the envelope correctly.  UI keyboard clicks signal via
-    //  the juceAdsrNoteOnPending / juceAdsrNoteOffPending atomics.
-    //  FluidSynth's internal envelope runs normally — JUCE ADSR adds an
-    //  additional post-render shape on top.
+    //  UI thread sets parameters via setJuceAdsr(); noteOn/Off are signalled via
+    //  atomics so the audio thread fires the envelope at the right moment.
+    //  On SF2 load, suppressFluidAdsr() is called once to zero out FluidSynth's
+    //  internal envelope generators so JUCE ADSR has exclusive control.
 
     /** Update ADSR parameters.  Safe to call from any thread. */
     void setJuceAdsr (float attackSec, float decaySec,
@@ -260,7 +258,7 @@ private:
     std::atomic<float> volume      { 1.0f };
     std::atomic<int>   transpose   { 0 };
     std::atomic<float> pitchShift  { 0.0f };  ///< SFZ audio-rate pitch, -24..+24 semitones
-    std::atomic<int>   midiChannel { 0 };    // 0 = omni; sfzMidiBuf pre-filters by channel
+    std::atomic<int>   midiChannel { 16 };   // 0 = omni, default 16 = DY-SFP dedicated channel
     std::atomic<float> pan         { 0.0f }; // -1..+1
     std::atomic<float> fineTune    { 0.0f }; // cents -100..+100
     std::atomic<float> reverb      { 0.4f }; // 0..1
@@ -347,6 +345,11 @@ private:
     std::atomic<bool>          juceAdsrNoteOnPending  { false  };
     std::atomic<bool>          juceAdsrNoteOffPending { false  };
     std::atomic<bool>          juceAdsrActive         { false  };
+
+    /** Called once after a successful SF2/SFZ load to zero FluidSynth's internal
+     *  envelope generators on all channels so JUCE ADSR has exclusive control.
+     *  No-op for SFZ (sfizz envelope is bypassed differently). */
+    void suppressFluidAdsr();
 
     // ── Private helpers ───────────────────────────────────────────────────────
     void applyPendingLoad();             ///< called at top of process()

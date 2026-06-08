@@ -31,15 +31,25 @@ public:
 
     JobStatus runJob() override
     {
-        auto decoded = SampleData::decodeFromFile (file, sampleRate,
-                                                    [this] { return shouldExit(); });
-        if (shouldExit())
-            return jobHasFinished;
+        try
+        {
+            auto decoded = SampleData::decodeFromFile (file, sampleRate);
+            if (shouldExit())
+                return jobHasFinished;
 
-        if (decoded != nullptr)
-            onSuccess (token, loadKind, std::move (decoded));
-        else
-            onFailure (token, loadKind, file);
+            if (decoded != nullptr)
+                onSuccess (token, loadKind, std::move (decoded));
+            else
+                onFailure (token, loadKind, file);
+        }
+        catch (...)
+        {
+            // Terminal exception firewall: catch anything that escaped
+            // decodeFromFile (bad_alloc, dr_mp3 internal assert-throw, JUCE
+            // internal throw, etc.) and convert it to a clean failure callback
+            // so the exception never unwinds into the JUCE ThreadPool / host.
+            try { onFailure (token, loadKind, file); } catch (...) {}
+        }
         return jobHasFinished;
     }
 
@@ -181,36 +191,11 @@ DysektProcessor::DysektProcessor()
     sliceStartParam  = apvts.getRawParameterValue (ParamIds::sliceStart);
     sliceEndParam    = apvts.getRawParameterValue (ParamIds::sliceEnd);
     publishUiSliceSnapshot();
-
-    // Ch 1 = Slicer, Ch 2 = SfPlayer — hardwired for plugin lifetime.
-    // Ch 3-16 start as None; claimed at runtime by chromatic slices or SF2 presets.
-    channelOwnerMap[1].store (static_cast<uint8_t> (ChOwner::Slicer),   std::memory_order_relaxed);
-    channelOwnerMap[2].store (static_cast<uint8_t> (ChOwner::SfPlayer), std::memory_order_relaxed);
 }
 
 DysektProcessor::~DysektProcessor()
 {
-    // !! MEMBER DESTRUCTION ORDER NOTE !!
-    // crashLogger must be declared as the LAST member in PluginProcessor.h so it
-    // destructs FIRST (C++ destructs members in reverse declaration order).
-    // This ensures crashLogger is still alive when all other members destruct,
-    // and its own destructor removes the sentinel file + logs "session ended cleanly"
-    // AFTER all subsystems have torn down cleanly.
-    // If crashLogger is declared first, it destructs last and the sentinel is
-    // never removed on clean exit — every session looks like a crash.
-
-    // Poison callbacks first — any job that finishes after this point will
-    // check the flag and return without touching `this`.
-    loadCallbacksValid->store (false, std::memory_order_seq_cst);
-
-    // Block until all in-flight jobs have exited (up to 1500 ms).
-    // This closes the TOCTOU gap between a job's guard->load() check and its
-    // subsequent completedLoadData.exchange() — without the wait, the destructor
-    // can delete completedLoadData in that narrow window causing a double-free.
-    // 1500 ms is safely under Nuendo's ~2 s SIGKILL timeout and well above the
-    // worst-case chunked MP3 decode iteration time.
-    fileLoadPool.removeAllJobs (true, 1500);
-
+    fileLoadPool.removeAllJobs (true, 5000);
     auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
     delete pending;
     auto* failed = completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
@@ -246,14 +231,6 @@ bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-  // Re-install our UnhandledExceptionFilter now that the DAW has finished its
-  // own post-load setup (Nuendo/Cubase stomp the filter after each plugin load;
-  // prepareToPlay fires after that window, so this is the earliest safe point
-  // to put ourselves back on top of the chain).
-  crashLogger.prepareToPlayCalled();
-
-  try
-  {
 #if DYSEKT_STANDALONE
     sequencer.setAbletonLink (&abletonLink);
     sequencer.setSfzPlayer   (&sfzPlayer);
@@ -293,9 +270,6 @@ void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         globalEq.prepare (spec);
         globalEqNeedsUpdate = true;
     }
-  }
-  catch (const std::exception& e) { crashLogger.log (juce::String ("prepareToPlay exception: ") + e.what()); }
-  catch (...) { crashLogger.log ("prepareToPlay: unknown exception caught"); }
 }
 
 void DysektProcessor::releaseResources() {}
@@ -328,16 +302,9 @@ void DysektProcessor::requestSampleLoad (const juce::File& file, LoadKind kind)
 
     const double sr = currentSampleRate > 0.0 ? currentSampleRate : 44100.0;
 
-    // Capture a shared_ptr copy — the lambda stays safe even if the processor
-    // is destroyed before the job thread finishes (e.g. removeAllJobs timeout).
-    auto guard = loadCallbacksValid;
-
-    auto onSuccess = [this, guard] (int finishedToken, LoadKind finishedKind,
+    auto onSuccess = [this] (int finishedToken, LoadKind finishedKind,
                              std::unique_ptr<SampleData::DecodedSample> decoded)
     {
-        if (! guard->load (std::memory_order_acquire))
-            return;
-
         if (finishedToken != latestLoadToken.load (std::memory_order_acquire))
             return;
 
@@ -346,11 +313,8 @@ void DysektProcessor::requestSampleLoad (const juce::File& file, LoadKind kind)
         latestLoadKind.store ((int) finishedKind, std::memory_order_release);
     };
 
-    auto onFailure = [this, guard] (int finishedToken, LoadKind finishedKind, const juce::File& failedFile)
+    auto onFailure = [this] (int finishedToken, LoadKind finishedKind, const juce::File& failedFile)
     {
-        if (! guard->load (std::memory_order_acquire))
-            return;
-
         if (finishedToken != latestLoadToken.load (std::memory_order_acquire))
             return;
 
@@ -378,9 +342,7 @@ void DysektProcessor::loadFileAsync (const juce::File& file)
 // ─────────────────────────────────────────────────────────────────────────────
 void DysektProcessor::applyTrimToCurrentSample (int trimStart, int trimEnd)
 {
-    // Use snapshot — this is the message thread; getBufferAudioThread() is not safe here.
-    const auto trimSnap = sampleData.getSnapshot();
-    const int total = trimSnap ? trimSnap->buffer.getNumSamples() : 0;
+    const int total = sampleData.getBuffer().getNumSamples();
     trimStart = juce::jlimit (0, juce::jmax (0, total - 1), trimStart);
     trimEnd   = juce::jlimit (trimStart + 1, total, trimEnd);
 
@@ -479,9 +441,9 @@ void DysektProcessor::publishUiSliceSnapshot()
             snap.sampleFileName = {};
         snap.isDefaultSample = snap.sampleFileName.isEmpty();
     }
-    else if (snap.sampleMissing && sampleData.getFilePath().isNotEmpty())
+    else if (snap.sampleMissing && missingFilePath.isNotEmpty())
     {
-        snap.sampleFileName  = juce::File (sampleData.getFilePath()).getFileName();
+        snap.sampleFileName  = juce::File (missingFilePath).getFileName();
         snap.isDefaultSample = false;
     }
     else if (sampleData.getFileName().isNotEmpty())
@@ -529,57 +491,56 @@ void DysektProcessor::publishUiSliceSnapshot()
 
 void DysektProcessor::rebuildChromaticChannelMask()
 {
-    // Release all ChromaticSlice-owned channels (3-16), then re-claim based on
-    // current slice data.  Ch 1 (Slicer) and Ch 2 (SfPlayer) are never touched.
-    for (int ch = 3; ch <= 16; ++ch)
-    {
-        const auto owner = static_cast<ChOwner> (
-            channelOwnerMap[ch].load (std::memory_order_relaxed));
-        if (owner == ChOwner::ChromaticSlice)
-            channelOwnerMap[ch].store (static_cast<uint8_t> (ChOwner::None),
-                                       std::memory_order_relaxed);
-    }
-
+    // Build a bitmask of all channels currently assigned to chromatic slices.
+    // Bit N (1-based, N in 1..16) is set when at least one slice uses channel N.
+    uint32_t mask = 0u;
     const int n = sliceManager.getNumSlices();
     for (int i = 0; i < n; ++i)
     {
         const int ch = sliceManager.getSlice (i).chromaticChannel;
-        if (ch >= 3 && ch <= 16)
-            channelOwnerMap[ch].store (static_cast<uint8_t> (ChOwner::ChromaticSlice),
-                                       std::memory_order_relaxed);
-    }
-}
-
-// ── Channel ownership API ─────────────────────────────────────────────────────
-
-void DysektProcessor::claimChannel (int ch, ChOwner owner) noexcept
-{
-    if (ch < 3 || ch > 16) return;   // Ch 1+2 are hardwired
-    channelOwnerMap[ch].store (static_cast<uint8_t> (owner), std::memory_order_relaxed);
-}
-
-void DysektProcessor::releaseChannel (int ch) noexcept
-{
-    if (ch < 3 || ch > 16) return;   // Ch 1+2 are hardwired
-    channelOwnerMap[ch].store (static_cast<uint8_t> (ChOwner::None), std::memory_order_relaxed);
-}
-
-DysektProcessor::ChOwner DysektProcessor::getChannelOwner (int ch) const noexcept
-{
-    if (ch < 1 || ch > 16) return ChOwner::None;
-    return static_cast<ChOwner> (channelOwnerMap[ch].load (std::memory_order_relaxed));
-}
-
-uint32_t DysektProcessor::chromaticChannelMask() const noexcept
-{
-    uint32_t mask = 0u;
-    for (int ch = 3; ch <= 16; ++ch)
-    {
-        if (static_cast<ChOwner> (channelOwnerMap[ch].load (std::memory_order_relaxed))
-                == ChOwner::ChromaticSlice)
+        if (ch >= 1 && ch <= 16)
             mask |= (1u << ch);
     }
-    return mask;
+    chromaticSliceChannelMask.store (mask, std::memory_order_relaxed);
+}
+
+void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
+{
+    // Called on the message thread.  Atomically update the route mode so
+    // processMidi() sees the new value on the next audio callback.
+    //
+    // VST3/AU plugin builds must never enter MidiRouteMode::SfPlayer — the
+    // early-return in the old processMidi() that depended on it has been
+    // removed in favour of bitmask routing.  Force-downgrade to Slicer so
+    // the mode enum stays consistent with the actual routing behaviour.
+#if !DYSEKT_STANDALONE
+    if (mode == MidiRouteMode::SfPlayer)
+        mode = MidiRouteMode::Slicer;
+#endif
+
+    midiRouteMode.store (static_cast<int> (mode), std::memory_order_relaxed);
+
+    switch (mode)
+    {
+        case MidiRouteMode::Slicer:
+            // No live input to the SF-player while the slicer is in front.
+#if DYSEKT_STANDALONE
+            sequencer.setSelectedSfLiveChannels (0);
+#endif
+            break;
+
+        case MidiRouteMode::SfPlayer:
+            // Route all SF-track channels to the live player.
+#if DYSEKT_STANDALONE
+            sequencer.setSelectedSfLiveChannels (sequencer.getAllSfPlayerChannelMask());
+#endif
+            break;
+
+        case MidiRouteMode::Sequencer:
+            // Live-input mask is managed by ArrangeView / setSelectedSfLiveChannels();
+            // leave it unchanged here so the currently-selected track keeps focus.
+            break;
+    }
 }
 
 void DysektProcessor::pushCommand (Command cmd)
@@ -871,7 +832,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 psp.sampleRate     = currentSampleRate;
                 psp.sample         = &sampleData;
                 lazyChop.start (sampleData.getNumFrames(), sliceManager, psp,
-                                true /*snap always on*/, &sampleData.getBufferAudioThread());
+                                true /*snap always on*/, &sampleData.getBuffer());
             }
             break;
 
@@ -885,7 +846,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             if (sel >= 0 && sel < sliceManager.getNumSlices())
             {
                 auto& s = sliceManager.getSlice (sel);
-                const int stretchSliceEnd = sliceManager.getEndForSlice (sel, sampleData.getBufferAudioThread().getNumSamples());
+                const int stretchSliceEnd = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
                 float newBpm = GrainEngine::calcStretchBpm (
                     s.startSample, stretchSliceEnd, cmd.floatParam1, currentSampleRate);
                 s.bpm = newBpm;
@@ -1074,15 +1035,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                     case FieldEqMidFreq:       s.eqMidFreq       = val;       if (!skipLock) s.lockMask |= kLockEqMid;       break;
                     case FieldEqMidQ:          s.eqMidQ          = val;       if (!skipLock) s.lockMask |= kLockEqMid;       break;
                     case FieldEqHighGain:      s.eqHighGain      = val;       if (!skipLock) s.lockMask |= kLockEqHigh;      break;
-                    case FieldChromaticChannel:
-                    {
-                        // Chromatic slices may only claim channels 3-16.
-                        // 0 = off, 1-2 are hardwired to Slicer/SfPlayer.
-                        const int newCh = juce::jlimit (0, 16, (int) val);
-                        s.chromaticChannel = (newCh <= 2) ? 0 : newCh;
-                        rebuildChromaticChannelMask();
-                        break;
-                    }
+                    case FieldChromaticChannel: s.chromaticChannel = juce::jlimit (0, 16, (int) val); rebuildChromaticChannelMask(); break;
                     case FieldChromaticLegato:  s.chromaticLegato  = (val > 0.5f); break;
                     case FieldMidiNote:
                         s.midiNote = juce::jlimit (0, 127, (int) val);
@@ -1117,7 +1070,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 // switching CC control between adjacent slices.
                 if (end - start < 64)
                     start = juce::jmax (0, end - 64);
-                const int totalF = sampleData.getBufferAudioThread().getNumSamples();
+                const int totalF = sampleData.getBuffer().getNumSamples();
                 int oldEnd = sliceManager.getEndForSlice (idx, totalF);
                 // Clamp start against the PREVIOUS slice to prevent overlap.
                 // Slices are sorted by startSample, so slices[idx-1].startSample
@@ -1203,7 +1156,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             {
                 Slice srcCopy = sliceManager.getSlice (sel);
                 int startS = srcCopy.startSample;
-                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBufferAudioThread().getNumSamples());
+                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
                 int count = juce::jlimit (2, 128, cmd.intParam1);
                 int len = endS - startS;
 
@@ -1218,9 +1171,9 @@ void DysektProcessor::handleCommand (const Command& cmd)
                     if (doSnap)
                     {
                         if (i > 0)
-                            s = AudioAnalysis::findNearestZeroCrossing (sampleData.getBufferAudioThread(), s);
+                            s = AudioAnalysis::findNearestZeroCrossing (sampleData.getBuffer(), s);
                         if (i < count - 1)
-                            e = AudioAnalysis::findNearestZeroCrossing (sampleData.getBufferAudioThread(), e);
+                            e = AudioAnalysis::findNearestZeroCrossing (sampleData.getBuffer(), e);
                     }
                     if (e - s < 64) e = s + 64;
                     int idx = sliceManager.createSlice (s, e);
@@ -1253,7 +1206,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             {
                 Slice srcCopy = sliceManager.getSlice (sel);
                 int startS = srcCopy.startSample;
-                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBufferAudioThread().getNumSamples());
+                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
 
                 sliceManager.deleteSlice (sel);
 
@@ -1297,7 +1250,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
         case CmdEqualChop:
         {
             const int n     = juce::jlimit (2, 32, cmd.intParam1);
-            const int total = sampleData.getBufferAudioThread().getNumSamples();
+            const int total = sampleData.getBuffer().getNumSamples();
             if (total < n * 64) break;   // sample too short for requested count
 
             // Clear all existing slices
@@ -1327,6 +1280,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 && cmd.intParam2 == (int) LoadKindRelink)
             {
                 sampleMissing.store (true);
+                missingFilePath = cmd.fileParam.getFullPathName();
                 sampleData.setFileName (cmd.fileParam.getFileName());
                 sampleData.setFilePath (cmd.fileParam.getFullPathName());
                 sampleAvailability.store ((int) SampleStateMissingAwaitingRelink,
@@ -1434,34 +1388,22 @@ void DysektProcessor::handleCommand (const Command& cmd)
 void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 {
     // ── MIDI channel routing ──────────────────────────────────────────────────
-    // channelOwnerMap[ch] is the single source of truth:
-    //   Ch 1  → Slicer    (hardwired — pad triggers, non-chromatic)
-    //   Ch 2  → SfPlayer  (hardwired — SF2/SFZ base channel; handled via sfzMidiBuf)
-    //   Ch 3-16 → ChromaticSlice or Sf2Preset or None
-    //
-    // Messages on Ch 2, Sf2Preset channels are NOT processed here —
-    // they are handled by sfzPlayer.process() via sfzMidiBuf in processBlock.
-    // Messages on None channels are dropped silently.
+    // Messages on channels owned by sfPlayerChannelMask are routed exclusively
+    // to sfzPlayer and must not trigger slices or MIDI learn.
+    // sfPlayerChannelMask == 0 means the SF player is disabled; slicer gets everything.
+    const uint32_t sfMask = sfPlayerChannelMask.load (std::memory_order_relaxed);
 
     for (const auto metadata : midi)
     {
         const auto msg = metadata.getMessage();
-        const int  ch  = msg.getChannel();   // 1-based
 
-        if (ch < 1 || ch > 16) continue;
-
-        const auto owner = static_cast<ChOwner> (
-            channelOwnerMap[ch].load (std::memory_order_relaxed));
-
-        // SfPlayer and Sf2Preset channels are routed to sfzPlayer, not here.
-        if (owner == ChOwner::SfPlayer || owner == ChOwner::Sf2Preset)
-            continue;
-
-        // Drop messages on unowned channels.
-        if (owner == ChOwner::None)
-            continue;
-
-        // owner == Slicer or ChromaticSlice — fall through to slicer processing.
+        // Skip messages on SF-player-owned channels — they belong to DY-SFP.
+        if (sfMask != 0)
+        {
+            const int ch = msg.getChannel();   // 1-based
+            if (ch >= 1 && ch <= 16 && (sfMask & (1u << ch)))
+                continue;
+        }
 
         // ── MIDI Learn CC dispatch ────────────────────────────────────
         if (msg.isController())
@@ -2151,42 +2093,33 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
                 heldNotes[note] = true;
 
                 // Build params once; all param loads happen here, not inside the slice loop.
-                // Guard every raw pointer before dereferencing — getRawParameterValue()
-                // returns nullptr if the param ID is not registered (e.g. a version
-                // mismatch between ParamLayout and a saved project).  Dereferencing a
-                // null std::atomic<float>* at offset +0x18 was the cause of the worker-
-                // thread null-deref crash (DYSEKT+0x674eb7, rdi=NULL in the dump).
-                auto safeLoad = [] (const std::atomic<float>* p, float fallback = 0.0f) noexcept {
-                    return p ? p->load (std::memory_order_relaxed) : fallback;
-                };
-
                 VoiceStartParams p;
                 p.note             = note;
                 p.velocity         = velocity;
-                p.globalBpm        = safeLoad (bpmParam,         120.0f);
-                p.globalPitch      = safeLoad (pitchParam,         0.0f);
+                p.globalBpm        = bpmParam->load();
+                p.globalPitch      = pitchParam->load();
                 // globalAlgorithm removed — algo derived from stretchOn flag
-                p.globalAttackSec  = safeLoad (attackParam,        0.0f) / 1000.0f;
-                p.globalHoldSec    = safeLoad (holdParam,          0.0f) / 1000.0f;
-                p.globalDecaySec   = safeLoad (decayParam,         0.0f) / 1000.0f;
-                p.globalSustain    = safeLoad (sustainParam,     100.0f) / 100.0f;
-                p.globalReleaseSec = safeLoad (releaseParam,      10.0f) / 1000.0f;
-                p.globalMuteGroup  = (int) safeLoad (muteGroupParam, 1.0f);
-                p.globalStretch    = safeLoad (stretchParam,       0.0f) > 0.5f;
+                p.globalAttackSec  = attackParam->load()  / 1000.0f;
+                p.globalHoldSec    = holdParam->load()    / 1000.0f;
+                p.globalDecaySec   = decayParam->load()   / 1000.0f;
+                p.globalSustain    = sustainParam->load() / 100.0f;
+                p.globalReleaseSec = releaseParam->load() / 1000.0f;
+                p.globalMuteGroup  = (int) muteGroupParam->load();
+                p.globalStretch    = stretchParam->load()      > 0.5f;
                 p.dawBpm           = dawBpm.load();
-                p.globalTonality   = safeLoad (tonalityParam,     0.0f);
-                p.globalFormant    = safeLoad (formantParam,      0.0f);
-                p.globalFormantComp = safeLoad (formantCompParam, 0.0f) > 0.5f;
+                p.globalTonality   = tonalityParam->load();
+                p.globalFormant    = formantParam->load();
+                p.globalFormantComp = formantCompParam->load() > 0.5f;
                 // globalGrainMode removed — Grain was a duplicate of Tonal
-                p.globalVolume     = safeLoad (masterVolParam,    0.0f);
-                p.globalReleaseTail = safeLoad (releaseTailParam, 0.0f) > 0.5f;
-                p.globalReverse    = safeLoad (reverseParam,      0.0f) > 0.5f;
-                p.globalLoopMode   = (int) safeLoad (loopParam,   0.0f);
+                p.globalVolume     = masterVolParam->load();
+                p.globalReleaseTail = releaseTailParam->load() > 0.5f;
+                p.globalReverse    = reverseParam->load()      > 0.5f;
+                p.globalLoopMode   = (int) loopParam->load();
                 p.globalOneShot    = false;  // One Shot is per-slice only; Hold is always the global default
-                p.globalCentsDetune  = safeLoad (centsDetuneParam,  0.0f);
-                p.globalPan          = safeLoad (panParam,          0.0f);
-                p.globalFilterCutoff = safeLoad (filterCutoffParam, 20000.0f);
-                p.globalFilterRes    = safeLoad (filterResParam,    0.0f);
+                p.globalCentsDetune  = centsDetuneParam->load();
+                p.globalPan          = panParam->load();
+                p.globalFilterCutoff = filterCutoffParam->load();
+                p.globalFilterRes    = filterResParam->load();
 
                 // ── v24: per-slice EQ defaults ─────────────────────────────────
                 if (auto* pEqLow  = apvts.getRawParameterValue (ParamIds::defaultEqLowGain))
@@ -2350,8 +2283,6 @@ static inline float sanitiseSample (float x)
 void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                             juce::MidiBuffer& midi)
 {
-  try
-  {
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
@@ -2424,6 +2355,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             clearVoicesBeforeSampleSwap();
             sampleData.applyDecodedSample (std::move (decoded));
             sampleMissing.store (false);
+            missingFilePath.clear();
             sampleAvailability.store ((int) SampleStateLoaded, std::memory_order_relaxed);
 
             if (latestLoadKind.load (std::memory_order_acquire) == (int) LoadKindReplace)
@@ -2476,6 +2408,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 && failed->kind == LoadKindRelink)
             {
                 sampleMissing.store (true);
+                missingFilePath = failed->file.getFullPathName();
                 sampleData.setFileName (failed->file.getFileName());
                 sampleData.setFilePath (failed->file.getFullPathName());
                 sampleAvailability.store ((int) SampleStateMissingAwaitingRelink,
@@ -2609,48 +2542,60 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── SF2/SFZ keyboard UI note injection ───────────────────────────────────
-    // Always inject on Ch 2 (hardwired SfPlayer channel).
+    // Inject on the lowest set channel of the SF player's assigned bitmask so
+    // the note reaches sfzPlayer and is excluded from the slicer by the bitmask
+    // check above.  If sfPlayerChannelMask == 0 the SF player is disabled; skip.
     {
+        const uint32_t sfMaskInject = sfPlayerChannelMask.load (std::memory_order_relaxed);
+        // Find lowest set channel (1-based bits 1..16)
+        int injectCh = 1;
+        for (int c = 1; c <= 16; ++c)
+            if (sfMaskInject & (1u << c)) { injectCh = c; break; }
+        const bool sfEnabled = (sfMaskInject != 0);
+
         const int noteOn  = sfzUiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
         const int noteOff = sfzUiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
 
-        if (noteOn  >= 0 && noteOn  <= 127)
+        if (sfEnabled)
         {
-            midi.addEvent (juce::MidiMessage::noteOn  (2, noteOn,  (juce::uint8) 100), 0);
-            const int w = noteOn < 64 ? 0 : 1;
-            const int b = noteOn < 64 ? noteOn : noteOn - 64;
-            sfzActiveNotes[w].fetch_or ((uint64_t)1 << b, std::memory_order_relaxed);
-            sfzPlayer.juceAdsrNoteOn();
-        }
-        if (noteOff >= 0 && noteOff <= 127)
-        {
-            const int offSample = (noteOn == noteOff)
-                                ? juce::jmax (0, buffer.getNumSamples() - 1)
-                                : 0;
-            midi.addEvent (juce::MidiMessage::noteOff (2, noteOff, (juce::uint8) 0), offSample);
-            if (noteOff != noteOn)
+            if (noteOn  >= 0 && noteOn  <= 127)
             {
-                const int w = noteOff < 64 ? 0 : 1;
-                const int b = noteOff < 64 ? noteOff : noteOff - 64;
-                sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
+                midi.addEvent (juce::MidiMessage::noteOn  (injectCh, noteOn,  (juce::uint8) 100), 0);
+                const int w = noteOn < 64 ? 0 : 1;
+                const int b = noteOn < 64 ? noteOn : noteOn - 64;
+                sfzActiveNotes[w].fetch_or ((uint64_t)1 << b, std::memory_order_relaxed);
+                sfzPlayer.juceAdsrNoteOn();   // trigger JUCE ADSR envelope
             }
-            sfzPlayer.juceAdsrNoteOff();
+            if (noteOff >= 0 && noteOff <= 127)
+            {
+                const int offSample = (noteOn == noteOff)
+                                    ? juce::jmax (0, buffer.getNumSamples() - 1)
+                                    : 0;
+                midi.addEvent (juce::MidiMessage::noteOff (injectCh, noteOff, (juce::uint8) 0), offSample);
+                if (noteOff != noteOn)
+                {
+                    const int w = noteOff < 64 ? 0 : 1;
+                    const int b = noteOff < 64 ? noteOff : noteOff - 64;
+                    sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
+                }
+                sfzPlayer.juceAdsrNoteOff();   // release JUCE ADSR envelope
+            }
         }
     }
 
     // ── Snoop note messages to update active-note bitmask for keyboard display ──
-    // Track note state for all SF-player-owned channels (Ch 2 + Sf2Preset channels).
+    // Snoop messages on the SF player's assigned channels only.
     {
+        const uint32_t sfMaskSnoop = sfPlayerChannelMask.load (std::memory_order_relaxed);
+
         for (const auto metadata : midi)
         {
             const auto msg = metadata.getMessage();
-            const int  ch  = msg.getChannel();
-            if (ch < 1 || ch > 16) continue;
-
-            const auto owner = static_cast<ChOwner> (
-                channelOwnerMap[ch].load (std::memory_order_relaxed));
-            if (owner != ChOwner::SfPlayer && owner != ChOwner::Sf2Preset) continue;
-
+            if (sfMaskSnoop != 0)
+            {
+                const int ch = msg.getChannel();   // 1-based
+                if (ch < 1 || ch > 16 || ! (sfMaskSnoop & (1u << ch))) continue;
+            }
             const int n = msg.getNoteNumber();
             if (n < 0 || n > 127) continue;
             const int w = n < 64 ? 0 : 1;
@@ -2984,22 +2929,31 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int numSamples = buffer.getNumSamples();
 
         // ── Build sfzMidiBuf ─────────────────────────────────────────────────
-        // Copy messages on channels owned by SfPlayer or Sf2Preset into the SF
-        // player's buffer.  Ch 1 (Slicer) and ChromaticSlice channels go to
-        // processMidi; None channels are dropped.
+        // Copy messages on channels owned by sfPlayerChannelMask into the SF
+        // player's buffer.  If sfPlayerChannelMask == 0 the SF player is disabled;
+        // sfzMidiBuf stays empty.  If all 16 channels are set (default omni)
+        // all messages are copied — FluidSynth routes internally.
         juce::MidiBuffer sfzMidiBuf;
         {
-            for (const auto meta : midi)
+            const uint32_t sfMaskBuild = sfPlayerChannelMask.load (std::memory_order_relaxed);
+
+            if (sfMaskBuild != 0)
             {
-                const auto& msg = meta.getMessage();
-                const int   ch  = msg.getChannel();   // 1-based
-                if (ch < 1 || ch > 16) continue;
-
-                const auto owner = static_cast<ChOwner> (
-                    channelOwnerMap[ch].load (std::memory_order_relaxed));
-
-                if (owner == ChOwner::SfPlayer || owner == ChOwner::Sf2Preset)
-                    sfzMidiBuf.addEvent (msg, meta.samplePosition);
+                const bool allChannels = ((sfMaskBuild & 0x1FFFEu) == 0x1FFFEu); // bits 1-16 all set
+                if (allChannels)
+                {
+                    sfzMidiBuf = midi;
+                }
+                else
+                {
+                    for (const auto meta : midi)
+                    {
+                        const auto& msg = meta.getMessage();
+                        const int ch = msg.getChannel();   // 1-based
+                        if (ch >= 1 && ch <= 16 && (sfMaskBuild & (1u << ch)))
+                            sfzMidiBuf.addEvent (msg, meta.samplePosition);
+                    }
+                }
             }
         }
 
@@ -3103,43 +3057,14 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         v = slicePeakR[si].load (std::memory_order_relaxed) * kDecayPerBlock;
         slicePeakR[si].store (v, std::memory_order_relaxed);
     }
-  }
-  catch (const std::exception& e)
-  {
-      // An exception escaped processBlock — log it and return silence.
-      // Letting it propagate into the host is undefined behaviour and will
-      // crash Nuendo (Bug 2: DYSEKT+0x98284c, 0xE06D7363 in crash dump).
-      crashLogger.log (juce::String ("processBlock exception: ") + e.what());
-      buffer.clear();
-  }
-  catch (...)
-  {
-      crashLogger.log ("processBlock: unknown exception caught — returning silence");
-      buffer.clear();
-  }
 }
 juce::AudioProcessorEditor* DysektProcessor::createEditor()
 {
-  try
-  {
     return new DysektEditor (*this);
-  }
-  catch (const std::exception& e)
-  {
-    crashLogger.log (juce::String ("createEditor exception: ") + e.what());
-    return nullptr;
-  }
-  catch (...)
-  {
-    crashLogger.log ("createEditor: unknown exception caught");
-    return nullptr;
-  }
 }
 
 void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-  try
-  {
     juce::MemoryOutputStream stream (destData, false);
 
     // Version
@@ -3159,11 +3084,6 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     stream.writeInt (sliceManager.rootNote.load());
 
     // Slice data
-    // Snapshot the sample buffer length once before the loop — getStateInformation runs
-    // on the message thread and getBufferAudioThread() is not safe here.
-    const auto stateSampleSnap = sampleData.getSnapshot();
-    const int stateSampleLen = stateSampleSnap ? stateSampleSnap->buffer.getNumSamples() : 0;
-
     int numSlices = sliceManager.getNumSlices();
     stream.writeInt (numSlices);
     for (int i = 0; i < numSlices; ++i)
@@ -3171,7 +3091,7 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
         const auto& s = sliceManager.getSlice (i);
         stream.writeBool (s.active);
         stream.writeInt (s.startSample);
-        stream.writeInt (sliceManager.getEndForSlice (i, stateSampleLen));
+        stream.writeInt (sliceManager.getEndForSlice (i, sampleData.getBuffer().getNumSamples()));
         stream.writeInt (s.midiNote);
         stream.writeFloat (s.bpm);
         stream.writeFloat (s.pitchSemitones);
@@ -3245,34 +3165,31 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
     // v23: additional sfzPlayer parameters
     stream.writeFloat (sfzPlayer.getPan());
     stream.writeFloat (sfzPlayer.getFineTune());
-    // v25+: write Sf2Preset channel claims (ch 3-16) as a bitmask.
-    // Ch 1 (Slicer) and Ch 2 (SfPlayer) are hardwired and not serialised.
-    // ChromaticSlice channels are rebuilt from slice data on load.
+    // v23 originally stored a single midiChannel int here.
+    // v25 replaces it with a channel range (low, high).  Both are written as
+    // separate ints so old presets (v23/v24) can still be read with a fallback.
+    // The channel range is derived from sfPlayerChannelMask for serialisation.
+    // Channel 1 is hardwired to the slicer and never in the mask.
     {
-        uint32_t sf2PresetMask = 0u;
-        for (int c = 3; c <= 16; ++c)
+        const uint32_t mask = sfPlayerChannelMask.load (std::memory_order_relaxed);
+        int lo = 0, hi = 0;
+        if (mask != 0)
         {
-            if (static_cast<ChOwner> (channelOwnerMap[c].load (std::memory_order_relaxed))
-                    == ChOwner::Sf2Preset)
-                sf2PresetMask |= (1u << c);
+            for (int c = 2; c <= 16; ++c)  if (mask & (1u << c)) { lo = c; break; }
+            for (int c = 16; c >= 2; --c)  if (mask & (1u << c)) { hi = c; break; }
         }
-        stream.writeInt (static_cast<int> (sf2PresetMask));
-        stream.writeInt (0);  // reserved (was sfPlayerChHigh)
+        stream.writeInt (lo);
+        stream.writeInt (hi);
     }
 
     // Sequencer state
 #if DYSEKT_STANDALONE
     sequencer.writeToStream (stream);
 #endif
-  }
-  catch (const std::exception& e) { crashLogger.log (juce::String ("getStateInformation exception: ") + e.what()); }
-  catch (...) { crashLogger.log ("getStateInformation: unknown exception caught"); }
 }
 
 void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-  try
-  {
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
 
     int version = stream.readInt();
@@ -3366,6 +3283,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     {
         const juce::File restoredFile (filePath);
         sampleMissing.store (false);
+        missingFilePath.clear();
         sampleData.setFileName (fileName.isNotEmpty() ? fileName : restoredFile.getFileName());
         sampleData.setFilePath (filePath);
         sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
@@ -3375,6 +3293,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
     else
     {
         sampleMissing.store (false);
+        missingFilePath.clear();
         sampleData.setFileName ({});
         sampleData.setFilePath ({});
         sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
@@ -3419,7 +3338,8 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
         sfzPlayer.setReverbMix   (sfzRvMx);
         sfzPlayer.setReverbFreeze(sfzRvFrz);
 
-        // v23/v24/v25: Pan, FineTune, then channel data (two ints)
+        // v23/v24: Pan, FineTune, MidiChannel (single int)
+        // v25:     Pan, FineTune, sfPlayerChLow, sfPlayerChHigh (two ints)
         if (version >= 23 && ! stream.isExhausted())
         {
             sfzPlayer.setPan      (stream.readFloat());
@@ -3427,23 +3347,28 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
 
             if (version >= 25)
             {
-                // v25+: first int = Sf2Preset channel bitmask, second int = reserved.
-                // Restore Sf2Preset ownership for ch 3-16.
-                const uint32_t sf2PresetMask = static_cast<uint32_t> (stream.readInt());
-                stream.readInt();  // reserved
-                for (int c = 3; c <= 16; ++c)
-                {
-                    if (sf2PresetMask & (1u << c))
-                        channelOwnerMap[c].store (
-                            static_cast<uint8_t> (ChOwner::Sf2Preset),
-                            std::memory_order_relaxed);
-                }
+                // New range-based routing — convert lo/hi range back to bitmask.
+                // Channel 1 is hardwired to the slicer; clamp lo to 2 minimum.
+                const int lo = stream.readInt();
+                const int hi = stream.readInt();
+                uint32_t mask = 0u;
+                if (lo >= 1 && hi >= lo)
+                    for (int c = juce::jmax (lo, 2); c <= juce::jmin (hi, 16); ++c)
+                        mask |= (1u << c);
+                sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
             else
             {
-                // v23/v24: single-channel int — discard (old range-based routing
-                // doesn't map cleanly to the new per-preset model).
-                stream.readInt();
+                // v23/v24: single-channel value — map to one-channel mask,
+                // or channels 2–16 if it was 0 (old omni mode).
+                // Channel 1 is hardwired to the slicer; never set bit 1.
+                const int oldCh = stream.readInt();
+                uint32_t mask = 0u;
+                if (oldCh >= 2 && oldCh <= 16)
+                    mask = (1u << oldCh);
+                else if (oldCh == 0 || oldCh == 1)
+                    for (int c = 2; c <= 16; ++c) mask |= (1u << c);   // legacy omni → 2–16
+                sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
         }
 
@@ -3453,7 +3378,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             const juce::File sfzFile (sfzPath);
             if (sfzFile.existsAsFile())
             {
-                sfzPlayer.loadFile (sfzFile, fileLoadPool);
+                sfzPlayer.loadFile (sfzFile);
                 // Store the preset index so the audio thread can select it
                 // once the soundfont finishes loading and posts its preset list.
                 sfzPlayer.setPresetByIndex (sfzPresetIdx);
@@ -3468,11 +3393,9 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
         sequencer.readFromStream (stream);
 #endif
 
-    // Rebuild ChromaticSlice ownership from restored slice data.
+    // Rebuild chromaticSliceChannelMask now that all slices are restored.
+    // sfPlayerChannelMask was already set above from the saved range.
     rebuildChromaticChannelMask();
-  }
-  catch (const std::exception& e) { crashLogger.log (juce::String ("setStateInformation exception: ") + e.what()); }
-  catch (...) { crashLogger.log ("setStateInformation: unknown exception caught"); }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

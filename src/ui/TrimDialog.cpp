@@ -85,8 +85,7 @@ void TrimDialog::paint (juce::Graphics& g)
     g.setColour (getTheme().accent.withAlpha (0.3f));
     g.drawLine (0.0f, 0.0f, (float) getWidth(), 0.0f, 1.0f);
 
-    const auto  trimSnap = processor.sampleData.getSnapshot();
-    const int total = trimSnap ? trimSnap->buffer.getNumSamples() : 0;
+    const int total = processor.sampleData.getNumFrames();
     const int inPt  = processor.trimRegionStart.load (std::memory_order_relaxed);
     const int outPt = processor.trimRegionEnd  .load (std::memory_order_relaxed);
 
@@ -195,8 +194,7 @@ void TrimDialog::mouseDrag (const juce::MouseEvent& e)
 {
     if (activeDrag < 0) return;
 
-    const auto  dragSnap = processor.sampleData.getSnapshot();
-    const int total = dragSnap ? dragSnap->buffer.getNumSamples() : 0;
+    const int total = processor.sampleData.getNumFrames();
     if (total <= 0) return;
 
     float sensitivity = (float) total / 300.f;

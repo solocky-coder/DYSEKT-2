@@ -397,32 +397,27 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
         if (presetIdx < 0 || presetIdx >= (int) presetList.size()) return;
         const auto& info = presetList[(size_t) presetIdx];
 
-        // Collision check: refuse ch 1 (Slicer) or ch 2 (SfPlayer base),
-        // and refuse any ch already owned by a ChromaticSlice.
-        if (ch >= 1 && ch <= 2) return;
-        if (ch >= 3 && ch <= 16)
+        // Collision check: refuse to assign a channel already owned by a chromatic slice.
+        if (ch >= 1 && ch <= 16)
         {
-            const auto current = processor.getChannelOwner (ch);
-            if (current == DysektProcessor::ChOwner::ChromaticSlice)
-                return;   // channel owned by a chromatic slice — silently reject
+            const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
+            if (chromaMask & (1u << ch))
+                return;   // channel is slicer-owned — silently reject
         }
 
         if (ch == 0)
         {
-            // Deactivate: find the channel this preset was on and release it.
-            const auto& chMap = programGrid.getPresetChannels();
-            const auto  it    = chMap.find (presetIdx);
-            if (it != chMap.end() && it->second >= 3 && it->second <= 16)
-                processor.releaseChannel (it->second);
-
-            // Silence all FluidSynth channels then reload still-assigned presets.
+            // Deactivate — silence all FluidSynth channels, then reload only the
+            // still-assigned presets.  This is the safest way to remove one
+            // entry without needing to track which channel it was on here.
             for (int c = 0; c < 16; ++c)
                 processor.sfzPlayer.setPresetOnChannel (c, 0, 0);
 
+            const auto& chMap = programGrid.getPresetChannels();
             for (auto& kv : chMap)
             {
                 if (kv.first == presetIdx) continue;
-                if (kv.second >= 3 && kv.second <= 16 && kv.first < (int)presetList.size())
+                if (kv.second >= 1 && kv.second <= 16 && kv.first < (int)presetList.size())
                     processor.sfzPlayer.setPresetOnChannel (kv.second - 1,
                                                             presetList[(size_t)kv.first].bank,
                                                             presetList[(size_t)kv.first].preset);
@@ -430,16 +425,41 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
 
             if (onPresetChannelAssigned)
                 onPresetChannelAssigned (info, 0);
+
+            // Rebuild sfPlayerChannelMask from the presets that are still assigned.
+            {
+                uint32_t mask = 0u;
+                const auto& chMap2 = programGrid.getPresetChannels();
+                for (const auto& kv : chMap2)
+                {
+                    if (kv.first == presetIdx) continue; // this one is being removed
+                    if (kv.second >= 1 && kv.second <= 16)
+                        mask |= (1u << kv.second);
+                }
+                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+            }
         }
         else
         {
-            // Assign: claim the channel then load the preset onto FluidSynth.
-            processor.claimChannel (ch, DysektProcessor::ChOwner::Sf2Preset);
+            // Assign: load preset onto FluidSynth channel (ch-1, 0-based).
+            // A controller transmitting on MIDI ch N will route 1:1 to FluidSynth
+            // channel N-1, so this preset will be played when the controller
+            // sends on the assigned MIDI channel.
             processor.sfzPlayer.setPresetOnChannel (ch - 1, info.bank, info.preset);
+
+            // Add this channel to sfPlayerChannelMask so MIDI on ch N reaches the SF player.
+            {
+                uint32_t mask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+                mask |= (1u << ch);
+                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+            }
 
             if (onPresetChannelAssigned)
                 onPresetChannelAssigned (info, ch);
         }
+
+        // sfPlayerChannelMask is now updated above on both assign and deactivate,
+        // so MIDI routing stays in sync with the grid's channel assignments.
     };
 
     // ── Preview toggle: left-click radio ─────────────────────────────────────
@@ -615,6 +635,36 @@ void SfzDropdownPanel::resized()
         programGrid.setVisible (false);
         programGrid.setBounds ({});
     }
+
+    // ── Channel-range spinner hit-zones ──────────────────────────────────
+    // Laid out inside chComboZone (the TRN+FINE area when SF2 is loaded).
+    // "CH [◂ 1 ▸] – [◂ 16 ▸]"
+    {
+        // Spinner centred inside the full chComboZone width (~336 px).
+        // Large hit targets for easy clicking.
+        const int btnW   = 28;   // ◂ / ▸ arrow
+        const int numW   = 38;   // two-digit channel number + padding
+        const int gap    = 10;
+        const int sepW   = 28;   // " – " separator
+        const int labelW = 30;   // "CH" prefix
+        const int widgetW = labelW + gap + btnW + numW + btnW + gap + sepW + gap + btnW + numW + btnW;
+        auto z = chComboZone.withSizeKeepingCentre (widgetW, chComboZone.getHeight());
+
+        chRangeLabelZone = z.removeFromLeft (labelW);
+        z.removeFromLeft (gap);
+
+        chLowDec   = z.removeFromLeft (btnW);
+        chLowLabel = z.removeFromLeft (numW);
+        chLowInc   = z.removeFromLeft (btnW);
+        z.removeFromLeft (gap);
+
+        z.removeFromLeft (sepW);
+        z.removeFromLeft (gap);
+
+        chHighDec   = z.removeFromLeft (btnW);
+        chHighLabel = z.removeFromLeft (numW);
+        chHighInc   = z.removeFromLeft (btnW);
+    }
 }
 
 // =============================================================================
@@ -679,10 +729,14 @@ void SfzDropdownPanel::openProgramGrid()
                             processor.sfzPlayer.getCurrentPresetIndex(),
                             processor.sfzPlayer.getMidiChannel());
     {
-        // Build the available-channel set for the grid picker: ch 3-16,
-        // excluding channels already owned by ChromaticSlice.
-        const uint32_t chromaMask = processor.chromaticChannelMask();
-        programGrid.setAvailableChannelMask (~chromaMask & 0x1FFFFCu); // bits 2-16, minus chromatic
+        const uint32_t mask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+        int lo = 0, hi = 0;
+        if (mask != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (mask & (1u << c)) { lo = c; break; }
+            for (int c = 16; c >= 2; --c)  if (mask & (1u << c)) { hi = c; break; }
+        }
+        programGrid.setChannelRange (lo, hi);
     }
     restoreGridChannelAssignments();
     resized();
@@ -727,7 +781,7 @@ void SfzDropdownPanel::restoreGridChannelAssignments()
 // =============================================================================
 void SfzDropdownPanel::buildSf2Combo()
 {
-    // sf2ChCombo removed — channel routing is now via channelOwnerMap.
+    // sf2ChCombo removed — channel routing is now via sfPlayerChannelMask (bitmask).
     // This method is retained as a no-op so callers (notifyPresetChannelChanged)
     // don't need changes.
 }
@@ -787,7 +841,7 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     }
 
     processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
-    // Ch 2 is hardwired to SfPlayer — no mask needed
+    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (f);
     closeBrowser();
     if (f.getFileExtension().toLowerCase() == ".sf2")
@@ -894,6 +948,53 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
     const float chGain = processor.sfzPlayer.getVolume();
 
     // MIX/SIZE/PAN/VOL already drawn by drawHeaderStrip() — do not duplicate here.
+
+    // ── Channel-range spinner: CH [◂ lo ▸] – [◂ hi ▸] ───────────────────
+    // Drawn inside chComboZone (the TRN+FINE area).  Hit-zones are set in resized().
+    const int lo = cachedChLow;
+    const int hi = cachedChHigh;
+    const bool disabled = (lo == 0);
+
+    // "CH" prefix
+    g.setFont (DysektLookAndFeel::makeFont (11.f, true));
+    g.setColour (dim);
+    g.drawText ("CH", chRangeLabelZone, juce::Justification::centred, false);
+
+    // Helper lambda: draw one spinner (dec button, number label, inc button)
+    auto drawSpinner = [&](juce::Rectangle<int> decR,
+                            juce::Rectangle<int> numR,
+                            juce::Rectangle<int> incR,
+                            int value)
+    {
+        // Subtle button backgrounds
+        g.setColour ((disabled ? dim : accent).withAlpha (0.18f));
+        g.fillRoundedRectangle (decR.toFloat(), 3.f);
+        g.fillRoundedRectangle (incR.toFloat(), 3.f);
+
+        // Arrows (plain ASCII so MSVC code page 1252 never chokes)
+        g.setColour (disabled ? dim : accent);
+        g.setFont (DysektLookAndFeel::makeFont (13.f));
+        g.drawText ("<", decR, juce::Justification::centred, false);
+        g.drawText (">", incR, juce::Justification::centred, false);
+
+        // Value
+        g.setColour (disabled ? dim : bright);
+        g.setFont (DysektLookAndFeel::makeFont (14.f, true));
+        const auto valStr = disabled ? juce::String ("--") : juce::String (value);
+        g.drawText (valStr, numR, juce::Justification::centred, false);
+    };
+
+    drawSpinner (chLowDec,  chLowLabel,  chLowInc,  lo);
+
+    // " - " separator
+    const auto sepR = juce::Rectangle<int> (chLowInc.getRight(), chLowInc.getY(),
+                                            chHighDec.getX() - chLowInc.getRight(),
+                                            chLowInc.getHeight());
+    g.setColour (dim);
+    g.setFont (DysektLookAndFeel::makeFont (13.f));
+    g.drawText ("-", sepR, juce::Justification::centred, false);
+
+    drawSpinner (chHighDec, chHighLabel, chHighInc, hi);
 }
 
 
@@ -1195,12 +1296,22 @@ void SfzDropdownPanel::timerCallback()
 
     presetList = processor.sfzPlayer.getPresetList();
 
-    // Refresh program grid's greyed-out channels whenever chromatic assignments change.
-    if (programPickerOpen)
+    // Poll sfPlayerChannelMask from processor for paint (avoids atomic reads in paint).
+    // Derive lo/hi as the lowest and highest set channel bits for spinner display.
+    // Channel 1 is hardwired to the slicer and never appears in sfPlayerChannelMask.
     {
-        const uint32_t chromaMask = processor.chromaticChannelMask();
-        programGrid.setAvailableChannelMask (~chromaMask & 0x1FFFFCu);
+        const uint32_t mask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+        cachedChLow  = 0;
+        cachedChHigh = 0;
+        if (mask != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (mask & (1u << c)) { cachedChLow  = c; break; }
+            for (int c = 16; c >= 2; --c)  if (mask & (1u << c)) { cachedChHigh = c; break; }
+        }
     }
+
+    // Keep the program grid's range in sync so out-of-range channels are greyed out
+    programGrid.setChannelRange (cachedChLow, cachedChHigh);
 
     repaint();
 }
@@ -1267,6 +1378,63 @@ void SfzDropdownPanel::showMidiLearnMenu (int fieldId, juce::Point<int> screenPo
 void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
 {
     const auto pos = e.getPosition();
+
+    // ── Channel-range spinners (visible in SF2 strip) ─────────────────────
+    auto adjustChannel = [&](bool isLow, int delta)
+    {
+        // Derive current lo/hi from sfPlayerChannelMask for spinner display.
+        const uint32_t curMask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+        int lo = 0, hi = 0;
+        if (curMask != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (curMask & (1u << c)) { lo = c; break; }
+            for (int c = 16; c >= 2; --c)  if (curMask & (1u << c)) { hi = c; break; }
+        }
+        if (lo == 0) lo = 2;   // channel 1 is hardwired to the slicer; SF player starts at 2
+        if (hi == 0) hi = lo;
+
+        // Channels owned by chromatic slices are not available to the SF player.
+        const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
+        // Channel 1 is also never available to the SF player.
+        auto isFree = [&](int ch) -> bool
+        {
+            if (ch < 2 || ch > 16) return false;
+            return ! (chromaMask & (1u << ch));
+        };
+
+        if (isLow)
+        {
+            int newLo = juce::jlimit (2, hi, lo + delta);
+            while (newLo >= 2 && newLo <= hi && ! isFree (newLo))
+                newLo += delta > 0 ? 1 : -1;
+            newLo = juce::jlimit (2, hi, newLo);
+            if (isFree (newLo))
+            {
+                uint32_t mask = 0u;
+                for (int c = newLo; c <= hi; ++c)  mask |= (1u << c);
+                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+            }
+        }
+        else
+        {
+            int newHi = juce::jlimit (lo, 16, hi + delta);
+            while (newHi >= lo && newHi <= 16 && ! isFree (newHi))
+                newHi += delta > 0 ? 1 : -1;
+            newHi = juce::jlimit (lo, 16, newHi);
+            if (isFree (newHi))
+            {
+                uint32_t mask = 0u;
+                for (int c = lo; c <= newHi; ++c)  mask |= (1u << c);
+                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+            }
+        }
+        repaint();
+    };
+
+    if (chLowDec .contains (pos)) { adjustChannel (true,  -1); return; }
+    if (chLowInc .contains (pos)) { adjustChannel (true,  +1); return; }
+    if (chHighDec.contains (pos)) { adjustChannel (false, -1); return; }
+    if (chHighInc.contains (pos)) { adjustChannel (false, +1); return; }
 
     // ── Folder icon — toggle browser ─────────────────────────────────────────
     if (folderIconZone.contains (pos))
@@ -1575,7 +1743,7 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
         {
             juce::File file (f);
             processor.sfzPlayer.loadFile (file, processor.fileLoadPool);
-            // Ch 2 is hardwired to SfPlayer — no mask needed
+            processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
             reloadZones (file);
             closeBrowser();
             if (ext == ".sf2")
@@ -1644,7 +1812,7 @@ void SfzDropdownPanel::initEmptySfz()
         sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
 
     processor.sfzPlayer.loadFile (sfz, processor.fileLoadPool);   // sfizz handles empty file gracefully (silence)
-    // Ch 2 is hardwired to SfPlayer — no mask needed
+    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }
 
@@ -2136,7 +2304,7 @@ void SfzDropdownPanel::writeSfzZoneChange (const juce::File& f,
 
     // Hot-reload the SFZ player so changes take effect immediately
     processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
-    // Ch 2 is hardwired to SfPlayer — no mask needed
+    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
 }
 
 // =============================================================================
@@ -2204,7 +2372,7 @@ void SfzDropdownPanel::showAddZoneOverlay (const juce::File& sfzFile,
         }
 
         processor.sfzPlayer.loadFile (sfzFile, processor.fileLoadPool);
-        // Ch 2 is hardwired to SfPlayer — no mask needed
+        processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (sfzFile);
         keysPanel.autoScrollToZones();
         repaint();
@@ -2266,7 +2434,7 @@ void SfzDropdownPanel::openSaveAsNewForZone (const juce::File& sampleFile)
         addZoneTargetSfz = dest;
 
         processor.sfzPlayer.loadFile (dest, processor.fileLoadPool);
-        // Ch 2 is hardwired to SfPlayer — no mask needed
+        processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (dest);
         repaint();
 

@@ -57,8 +57,7 @@ void buildMipmapsForBuffer (const juce::AudioBuffer<float>& src,
 SampleData::SampleData() = default;
 
 std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juce::File& file,
-                                                                         double projectSampleRate,
-                                                                         std::function<bool()> shouldExit)
+                                                                         double projectSampleRate)
 {
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -108,41 +107,17 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
 
     juce::AudioBuffer<float> sourceBuffer (numChannels, allocFrames);
     sourceBuffer.clear();
-
-    // ── Chunked decode with cancellation support ──────────────────────────────
-    // MP3 and FLAC decode frame-by-frame and can block for several seconds on
-    // large files. We read in chunks so we can bail out between them if
-    // shouldExit fires (e.g. Nuendo closing the plugin mid-load).
-    //
-    // WMA / Windows Media readers use WMCreateSyncReader (a COM object with
-    // internal sequential state) and are NOT safe to read in chunks — doing so
-    // can corrupt internal buffers and cause a memcpy access violation. For
-    // those formats we fall back to a single blocking read; the guard flag in
-    // the job callbacks still prevents the use-after-free on the processor side.
-    const bool isFlac = file.hasFileExtension ("flac|FLAC");
-    const bool useChunkedRead = isMp3 || isFlac;
-
-    static constexpr int kDecodeChunk = 4096;  // frames per chunk
-    int framesRead = 0;
-
-    if (useChunkedRead)
-    {
-        while (framesRead < numFrames)
-        {
-            if (shouldExit && shouldExit())
-                return nullptr;
-
-            const int toRead = std::min (kDecodeChunk, numFrames - framesRead);
-            // Pass -1 as startSampleInFile so the reader continues from its current
-            // sequential position rather than re-seeking (and for MP3/dr_mp3, potentially
-            // re-decoding from the start of the file) on every chunk.
-            reader->read (&sourceBuffer, framesRead, toRead, -1, true, true);
-            framesRead += toRead;
-        }
-    }
-    else
+    // Wrap the decode call: VBR files whose Xing header under-reports frame
+    // count can cause dr_mp3 to read past the logical end of its internal
+    // buffer and throw. Catching here returns nullptr (clean failure) rather
+    // than letting the exception escape into the ThreadPool / host.
+    try
     {
         reader->read (&sourceBuffer, 0, numFrames, 0, true, true);
+    }
+    catch (...)
+    {
+        return nullptr;
     }
 
     // ── Scrub non-finite samples ──────────────────────────────────────────────
@@ -167,9 +142,6 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
     // ── Resample if needed ────────────────────────────────────────────────────
     if (std::abs (sourceSampleRate - projectSampleRate) > 0.01)
     {
-        if (shouldExit && shouldExit())
-            return nullptr;
-
         double ratio = sourceSampleRate / projectSampleRate;
 
         // Guard: a ratio outside [0.1, 10.0] means the reader returned garbage
@@ -195,9 +167,6 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
         sourceBuffer = std::move (resampledBuffer);
         numFrames    = resampledLen;
     }
-
-    if (shouldExit && shouldExit())
-        return nullptr;
 
     // ── Up-mix to stereo ──────────────────────────────────────────────────────
     juce::AudioBuffer<float> newBuffer (2, numFrames);
@@ -226,20 +195,23 @@ void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
     if (decoded == nullptr)
         return;
 
-    // Promote the unique_ptr directly to a shared_ptr — zero copy of the buffer.
-    // activeDecoded is the audio-thread strong reference; snapshot is the
-    // const alias published for UI-thread readers via getSnapshot().
-    activeDecoded = std::move (decoded);
+    buffer        = std::move (decoded->buffer);
+    peakMipmaps   = std::move (decoded->peakMipmaps);
+    loadedFileName = decoded->fileName;
+    loadedFilePath = decoded->filePath;
 
-    loadedFileName = activeDecoded->fileName;
-    loadedFilePath = activeDecoded->filePath;
+    auto view          = std::make_shared<DecodedSample>();
+    view->buffer       = buffer;
+    view->peakMipmaps  = peakMipmaps;
+    view->fileName     = loadedFileName;
+    view->filePath     = loadedFilePath;
 
 #if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
-    snapshot.store (std::static_pointer_cast<const DecodedSample> (activeDecoded),
+    snapshot.store (std::static_pointer_cast<const DecodedSample> (view),
                     std::memory_order_release);
 #else
     std::atomic_store_explicit (&snapshot,
-                                std::static_pointer_cast<const DecodedSample> (activeDecoded),
+                                std::static_pointer_cast<const DecodedSample> (view),
                                 std::memory_order_release);
 #endif
     loaded = true;
@@ -262,19 +234,21 @@ bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
 
 void SampleData::clear()
 {
-    // Release the audio-thread strong reference first, then null the snapshot.
-    // Order matters: the snapshot atomic must not outlive activeDecoded's
-    // reference, though in practice both will decrement the same refcount.
-    activeDecoded.reset();
-
+    buffer.setSize (2, 0, false, false, true);
+    for (auto& m : peakMipmaps)
+    {
+        m.samplesPerPeak = 0;
+        m.maxPeaks.clear();
+        m.minPeaks.clear();
+    }
 #if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
     snapshot.store (std::shared_ptr<const DecodedSample>{}, std::memory_order_release);
 #else
     std::atomic_store_explicit (&snapshot, std::shared_ptr<const DecodedSample>{},
                                 std::memory_order_release);
 #endif
-    loadedFileName = {};
-    loadedFilePath = {};
+    loadedFileName.clear();
+    loadedFilePath.clear();
     loaded = false;
 }
 
@@ -289,26 +263,16 @@ SampleData::SnapshotPtr SampleData::getSnapshot() const
 
 float SampleData::getInterpolatedSample (double pos, int channel) const
 {
-    // activeDecoded is owned by the audio thread. Calling this from the message
-    // thread or a timer races with applyDecodedSample()'s move-assignment.
-    // Use getSnapshot() if you need cross-thread access.
-    jassert (! juce::MessageManager::existsAndIsCurrentThread());
-
     if (! loaded || channel < 0 || channel > 1)
-        return 0.0f;
-
-    // Read through activeDecoded — no separate buffer member needed.
-    const auto* buf = activeDecoded ? &activeDecoded->buffer : nullptr;
-    if (buf == nullptr)
         return 0.0f;
 
     int   ipos = (int) pos;
     float frac = (float) (pos - ipos);
 
-    if (ipos < 0 || ipos >= buf->getNumSamples() - 1)
+    if (ipos < 0 || ipos >= buffer.getNumSamples() - 1)
         return 0.0f;
 
-    const float* data = buf->getReadPointer (channel);
+    auto* data = buffer.getReadPointer (channel);
     if (data == nullptr)
         return 0.0f;
 

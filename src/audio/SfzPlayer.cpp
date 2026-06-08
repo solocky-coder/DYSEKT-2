@@ -567,13 +567,7 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     if (! loaded.load (std::memory_order_relaxed))
         return;
 
-    // NOTE: midiChannel / filterCh is intentionally NOT applied here.
-    // The sfzMidiBuf arriving in process() has already been pre-filtered by
-    // sfPlayerChannelMask in PluginProcessor::processBlock().  Applying a
-    // second per-channel filter here would drop messages on any channel that
-    // doesn't exactly match midiChannel, silencing SFZ playback whenever the
-    // mask spans multiple channels.  Let every message in sfzMidiBuf through.
-    const int filterCh = 0;   // 0 = omni (no secondary filter)
+    const int filterCh = midiChannel.load (std::memory_order_relaxed);
     const int trans    = transpose.load   (std::memory_order_relaxed);
     const float vol    = volume.load      (std::memory_order_relaxed);
 
@@ -778,14 +772,6 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         else
             targetMask = (uint16_t)(1u << (midiCh - 1));  // single destination
 
-        // ── Trigger JUCE ADSR from live MIDI (audio thread — call directly) ──
-        // Fires for every NoteOn/Off regardless of channel fan-out so the
-        // JUCE post-render envelope tracks real MIDI, not just UI clicks.
-        if (msg.isNoteOn())
-            juceAdsr.noteOn();
-        else if (msg.isNoteOff())
-            juceAdsr.noteOff();
-
         for (int fch = 0; fch < 16; ++fch)
         {
             if (! (targetMask & (1u << fch))) continue;
@@ -957,6 +943,36 @@ void SfzPlayer::measureChannelPeaks (int /*numSamples*/)
     }
 }
 
+// ── suppressFluidAdsr ─────────────────────────────────────────────────────────
+//  Called once after a successful SF2 load to zero FluidSynth's built-in ADSR
+//  generators on all 16 channels, giving JUCE ADSR exclusive envelope control.
+//
+//  Generator values are in timecents (GEN_VOLENVATTACK/DECAY/RELEASE) or
+//  centibels attenuation (GEN_VOLENVSUSTAIN).
+//    • Minimum attack/decay/release in FluidSynth = -12000 timecents ≈ 0 ms
+//    • GEN_VOLENVSUSTAIN = 0 means 0 dB attenuation (full level); JUCE ADSR drives
+//      the actual shape.
+// ─────────────────────────────────────────────────────────────────────────────
+void SfzPlayer::suppressFluidAdsr()
+{
+#if DYSEKT_HAS_FLUIDSYNTH
+    if (synth == nullptr) return;
+
+    for (int ch = 0; ch < 16; ++ch)
+    {
+        // Instant attack  (minimum timecents)
+        fluid_synth_set_gen (synth, ch, GEN_VOLENVATTACK,  -12000.0f);
+        // Instant decay   (minimum timecents)
+        fluid_synth_set_gen (synth, ch, GEN_VOLENVDECAY,   -12000.0f);
+        // GEN_VOLENVSUSTAIN = 0 means 0 dB attenuation (full level) — FluidSynth
+        // passes audio at full amplitude and JUCE ADSR shapes the envelope.
+        fluid_synth_set_gen (synth, ch, GEN_VOLENVSUSTAIN,  0.0f);
+        // Instant release (minimum timecents)
+        fluid_synth_set_gen (synth, ch, GEN_VOLENVRELEASE, -12000.0f);
+    }
+#endif
+}
+
 // =============================================================================
 //  Private helpers
 // =============================================================================
@@ -1097,6 +1113,9 @@ void SfzPlayer::applyPendingLoad()
     // The sequencer will call setPresetOnChannel() to populate other channels.
     applyPendingChannelChanges();  // all slots are -1 at this point; no-op but clears dirty flag
     setPresetByIndex (0);          // triggers applyProgramChange() on next process() tick
+
+    // Suppress FluidSynth's internal ADSR so JUCE ADSR has exclusive envelope control.
+    suppressFluidAdsr();
 
     // Switch to omni so all incoming MIDI reaches FluidSynth without needing
     // the host to route on a specific channel.  In VST3, processMidi() already

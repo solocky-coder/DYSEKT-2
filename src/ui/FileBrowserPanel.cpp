@@ -4,42 +4,6 @@
 
 #include <windows.h>
 
-// ========================== THREAD POOL JOBS ==========================
-namespace
-{
-class PreviewProbeJob final : public juce::ThreadPoolJob
-{
-public:
-    using DoneFn = std::function<void (juce::AudioFormatReader*)>;
-
-    PreviewProbeJob (juce::File f, DoneFn cb)
-        : juce::ThreadPoolJob ("PreviewProbeJob"),
-          file (std::move (f)),
-          onDone (std::move (cb))
-    {}
-
-    JobStatus runJob() override
-    {
-        juce::AudioFormatManager fm;
-        fm.registerBasicFormats();
-
-        // Dangerous call — isolated to worker thread.
-        juce::AudioFormatReader* rawReader = fm.createReaderFor (file);
-
-        if (! shouldExit())
-            juce::MessageManager::callAsync ([cb = onDone, rawReader] { cb (rawReader); });
-        else
-            delete rawReader;
-
-        return jobHasFinished;
-    }
-
-private:
-    juce::File file;
-    DoneFn     onDone;
-};
-} // namespace
-
 // ── ArchiveListModel ─────────────────────────────────────────────────────────
 
 int FileBrowserPanel::ArchiveListModel::getNumRows()
@@ -572,6 +536,8 @@ void FileBrowserPanel::startPreview (const juce::File& f)
     if (! f.existsAsFile()) return;
 
     // ── Safely tear down any current playback before touching readerSource ──
+    // transport.stop() is synchronous but the audio callback may still be
+    // running — setSource(nullptr) blocks until the audio thread is done.
     transport.stop();
     transport.setSource (nullptr);   // blocks until audio thread releases reader
     readerSource.reset();            // now safe to destroy
@@ -582,36 +548,16 @@ void FileBrowserPanel::startPreview (const juce::File& f)
         deviceManager.addAudioCallback (&sourcePlayer);
     }
 
-    // ── Move createReaderFor off the message thread ───────────────────────────
-    // A corrupt MP3/FLAC can segfault inside JUCE's dr_mp3/FLAC decoder before
-    // returning nullptr. Running it on a worker thread keeps the DAW alive if
-    // that happens.  The result is posted back to the message thread to update
-    // the transport.
-    //
-    // SafePointer + streamGeneration guard: if FileBrowserPanel is destroyed
-    // (or stopPreview() increments the generation) before callAsync fires,
-    // the callback bails out safely instead of touching freed memory.
-    juce::Component::SafePointer<FileBrowserPanel> safeThis (this);
-    const int myGen = ++streamGeneration;
+    auto* reader = formatManager.createReaderFor (f);
+    if (reader == nullptr) return;   // unsupported format or file not ready
 
-    processor.fileLoadPool.addJob (new PreviewProbeJob (f,
-        [safeThis, myGen] (juce::AudioFormatReader* rawReader)
-        {
-            if (safeThis == nullptr || safeThis->streamGeneration.load() != myGen)
-            {
-                delete rawReader;   // no owner now — must free to avoid leak
-                return;
-            }
+    readerSource = std::make_unique<juce::AudioFormatReaderSource> (reader, true);
+    transport.setSource (readerSource.get(), 0, nullptr, reader->sampleRate);
+    transport.setGain ((float) volumeSlider.getValue());
+    transport.setPosition (0.0);
+    transport.start();
 
-            if (rawReader == nullptr) { safeThis->updatePlayButton(); return; }
-
-            safeThis->readerSource = std::make_unique<juce::AudioFormatReaderSource> (rawReader, true);
-            safeThis->transport.setSource (safeThis->readerSource.get(), 0, nullptr, rawReader->sampleRate);
-            safeThis->transport.setGain ((float) safeThis->volumeSlider.getValue());
-            safeThis->transport.setPosition (0.0);
-            safeThis->transport.start();
-            safeThis->updatePlayButton();
-        }), true);
+    updatePlayButton();
 }
 
 void FileBrowserPanel::stopPreview()

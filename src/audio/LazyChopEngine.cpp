@@ -102,10 +102,6 @@ void LazyChopEngine::stop (VoicePool& voicePool, SliceManager& /*sliceMgr*/)
 
     active = false;
     playing = false;
-
-    // Null the raw buffer pointer so it never dangles after a sample swap.
-    // The owning DecodedSample may be freed as soon as applyDecodedSample() runs.
-    sampleBuffer = nullptr;
 }
 
 int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceMgr)

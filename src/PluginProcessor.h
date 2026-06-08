@@ -293,24 +293,15 @@ public:
 
     /** Controls where incoming live MIDI is routed.
      *
-     *  Ch 1  → Slicer (hardwired, non-chromatic pad triggers)
-     *  Ch 2  → SF-Player base (hardwired, SF2/SFZ default receive channel)
-     *  Ch 3-16 → Dynamic pool: claimed by chromatic slices OR SF2 presets.
-     *            A channel can only be owned by one thing at a time.
-     *
-     *  channelOwnerMap[] is the single source of truth for all MIDI routing.
+     *  Slicer    — all channels (except sf2Ch) go to the slice engine.
+     *              sfzPlayer receives mask = 0 (no live input).
+     *  SfPlayer  — slicer is bypassed entirely; sfzPlayer receives
+     *              mask = all assigned SF-track channels.
+     *  Sequencer — sequencer drives SF output; sfzPlayer live mask is
+     *              governed by setSelectedSfLiveChannels(); slicer is bypassed.
      */
-    enum class ChOwner : uint8_t { None, Slicer, SfPlayer, ChromaticSlice, Sf2Preset };
-
-    /** Claim ch (1-16) for owner. Ch 1+2 are hardwired and cannot be overridden. */
-    void claimChannel   (int ch, ChOwner owner) noexcept;
-    /** Release ch (3-16) back to None. Ch 1+2 are hardwired and never released. */
-    void releaseChannel (int ch) noexcept;
-    /** Read current owner of ch (1-16). */
-    ChOwner getChannelOwner (int ch) const noexcept;
-    /** Bitmask (bit N = ch N, 1-based) of channels owned by ChromaticSlice.
-     *  Used by Sf2ProgramGrid to grey out taken channels. */
-    uint32_t chromaticChannelMask() const noexcept;
+    enum class MidiRouteMode { Slicer, SfPlayer, Sequencer };
+    void setMidiRouteMode (MidiRouteMode mode);
 
     void loadFileAsync      (const juce::File& file);
     void loadDefaultSampleIfNeeded();   // loads Empty.wav on first launch
@@ -336,11 +327,6 @@ public:
         return (int) uiSnapshotVersion.load (std::memory_order_acquire);
     }
 
-    /** Log a message through the crash logger.  Used by PluginEditor and other
-     *  UI components whose try/catch handlers need to record exceptions without
-     *  direct access to the private crashLogger member. */
-    void logCrash (const juce::String& message) { crashLogger.log (message); }
-
     void publishUiSliceSnapshot();
 
     /** Returns the peak amplitude (0..1) at a given sample position in the
@@ -348,15 +334,8 @@ public:
      *  Safe to call from the UI (message) thread. */
     float getWaveformPeakAt (int samplePosition) const noexcept
     {
-        // IMPORTANT: must use the atomic snapshot, NOT sampleData.getBufferAudioThread().
-        // getBufferAudioThread() returns a reference to activeDecoded->buffer which is
-        // replaced (via shared_ptr move-assignment) on the audio thread in applyDecodedSample.
-        // Reading it here from the message thread is a data race on the shared_ptr object —
-        // causing heap corruption (0xC0000005). The snapshot is published atomically,
-        // so it is always safe to read here.
-        const auto snap = sampleData.getSnapshot();
-        if (snap == nullptr) return 0.0f;
-        const auto& buf = snap->buffer;
+        if (! sampleData.isLoaded()) return 0.0f;
+        const auto& buf = sampleData.getBuffer();
         const int n = buf.getNumSamples();
         if (samplePosition < 0 || samplePosition >= n) return 0.0f;
         float peak = 0.0f;
@@ -487,20 +466,28 @@ public:
     // read on UI thread for KeysPanel highlighting — display-only, torn reads OK)
     std::atomic<uint64_t> sfzActiveNotes[2] {}; // [0]=notes 0-63, [1]=notes 64-127
 
-    // ── MIDI channel ownership table ─────────────────────────────────────────
-    // Index = 1-based channel number (index 0 unused).
-    // Ch 1 = Slicer, Ch 2 = SfPlayer — hardwired at construction.
-    // Ch 3-16 = None by default; claimed by ChromaticSlice or Sf2Preset.
-    std::atomic<uint8_t> channelOwnerMap[17] {};   // zero-init = ChOwner::None
+    // MIDI channel routing bitmasks (bit N = channel N, 1-based, bits 1–16 used).
+    //
+    // Channel ownership rules:
+    //   channel 1               → slicer always (hardwired, not stored in any mask)
+    //   chromaticSliceChannelMask → channels 2–16 explicitly assigned to chromatic slices
+    //   sfPlayerChannelMask     → contiguous range 2–16 set by the CH spinners;
+    //                             never overlaps channel 1 or chromaticSliceChannelMask
+    //   0 in sfPlayerChannelMask = SF player disabled; slicer gets everything
+    //
+    // Both are derived/cached state — not serialised; rebuilt on load.
+    std::atomic<uint32_t> sfPlayerChannelMask      { 0u };   // disabled until user sets a range
+    std::atomic<uint32_t> chromaticSliceChannelMask { 0u };
 
-    /** Rebuild ChromaticSlice ownership from current slice data.
-     *  Called whenever a slice's chromaticChannel changes. */
+    /** Rebuild chromaticSliceChannelMask from current slice data.
+     *  Must be called on the audio thread (or before first audio callback). */
     void rebuildChromaticChannelMask();
 
     // Trim region markers (stored in samples)
     std::atomic<int>  trimRegionStart  { 0 };
     std::atomic<int>  trimRegionEnd    { 0 };
     std::atomic<bool> trimModeActive   { false };  // set by editor; CC routes to trim when true
+    std::atomic<int>  midiRouteMode    { 0 };       // 0=Slicer, 1=SfPlayer, 2=Sequencer
     std::atomic<int> trimInSample    { 0 };
     std::atomic<int> trimOutSample   { 0 };
 
@@ -605,11 +592,6 @@ public:
     // =========================================================================
     // Sample loading (public so UI thread can dispatch SFZ/SF2 loads)
     // =========================================================================
-    // Shared flag poisoned in the destructor before the thread pool is torn down.
-    // Load callbacks capture this by shared_ptr so they can safely check it even
-    // if the job thread outlives the 5-second removeAllJobs timeout.
-    std::shared_ptr<std::atomic<bool>> loadCallbacksValid
-        { std::make_shared<std::atomic<bool>>(true) };
     juce::ThreadPool fileLoadPool { 1 };
     bool             defaultSampleScheduled { false }; // true once default or saved sample is queued
     std::atomic<int>  nextLoadToken  { 0 };
@@ -676,7 +658,8 @@ public:
     friend class SoundFontLoader;
 
     // ── Crash logger ──────────────────────────────────────────────────────────
-    // Declared LAST so it is destroyed FIRST — see ~DysektProcessor() for rationale.
+    // Declared last so it is constructed first and destroyed last,
+    // ensuring the log captures the full object lifetime.
     CrashLogger crashLogger;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DysektProcessor)

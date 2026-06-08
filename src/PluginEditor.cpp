@@ -19,8 +19,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar (p),
  sliceLcd (p),
  sliceWaveformLcd (p),
- sfzLcd (p),
- sfzWaveformLcd (p),
  sliceLane (p),
  waveformView (p),
  waveformOverview (p),
@@ -40,12 +38,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  addAndMakeVisible (sliceLcd);
  addAndMakeVisible (sliceWaveformLcd);
-
- // SF-player LCDs: constructed but hidden until uiMode == 1
- addAndMakeVisible (sfzLcd);
- addAndMakeVisible (sfzWaveformLcd);
- sfzLcd.setVisible (false);
- sfzWaveformLcd.setVisible (false);
  if (auto* cf = headerBar.getControlFrame())
  addAndMakeVisible (*cf);
 
@@ -161,9 +153,11 @@ DysektEditor::DysektEditor (DysektProcessor& p)
     arrangeView.onTrackTypeSelected = [this] (TrackType type, bool hasSelection)
     {
         if (activeSlot != SlotContent::Seq) return;
-        // Sequencer track-type selection: no global mode change needed;
-        // Ch 1 (Slicer) and Ch 2 (SfPlayer) are managed by syncMidiRouteMode.
-        // The ArrangeView manages per-channel claims for chromatic/SF2 tracks.
+        using Mode = DysektProcessor::MidiRouteMode;
+        processor.setMidiRouteMode (
+            (hasSelection && type != TrackType::SfPlayer)
+                ? Mode::Slicer
+                : Mode::Sequencer);
     };
 #endif
  shortcutsPanel.onDismiss = [this] { toggleShortcutsPanel(); };
@@ -346,11 +340,11 @@ DysektEditor::~DysektEditor()
 // ── MIDI route mode helper ────────────────────────────────────────────────────
 void DysektEditor::syncMidiRouteMode()
 {
-    // Ch 1 (Slicer) and Ch 2 (SfPlayer) are hardwired at construction and
-    // never released — releaseChannel() only operates on Ch 3-16.
-    // Chromatic slice channels (3-16) are managed internally by the processor
-    // via rebuildChromaticChannelMask() whenever slice data changes.
-    // Nothing for the editor to do here.
+    using Mode = DysektProcessor::MidiRouteMode;
+    const Mode mode = (activeSlot == SlotContent::Seq) ? Mode::Sequencer
+                    : (uiMode == 1)                    ? Mode::SfPlayer
+                                                       : Mode::Slicer;
+    processor.setMidiRouteMode (mode);
 }
 
 // ── Interface mode switch ─────────────────────────────────────────────────────
@@ -369,13 +363,6 @@ void DysektEditor::setUiMode (int mode)
  // any soundfont has been loaded, so the KeysPanel guard works from the
  // very first paint in that mode.
  sfzDropdown.keysPanel.setSlicerHighlightEnabled (uiMode == 0);
-
- // ── Swap the LCD pair ─────────────────────────────────────────────────────
- const bool isSfz = (uiMode == 1);
- sliceLcd.setVisible       (! isSfz);
- sliceWaveformLcd.setVisible (! isSfz);
- sfzLcd.setVisible          (isSfz);
- sfzWaveformLcd.setVisible  (isSfz);
 
  // Route live MIDI to the active front-end.
  syncMidiRouteMode();
@@ -806,12 +793,6 @@ void DysektEditor::resized()
 
  const int sideW = (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2;
  sliceLcd.setBounds (topRow.removeFromLeft (sideW));
- if (uiMode == 1)
- {
-     // In SF-player mode the SFZ LCDs sit at the same pixel positions;
-     // we re-use the just-computed bounds so both pairs are always sync'd.
-     sfzLcd.setBounds (sliceLcd.getBounds());
- }
  topRow.removeFromLeft (si (kMargin));
 
  auto centreCol = topRow.removeFromLeft (si (kCtrlFrameW));
@@ -836,7 +817,6 @@ void DysektEditor::resized()
 
  topRow.removeFromLeft (si (kMargin));
  sliceWaveformLcd.setBounds (topRow);
- sfzWaveformLcd.setBounds (sliceWaveformLcd.getBounds());
 
  auto actionArea = area.removeFromTop (si (kActionH));
  const int kFX = si (kMargin);
@@ -1237,8 +1217,6 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
 
 void DysektEditor::timerCallback()
 {
- try
- {
  bool uiChanged = false, viewportChanged = false;
  const bool previewActive = waveformView.hasActiveSlicePreview();
  const bool waveformInteracting = waveformView.isInteracting();
@@ -1418,16 +1396,8 @@ void DysektEditor::timerCallback()
      }
  }
 
- if (uiMode == 0)
- {
-     sliceLcd.repaintLcd();
-     sliceWaveformLcd.repaintLcd();
- }
- else
- {
-     sfzLcd.repaintLcd();
-     sfzWaveformLcd.repaintLcd();
- }
+ sliceLcd.repaintLcd();
+ sliceWaveformLcd.repaintLcd();
 
  {
  auto timerSnap = processor.sampleData.getSnapshot();
@@ -1504,18 +1474,6 @@ if (activeSlot == SlotContent::Seq)   pianoRollPanel.syncSnap();
             }
         }
     }
- }
- catch (const std::exception& e)
- {
-     // An exception in timerCallback must not propagate into the host's
-     // message loop — it was the escape route for Bug 2 (0xE06D7363 throw
-     // after 3x recursive DispatchMessageW re-entry, DYSEKT+0x98284c).
-     processor.logCrash (juce::String ("timerCallback exception: ") + e.what());
- }
- catch (...)
- {
-     processor.logCrash ("timerCallback: unknown exception caught");
- }
 }
 
 void DysektEditor::ensureDefaultThemes()
@@ -1625,13 +1583,6 @@ void DysektEditor::loadUserSettings()
  headerBar.dualFrame().setPadGridActive (uiMode == 1);
  headerBar.setWaveMode (waveformMode);
  headerBar.setMidiFollowActive (processor.midiSelectsSlice.load());
-
- // Sync LCD pair visibility to the restored uiMode
- const bool isSfz = (uiMode == 1);
- sliceLcd.setVisible        (! isSfz);
- sliceWaveformLcd.setVisible (! isSfz);
- sfzLcd.setVisible           (isSfz);
- sfzWaveformLcd.setVisible   (isSfz);
 }
 
 
