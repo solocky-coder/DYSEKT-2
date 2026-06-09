@@ -62,6 +62,34 @@ private:
     FailureFn onFailure;
 };
 
+class TrimSampleJob final : public juce::ThreadPoolJob
+{
+public:
+    using TrimFn = std::function<void()>;
+
+    TrimSampleJob (TrimFn fn)
+        : juce::ThreadPoolJob ("TrimSampleJob"),
+          trimFn (std::move (fn))
+    {
+    }
+
+    JobStatus runJob() override
+    {
+        try
+        {
+            trimFn();
+        }
+        catch (...)
+        {
+            // Exception firewall: prevent throws from escaping ThreadPool
+        }
+        return jobHasFinished;
+    }
+
+private:
+    TrimFn trimFn;
+};
+
 static constexpr uint32_t kValidLockMask =
     kLockBpm | kLockPitch | kLockAlgorithm | kLockAttack | kLockDecay | kLockSustain
     | kLockRelease | kLockMuteGroup | kLockStretch | kLockTonality | kLockFormant
@@ -1393,25 +1421,17 @@ void DysektProcessor::handleCommand (const Command& cmd)
 
                     // Ship the heavy allocation work to the background thread.
                     const int capturedToken = token;
-                    fileLoadPool.addJob ([this, snap, tStart, tEnd, capturedToken]
+                    fileLoadPool.addJob (new TrimSampleJob ([this, snap, tStart, tEnd, capturedToken]
                     {
-                        try
+                        auto trimmed = SampleData::createTrimmed (*snap, tStart, tEnd);
+                        if (trimmed != nullptr
+                            && capturedToken == latestLoadToken.load (std::memory_order_acquire))
                         {
-                            auto trimmed = SampleData::createTrimmed (*snap, tStart, tEnd);
-                            if (trimmed != nullptr
-                                && capturedToken == latestLoadToken.load (std::memory_order_acquire))
-                            {
-                                auto* old = completedLoadData.exchange (trimmed.release(),
-                                                                         std::memory_order_acq_rel);
-                                delete old;
-                            }
+                            auto* old = completedLoadData.exchange (trimmed.release(),
+                                                                     std::memory_order_acq_rel);
+                            delete old;
                         }
-                        catch (...)
-                        {
-                            // Allocation failed — leave completedLoadData null;
-                            // processBlock will simply keep the old sample loaded.
-                        }
-                    }, false);
+                    }), false);
                 }
 
                 sliceManager.clearAll();
