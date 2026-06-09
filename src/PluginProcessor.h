@@ -249,6 +249,12 @@ public:
         juce::String sampleFileName;
         bool         isDefaultSample   { false };
         bool         midiSelectsSlice   { false };
+
+        // Pre-computed upper-case strings — populated by publishUiSliceSnapshot()
+        // so paint() methods never allocate heap memory for string transforms.
+        juce::String sampleFileNameUpper;      // sampleFileName.toUpperCase()
+        juce::String sampleFileNameUpperShort; // sampleFileName.toUpperCase().substring(0,18)
+        std::array<juce::String, SliceManager::kMaxSlices> sliceNamesUpper; // name.toUpperCase().substring(0,9) per slice
     };
 
     // ── Oscilloscope ring buffer size ─────────────────��───────────────────────

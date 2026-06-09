@@ -103,6 +103,9 @@ void SfzLcdDisplay::buildDisplayData()
     data.reverbDamp  = processor.sfzPlayer.getReverbDamp();
     data.reverbWidth = processor.sfzPlayer.getReverbWidth();
     data.reverbMix   = processor.sfzPlayer.getReverbMix();
+
+    // Pre-compute upper-case string so paint() never allocates heap memory.
+    data.fileNameUpperShort = data.fileName.toUpperCase().substring (0, 18);
 }
 
 // ── Draw helpers ──────────────────────────────────────────────────────────────
@@ -278,7 +281,7 @@ void SfzLcdDisplay::paint (juce::Graphics& g)
     // ── Row 0: header — "SF PLAYER" label + instrument filename ──────────────
     {
         const juce::String tagStr  = "SF PLAYER";
-        const juce::String nameStr = data.fileName.toUpperCase().substring (0, 18);
+        const juce::String nameStr = data.fileNameUpperShort;
         const int y = screen.getY() + 4;
 
         g.setColour (pal.phosphor.withAlpha (0.10f));

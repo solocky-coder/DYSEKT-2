@@ -824,7 +824,7 @@ void WaveformView::drawSlices (juce::Graphics& g)
  // Name: centred in slice, font size scales with available width
  const float nameFontH = juce::jlimit (9.0f, 13.0f, (float)sw * 0.18f);
  g.setFont (DysektLookAndFeel::makeFont (nameFontH, true));
- g.drawText (s.name.toUpperCase(), x1 + 2, kTopPad + 1, sw - 4, 14,
+ g.drawText (ui.sliceNamesUpper[(size_t) i], x1 + 2, kTopPad + 1, sw - 4, 14,
  juce::Justification::centred, true);
  }
  else

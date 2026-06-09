@@ -92,7 +92,8 @@ void ShortcutsPanel::buildShortcutData()
 
     {
         ShortcutCategory slicing;
-        slicing.title = "Slicing";
+        slicing.title      = "Slicing";
+        slicing.titleUpper = slicing.title.toUpperCase();
         slicing.entries = {
             { "Double-click", "Add slice at position" },
             { "L",            "MIDI Slice"             },
@@ -103,7 +104,8 @@ void ShortcutsPanel::buildShortcutData()
 
     {
         ShortcutCategory nav;
-        nav.title = "Navigation";
+        nav.title      = "Navigation";
+        nav.titleUpper = nav.title.toUpperCase();
         nav.entries = {
             { "Left / Right", "Select previous / next slice" },
         };
@@ -112,7 +114,8 @@ void ShortcutsPanel::buildShortcutData()
 
     {
         ShortcutCategory editing;
-        editing.title = "Editing";
+        editing.title      = "Editing";
+        editing.titleUpper = editing.title.toUpperCase();
         editing.entries = {
             { "Ctrl+Z", "Undo"                          },
             { "F",      "Toggle MIDI-selects-slice mode" },
@@ -123,7 +126,8 @@ void ShortcutsPanel::buildShortcutData()
 
     {
         ShortcutCategory misc;
-        misc.title = "General";
+        misc.title      = "General";
+        misc.titleUpper = misc.title.toUpperCase();
         misc.entries = {
             { juce::String (juce::CharPointer_UTF8 ("?  (QWERTZ: Shift+\xc3\x9f)")), "Toggle this panel" },
             { "Esc",                           "Close panel / cancel" },
@@ -349,7 +353,7 @@ void ShortcutsPanel::paint (juce::Graphics& g)
 
         g.setFont (DysektLookAndFeel::makeFont (10.5f, true));
         g.setColour (getTheme().accent);
-        g.drawText (cat.title.toUpperCase(), col.removeFromTop (rowH), juce::Justification::centredLeft);
+        g.drawText (cat.titleUpper, col.removeFromTop (rowH), juce::Justification::centredLeft);
         col.removeFromTop (2);
 
         for (const auto& entry : cat.entries)

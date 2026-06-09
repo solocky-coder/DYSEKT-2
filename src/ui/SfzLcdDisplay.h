@@ -52,6 +52,9 @@ private:
         float         reverbDamp    = 0.0f;
         float         reverbWidth   = 0.0f;
         float         reverbMix     = 0.0f;
+
+        // Pre-computed — populated by buildDisplayData() so paint() never allocates.
+        juce::String  fileNameUpperShort; // fileName.toUpperCase().substring(0,18)
     };
 
     void buildDisplayData();

@@ -62,20 +62,6 @@ private:
     FailureFn onFailure;
 };
 
-// Generic helper: run a lambda as a ThreadPoolJob.
-// Needed for JUCE versions that lack the addJob(std::function<void()>, bool) overload.
-class LambdaJob final : public juce::ThreadPoolJob
-{
-public:
-    explicit LambdaJob (std::function<void()> fn)
-        : juce::ThreadPoolJob ("LambdaJob"), fn (std::move (fn)) {}
-
-    JobStatus runJob() override { fn(); return jobHasFinished; }
-
-private:
-    std::function<void()> fn;
-};
-
 static constexpr uint32_t kValidLockMask =
     kLockBpm | kLockPitch | kLockAlgorithm | kLockAttack | kLockDecay | kLockSustain
     | kLockRelease | kLockMuteGroup | kLockStretch | kLockTonality | kLockFormant
@@ -478,6 +464,12 @@ void DysektProcessor::publishUiSliceSnapshot()
         else
             snap.slices[(size_t) i].active = false;
     }
+
+    // Pre-compute upper-case strings so paint() methods never allocate heap memory.
+    snap.sampleFileNameUpper      = snap.sampleFileName.toUpperCase();
+    snap.sampleFileNameUpperShort = snap.sampleFileNameUpper.substring (0, 18);
+    for (int i = 0; i < snap.numSlices; ++i)
+        snap.sliceNamesUpper[(size_t) i] = snap.slices[(size_t) i].name.toUpperCase().substring (0, 9);
 
     uiSliceSnapshotIndex.store (writeIndex, std::memory_order_release);
     uiSnapshotVersion.fetch_add (1, std::memory_order_release);
@@ -1401,7 +1393,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
 
                     // Ship the heavy allocation work to the background thread.
                     const int capturedToken = token;
-                    fileLoadPool.addJob (new LambdaJob ([this, snap, tStart, tEnd, capturedToken]
+                    fileLoadPool.addJob ([this, snap, tStart, tEnd, capturedToken]
                     {
                         try
                         {
@@ -1419,7 +1411,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                             // Allocation failed — leave completedLoadData null;
                             // processBlock will simply keep the old sample loaded.
                         }
-                    }), true); // true = ThreadPool deletes the job when finished
+                    }, false);
                 }
 
                 sliceManager.clearAll();

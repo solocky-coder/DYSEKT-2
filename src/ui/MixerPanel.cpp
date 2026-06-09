@@ -547,7 +547,7 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
     if (sl.name.isNotEmpty())
     {
         // Custom name set — show it in the name column
-        g.drawText (sl.name.toUpperCase().substring (0, 9),
+        g.drawText (snap.sliceNamesUpper[(size_t) idx],
                     5, ry, kNameColW - 8, kRowH, juce::Justification::centredLeft);
     }
     else
