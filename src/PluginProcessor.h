@@ -176,7 +176,7 @@ public:
         FieldEqHighGain   = 49,  // dB  -18..+18
     };
 
-    // ── Command types ────────────────────────────────────────────────────────
+    // ── Command types ─────────────────────────────────────────────────────────
     enum CommandType
     {
         CmdNone = 0,
@@ -207,7 +207,7 @@ public:
         CmdSetSliceName,     // intParam1 = slice index, stringParam = new name (empty = clear)
     };
 
-    // ── Load kind ────────────────────────────────────────────────────────────
+    // ── Load kind ─────────────────────────────────────────────────────────
     enum LoadKind { LoadKindReplace = 0, LoadKindRelink = 1 };
 
     // ── Trim preference ───────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ public:
         SampleStateMissingAwaitingRelink = 2,
     };
 
-    // ── Command ──────────────────���───────────────────────────────────────────
+    // ── Command ──────────────────────────────────────────────────────────────
     struct Command
     {
         CommandType type        { CmdNone };
@@ -255,7 +255,7 @@ public:
         bool         midiSelectsSlice   { false };
     };
 
-    // ── Oscilloscope ring buffer size ─────────────────��───────────────────────
+    // ── Oscilloscope ring buffer size ─────────────────────────────────────────
     static constexpr int kOscRingBufferSize = 4096;  // must be power of 2
 
     // =========================================================================
@@ -596,7 +596,7 @@ private:
     // Set to true by the UI thread while it holds a reference to the snapshot.
     // publishUiSliceSnapshot() skips a flip if this is set, preventing a
     // data race on the juce::String (now char[]) fields.
-    std::atomic<bool>     uiReadingSnapshot    { false };
+    mutable std::atomic<bool>     uiReadingSnapshot    { false };
 
     // =========================================================================
     // Undo / redo
@@ -674,7 +674,7 @@ public:
 
     friend class SoundFontLoader;
 
-    // ── Crash logger ──────────────────────────────────────────────────────────
+    // ── Crash logger ────────────────────────────────────────────────────────
     // Declared last so it is constructed first and destroyed last,
     // ensuring the log captures the full object lifetime.
     CrashLogger crashLogger;
