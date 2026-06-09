@@ -70,6 +70,12 @@ private:
  bool releaseTail = false;
  int outputBus = 0;
  float bpm = 120.0f;
+
+ // Pre-computed upper-case strings — populated by buildDisplayData()
+ // so paint() never allocates heap memory.
+ juce::String sampleNameUpper;       // sampleName.toUpperCase()
+ juce::String sampleNameUpperShort;  // sampleName.toUpperCase().substring(0, 18)
+ juce::String sliceNameUpperShort;   // sliceName.toUpperCase().substring(0, 10), or slice index
  };
 
  DisplayData data;

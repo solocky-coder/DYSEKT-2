@@ -98,6 +98,7 @@ void SliceLcdDisplay::buildDisplayData()
     if (! data.hasSample || snap.selectedSlice < 0 || snap.selectedSlice >= snap.numSlices)
     {
         data.hasSlice = false;
+        data.sampleNameUpper = data.sampleName.toUpperCase();
         return;
     }
 
@@ -159,6 +160,15 @@ void SliceLcdDisplay::buildDisplayData()
     data.releaseTail     = sl.releaseTail;
     data.outputBus       = sl.outputBus;
     data.bpm             = sl.bpm;
+
+    // Pre-compute upper-case display strings here, outside paint(), so the
+    // paint path never allocates heap memory (prevents std::bad_alloc crashes
+    // inside the Direct2D swap-chain thread).
+    data.sampleNameUpper      = data.sampleName.toUpperCase();
+    data.sampleNameUpperShort = data.sampleNameUpper.substring (0, 18);
+    data.sliceNameUpperShort  = data.sliceName.isNotEmpty()
+                                    ? data.sliceName.toUpperCase().substring (0, 10)
+                                    : juce::String (data.sliceIndex + 1);
 }
 
 // ── Repaint trigger ────────────────────────────────────────────────────────────
@@ -388,7 +398,7 @@ void SliceLcdDisplay::drawNoSliceScreen (juce::Graphics& g)
     if (data.hasSample && data.sampleName.isNotEmpty())
     {
         g.setColour (pal.phosphor.withAlpha (0.6f));
-        g.drawText (data.sampleName.toUpperCase(),
+        g.drawText (data.sampleNameUpper,
                     b.reduced (juce::roundToInt (kLeftPad * sf), 0), juce::Justification::centredTop);
         g.setColour (pal.noDataCol);
     }
@@ -585,7 +595,7 @@ void SliceLcdDisplay::paint (juce::Graphics& g)
             + " / "
             + juce::String (data.numSlices).paddedLeft ('0', 2);
 
-        juce::String nameStr = data.sampleName.toUpperCase().substring (0, 18);
+        juce::String nameStr = data.sampleNameUpperShort;
 
         // Draw centred header: measure label+value as one unit, centre in screen
         auto   screen    = getLocalBounds().reduced (4);
@@ -643,9 +653,7 @@ void SliceLcdDisplay::paint (juce::Graphics& g)
             + "(" + juce::String (data.midiNote).paddedLeft ('0', 3) + ")";
 
         // NAME always shows: custom name if set, otherwise the slice number
-        juce::String nameVal = data.sliceName.isNotEmpty()
-            ? data.sliceName.toUpperCase().substring (0, 10)
-            : juce::String (data.sliceIndex + 1);
+        juce::String nameVal = data.sliceNameUpperShort;
         juce::String nameStr = "NAME:" + nameVal;
 
         // Record the right-side hit area for this row (right half of screen)
