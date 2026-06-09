@@ -1357,9 +1357,17 @@ void DysektProcessor::handleCommand (const Command& cmd)
             break;
 
         case CmdApplyTrim:
-            // 1. Physically crop the audio buffer to [trimStart, trimEnd)
-            // 2. Clear all slices — trimmed sample enters slice window clean,
-            //    playing chromatically until user adds first slice (same as fresh load).
+            // FIX #6: createTrimmed allocates a new AudioBuffer which can throw
+            // std::bad_alloc.  On Windows, Nuendo's outer SEH __except handler
+            // intercepts the exception before our C++ catch block can run, so
+            // try/catch cannot protect against this on the audio thread.
+            //
+            // Solution: post the trim to fileLoadPool (background thread) and
+            // let the result flow back through completedLoadData — the same
+            // zero-allocation path already used for normal file loads.
+            // The audio thread only calls clearVoicesBeforeSampleSwap() here
+            // (no allocation) and picks up the trimmed buffer next block via
+            // the existing completedLoadData polling code.
             {
                 const int tStart = cmd.intParam1;
                 const int tEnd   = cmd.intParam2;
@@ -1367,18 +1375,41 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 auto snap = sampleData.getSnapshot();
                 if (snap != nullptr)
                 {
-                    auto trimmed = SampleData::createTrimmed (*snap, tStart, tEnd);
-                    if (trimmed != nullptr)
+                    // Increment load token so stale loads are discarded.
+                    const int token = nextLoadToken.fetch_add (1, std::memory_order_relaxed) + 1;
+                    latestLoadToken.store (token, std::memory_order_release);
+                    latestLoadKind.store ((int) LoadKindReplace, std::memory_order_release);
+                    delete completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
+                    delete completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
+
+                    // Stop voices NOW on the audio thread (safe, no allocation).
+                    clearVoicesBeforeSampleSwap();
+
+                    // Ship the heavy allocation work to the background thread.
+                    const int capturedToken = token;
+                    fileLoadPool.addJob ([this, snap, tStart, tEnd, capturedToken]
                     {
-                        clearVoicesBeforeSampleSwap();          // FIX #1: prevent use-after-free
-                        sampleData.applyDecodedSample (std::move (trimmed));
-                    }
+                        try
+                        {
+                            auto trimmed = SampleData::createTrimmed (*snap, tStart, tEnd);
+                            if (trimmed != nullptr
+                                && capturedToken == latestLoadToken.load (std::memory_order_acquire))
+                            {
+                                auto* old = completedLoadData.exchange (trimmed.release(),
+                                                                         std::memory_order_acq_rel);
+                                delete old;
+                            }
+                        }
+                        catch (...)
+                        {
+                            // Allocation failed — leave completedLoadData null;
+                            // processBlock will simply keep the old sample loaded.
+                        }
+                    }, false);
                 }
 
-                const int totalFrames = sampleData.getNumFrames();
                 sliceManager.clearAll();
                 sliceManager.selectedSlice.store (-1, std::memory_order_relaxed);
-                (void) totalFrames;
             }
             publishUiSliceSnapshot();
             break;
@@ -2289,8 +2320,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
-    try
-    {
     // ── Poll global EQ param changes ──────────────────────────────────────────
     {
         static float cachedEqLow = -999.f, cachedEqLowF = -999.f,
@@ -3061,17 +3090,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         slicePeakL[si].store (v, std::memory_order_relaxed);
         v = slicePeakR[si].load (std::memory_order_relaxed) * kDecayPerBlock;
         slicePeakR[si].store (v, std::memory_order_relaxed);
-    }
-    }  // end try
-    catch (const std::bad_alloc&)
-    {
-        // Out-of-memory on the real-time thread (e.g. createTrimmed / setSize).
-        // Swallow silently — audio output is already cleared above.
-    }
-    catch (...)
-    {
-        // Safety net: never let a C++ exception escape processBlock into the host.
-        jassertfalse;
     }
 }
 juce::AudioProcessorEditor* DysektProcessor::createEditor()
