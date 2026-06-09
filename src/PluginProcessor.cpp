@@ -2289,6 +2289,8 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
+    try
+    {
     // ── Poll global EQ param changes ──────────────────────────────────────────
     {
         static float cachedEqLow = -999.f, cachedEqLowF = -999.f,
@@ -3059,6 +3061,17 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         slicePeakL[si].store (v, std::memory_order_relaxed);
         v = slicePeakR[si].load (std::memory_order_relaxed) * kDecayPerBlock;
         slicePeakR[si].store (v, std::memory_order_relaxed);
+    }
+    }  // end try
+    catch (const std::bad_alloc&)
+    {
+        // Out-of-memory on the real-time thread (e.g. createTrimmed / setSize).
+        // Swallow silently — audio output is already cleared above.
+    }
+    catch (...)
+    {
+        // Safety net: never let a C++ exception escape processBlock into the host.
+        jassertfalse;
     }
 }
 juce::AudioProcessorEditor* DysektProcessor::createEditor()
