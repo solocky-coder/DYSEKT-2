@@ -547,7 +547,7 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
     if (sl.name.isNotEmpty())
     {
         // Custom name set — show it in the name column
-        g.drawText (snap.sliceNamesUpper[(size_t) idx],
+        g.drawText (sl.name.toUpperCase().substring (0, 9),
                     5, ry, kNameColW - 8, kRowH, juce::Justification::centredLeft);
     }
     else
@@ -558,7 +558,7 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
 
         // Duration (only when no custom name, to keep layout clean)
         const double srate = processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 44100.0;
-        const int end = processor.sliceManager.getEndForSlice (idx, snap.sampleNumFrames);
+        const int end = (idx >= 0 && idx < snap.numSlices) ? snap.sliceEndSamples[idx] : snap.sampleNumFrames;
         const double lenSec = (end - sl.startSample) / srate;
         g.setFont (DysektLookAndFeel::makeFont (11.0f));
         g.setColour (theme.foreground.withAlpha (0.30f));

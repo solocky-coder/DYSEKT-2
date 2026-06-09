@@ -107,18 +107,7 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
 
     juce::AudioBuffer<float> sourceBuffer (numChannels, allocFrames);
     sourceBuffer.clear();
-    // Wrap the decode call: VBR files whose Xing header under-reports frame
-    // count can cause dr_mp3 to read past the logical end of its internal
-    // buffer and throw. Catching here returns nullptr (clean failure) rather
-    // than letting the exception escape into the ThreadPool / host.
-    try
-    {
-        reader->read (&sourceBuffer, 0, numFrames, 0, true, true);
-    }
-    catch (...)
-    {
-        return nullptr;
-    }
+    reader->read (&sourceBuffer, 0, numFrames, 0, true, true);
 
     // ── Scrub non-finite samples ──────────────────────────────────────────────
     // A corrupt MP3 frame, a truncated file, or a partial dr_mp3 decode can
@@ -195,31 +184,26 @@ void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
     if (decoded == nullptr)
         return;
 
-    // FIX #3: promote unique_ptr → shared_ptr with zero allocation (no buffer copy).
-    // The old code moved the buffer into a local member then immediately deep-copied
-    // it back into a new DecodedSample for the snapshot — up to ~115 MB on the audio
-    // thread for a 5-min stereo file.  Releasing the unique_ptr into a shared_ptr is
-    // a single ref-count allocation; the audio data never moves at all.
-    auto shared = std::shared_ptr<const DecodedSample> (decoded.release());
+    buffer        = std::move (decoded->buffer);
+    peakMipmaps   = std::move (decoded->peakMipmaps);
+    loadedFileName = decoded->fileName;
+    loadedFilePath = decoded->filePath;
 
-    loadedFileName = shared->fileName;
-    loadedFilePath = shared->filePath;
+    auto view          = std::make_shared<DecodedSample>();
+    view->buffer       = buffer;
+    view->peakMipmaps  = peakMipmaps;
+    view->fileName     = loadedFileName;
+    view->filePath     = loadedFilePath;
 
-    // Keep an audio-thread-exclusive pointer so getBuffer() / getInterpolatedSample()
-    // can read without an atomic load on every sample.
-    audioDecoded = shared;
-
-    // Publish to the UI/snapshot consumers atomically.
 #if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
-    snapshot.store (shared, std::memory_order_release);
+    snapshot.store (std::static_pointer_cast<const DecodedSample> (view),
+                    std::memory_order_release);
 #else
-    std::atomic_store_explicit (&snapshot, shared, std::memory_order_release);
+    std::atomic_store_explicit (&snapshot,
+                                std::static_pointer_cast<const DecodedSample> (view),
+                                std::memory_order_release);
 #endif
-
-    // FIX #2: store frame count and loaded flag atomically so the UI thread
-    // reads consistent values without a data race.
-    numFramesAtomic.store ((int) shared->buffer.getNumSamples(), std::memory_order_release);
-    loadedAtomic.store (true, std::memory_order_release);
+    loaded = true;
 }
 
 // static
@@ -239,20 +223,22 @@ bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
 
 void SampleData::clear()
 {
-    // FIX #2+#3: reset audio-thread cache and publish cleared state atomically.
-    audioDecoded.reset();
-
+    buffer.setSize (2, 0, false, false, true);
+    for (auto& m : peakMipmaps)
+    {
+        m.samplesPerPeak = 0;
+        m.maxPeaks.clear();
+        m.minPeaks.clear();
+    }
 #if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
     snapshot.store (std::shared_ptr<const DecodedSample>{}, std::memory_order_release);
 #else
     std::atomic_store_explicit (&snapshot, std::shared_ptr<const DecodedSample>{},
                                 std::memory_order_release);
 #endif
-
-    numFramesAtomic.store (0,     std::memory_order_release);
-    loadedAtomic.store    (false, std::memory_order_release);
     loadedFileName.clear();
     loadedFilePath.clear();
+    loaded = false;
 }
 
 SampleData::SnapshotPtr SampleData::getSnapshot() const
@@ -264,35 +250,18 @@ SampleData::SnapshotPtr SampleData::getSnapshot() const
 #endif
 }
 
-const juce::AudioBuffer<float>& SampleData::getBuffer() const
-{
-    // Audio-thread only.  For cross-thread access use getSnapshot().
-    if (audioDecoded != nullptr)
-        return audioDecoded->buffer;
-
-    static const juce::AudioBuffer<float> empty{};
-    return empty;
-}
-
 float SampleData::getInterpolatedSample (double pos, int channel) const
 {
-    // FIX #2: use atomic load for the guard so this is data-race-free from any thread
-    if (! loadedAtomic.load (std::memory_order_acquire) || channel < 0 || channel > 1)
+    if (! loaded || channel < 0 || channel > 1)
         return 0.0f;
 
-    // audioDecoded is audio-thread-exclusive; if caller is on the audio thread
-    // (the only legal caller) this read is safe without any extra synchronisation.
-    if (audioDecoded == nullptr)
-        return 0.0f;
-
-    const auto& buf = audioDecoded->buffer;
     int   ipos = (int) pos;
     float frac = (float) (pos - ipos);
 
-    if (ipos < 0 || ipos >= buf.getNumSamples() - 1)
+    if (ipos < 0 || ipos >= buffer.getNumSamples() - 1)
         return 0.0f;
 
-    auto* data = buf.getReadPointer (channel);
+    auto* data = buffer.getReadPointer (channel);
     if (data == nullptr)
         return 0.0f;
 

@@ -82,7 +82,7 @@ void SliceWaveformLcd::buildDisplayData()
  const auto& snap = processor.getUiSliceSnapshot();
  data.hasSample = snap.sampleLoaded && ! snap.sampleMissing;
  data.numSlices = snap.numSlices;
- data.sampleName = snap.isDefaultSample ? juce::String() : snap.sampleFileName;
+ data.sampleName = snap.isDefaultSample ? juce::String() : juce::String (snap.sampleFileName);
  data.isDefault = snap.isDefaultSample;
  data.totalFrames = snap.sampleNumFrames;
  data.sampleRate = processor.getSampleRate() > 0.0
@@ -96,8 +96,8 @@ void SliceWaveformLcd::buildDisplayData()
 
  const auto& sl = snap.slices[(size_t) snap.selectedSlice];
  data.startSample = sl.startSample;
- data.endSample = processor.sliceManager.getEndForSlice (
- snap.selectedSlice, data.totalFrames);
+ data.endSample = (snap.selectedSlice >= 0 && snap.selectedSlice < snap.numSlices)
+               ? snap.sliceEndSamples[snap.selectedSlice] : data.totalFrames;
  data.midiNote = sl.midiNote;
  data.volume = sl.volume;
  data.pan = sl.pan;
@@ -127,17 +127,18 @@ float SliceWaveformLcd::getSliceDurMs() const
 {
  static constexpr float kDefaultMs = 1000.0f; // fallback if no slice loaded
 
- const int sel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
- if (sel < 0 || sel >= processor.sliceManager.getNumSlices())
- return kDefaultMs;
+ const auto& durSnap = processor.getUiSliceSnapshot();
+ const int sel = durSnap.selectedSlice;
+ if (sel < 0 || sel >= durSnap.numSlices)
+ { processor.releaseUiSliceSnapshot(); return kDefaultMs; }
 
- const auto& s = processor.sliceManager.getSlice (sel);
- const int total = processor.sampleData.getNumFrames();
+ const int total = durSnap.sampleNumFrames;
  if (total <= 0)
- return kDefaultMs;
+ { processor.releaseUiSliceSnapshot(); return kDefaultMs; }
 
- const int sliceEnd = processor.sliceManager.getEndForSlice (sel, total);
- const int len = sliceEnd - s.startSample;
+ const int sliceEnd = durSnap.sliceEndSamples[sel];
+ const int len = sliceEnd - durSnap.slices[(size_t) sel].startSample;
+ processor.releaseUiSliceSnapshot();
  if (len <= 0)
  return kDefaultMs;
 

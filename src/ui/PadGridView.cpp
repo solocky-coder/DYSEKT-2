@@ -186,7 +186,7 @@ void PadGridView::drawPad (juce::Graphics& g,
     if (waveArea.getWidth() > 4 && waveArea.getHeight() > 4 && ui.sampleLoaded)
     {
         const int startSamp = slice.startSample;
-        const int endSamp   = processor.sliceManager.getEndForSlice (absIndex, ui.sampleNumFrames);
+        const int endSamp   = (absIndex >= 0 && absIndex < ui.numSlices) ? ui.sliceEndSamples[absIndex] : ui.sampleNumFrames;
         const int sliceLen  = endSamp - startSamp;
 
         if (sliceLen > 0)

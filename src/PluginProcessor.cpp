@@ -31,25 +31,14 @@ public:
 
     JobStatus runJob() override
     {
-        try
-        {
-            auto decoded = SampleData::decodeFromFile (file, sampleRate);
-            if (shouldExit())
-                return jobHasFinished;
+        auto decoded = SampleData::decodeFromFile (file, sampleRate);
+        if (shouldExit())
+            return jobHasFinished;
 
-            if (decoded != nullptr)
-                onSuccess (token, loadKind, std::move (decoded));
-            else
-                onFailure (token, loadKind, file);
-        }
-        catch (...)
-        {
-            // Terminal exception firewall: catch anything that escaped
-            // decodeFromFile (bad_alloc, dr_mp3 internal assert-throw, JUCE
-            // internal throw, etc.) and convert it to a clean failure callback
-            // so the exception never unwinds into the JUCE ThreadPool / host.
-            try { onFailure (token, loadKind, file); } catch (...) {}
-        }
+        if (decoded != nullptr)
+            onSuccess (token, loadKind, std::move (decoded));
+        else
+            onFailure (token, loadKind, file);
         return jobHasFinished;
     }
 
@@ -60,34 +49,6 @@ private:
     DysektProcessor::LoadKind loadKind = DysektProcessor::LoadKindReplace;
     SuccessFn onSuccess;
     FailureFn onFailure;
-};
-
-class TrimSampleJob final : public juce::ThreadPoolJob
-{
-public:
-    using TrimFn = std::function<void()>;
-
-    TrimSampleJob (TrimFn fn)
-        : juce::ThreadPoolJob ("TrimSampleJob"),
-          trimFn (std::move (fn))
-    {
-    }
-
-    JobStatus runJob() override
-    {
-        try
-        {
-            trimFn();
-        }
-        catch (...)
-        {
-            // Exception firewall: prevent throws from escaping ThreadPool
-        }
-        return jobHasFinished;
-    }
-
-private:
-    TrimFn trimFn;
 };
 
 static constexpr uint32_t kValidLockMask =
@@ -451,6 +412,12 @@ void DysektProcessor::clampSlicesToSampleBounds()
 
 void DysektProcessor::publishUiSliceSnapshot()
 {
+    // If the UI thread is currently reading a snapshot, skip the flip to avoid
+    // a data race on the buffer being read.  The dirty flag stays set so we
+    // retry on the next audio block.
+    if (uiReadingSnapshot.load (std::memory_order_seq_cst))
+        return;
+
     const int writeIndex = 1 - uiSliceSnapshotIndex.load (std::memory_order_relaxed);
     auto& snap = uiSliceSnapshots[(size_t) writeIndex];
     auto sampleSnap = sampleData.getSnapshot();
@@ -460,44 +427,63 @@ void DysektProcessor::publishUiSliceSnapshot()
     snap.sampleLoaded = (sampleSnap != nullptr);
     snap.sampleMissing = sampleMissing.load (std::memory_order_relaxed);
     snap.sampleNumFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
+
+    // --- sampleFileName: write into plain char[] so no heap alloc on audio thread ---
+    auto writeFileName = [&] (const juce::String& src)
+    {
+        auto utf8 = src.toRawUTF8();
+        std::strncpy (snap.sampleFileName, utf8, sizeof (snap.sampleFileName) - 1);
+        snap.sampleFileName[sizeof (snap.sampleFileName) - 1] = '\0';
+    };
+
     if (sampleSnap != nullptr)
     {
-        snap.sampleFileName = sampleSnap->fileName;
-        // Hide default "Empty.wav" name — show nothing so UI can display "EMPTY"
-        if (snap.sampleFileName.equalsIgnoreCase ("Empty.wav")
-            || snap.sampleFileName.equalsIgnoreCase ("DYSEKT_default.wav"))
-            snap.sampleFileName = {};
-        snap.isDefaultSample = snap.sampleFileName.isEmpty();
+        // Hide the built-in default name so UI shows "EMPTY"
+        if (sampleSnap->fileName.equalsIgnoreCase ("Empty.wav")
+            || sampleSnap->fileName.equalsIgnoreCase ("DYSEKT_default.wav"))
+        {
+            snap.sampleFileName[0] = '\0';
+            snap.isDefaultSample = true;
+        }
+        else
+        {
+            writeFileName (sampleSnap->fileName);
+            snap.isDefaultSample = false;
+        }
     }
     else if (snap.sampleMissing && missingFilePath.isNotEmpty())
     {
-        snap.sampleFileName  = juce::File (missingFilePath).getFileName();
+        writeFileName (juce::File (missingFilePath).getFileName());
         snap.isDefaultSample = false;
     }
     else if (sampleData.getFileName().isNotEmpty())
     {
-        snap.sampleFileName  = sampleData.getFileName();
-        snap.isDefaultSample = snap.sampleFileName.equalsIgnoreCase ("Empty.wav");
+        writeFileName (sampleData.getFileName());
+        snap.isDefaultSample = sampleData.getFileName().equalsIgnoreCase ("Empty.wav");
     }
     else
     {
-        snap.sampleFileName.clear();
+        snap.sampleFileName[0] = '\0';
         snap.isDefaultSample = true;
     }
 
+    // --- Slices + pre-computed end samples ---
+    const int total = snap.sampleNumFrames;
     for (int i = 0; i < SliceManager::kMaxSlices; ++i)
     {
         if (i < snap.numSlices)
+        {
             snap.slices[(size_t) i] = sliceManager.getSlice (i);
+            snap.sliceEndSamples[i] = sliceManager.getEndForSlice (i, total);
+        }
         else
+        {
             snap.slices[(size_t) i].active = false;
+            snap.sliceEndSamples[i] = total;
+        }
     }
 
-    // Pre-compute upper-case strings so paint() methods never allocate heap memory.
-    snap.sampleFileNameUpper      = snap.sampleFileName.toUpperCase();
-    snap.sampleFileNameUpperShort = snap.sampleFileNameUpper.substring (0, 18);
-    for (int i = 0; i < snap.numSlices; ++i)
-        snap.sliceNamesUpper[(size_t) i] = snap.slices[(size_t) i].name.toUpperCase().substring (0, 9);
+    snap.midiSelectsSlice = midiSelectsSlice.load (std::memory_order_relaxed);
 
     uiSliceSnapshotIndex.store (writeIndex, std::memory_order_release);
     uiSnapshotVersion.fetch_add (1, std::memory_order_release);
@@ -1391,17 +1377,9 @@ void DysektProcessor::handleCommand (const Command& cmd)
             break;
 
         case CmdApplyTrim:
-            // FIX #6: createTrimmed allocates a new AudioBuffer which can throw
-            // std::bad_alloc.  On Windows, Nuendo's outer SEH __except handler
-            // intercepts the exception before our C++ catch block can run, so
-            // try/catch cannot protect against this on the audio thread.
-            //
-            // Solution: post the trim to fileLoadPool (background thread) and
-            // let the result flow back through completedLoadData — the same
-            // zero-allocation path already used for normal file loads.
-            // The audio thread only calls clearVoicesBeforeSampleSwap() here
-            // (no allocation) and picks up the trimmed buffer next block via
-            // the existing completedLoadData polling code.
+            // 1. Physically crop the audio buffer to [trimStart, trimEnd)
+            // 2. Clear all slices — trimmed sample enters slice window clean,
+            //    playing chromatically until user adds first slice (same as fresh load).
             {
                 const int tStart = cmd.intParam1;
                 const int tEnd   = cmd.intParam2;
@@ -1409,33 +1387,15 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 auto snap = sampleData.getSnapshot();
                 if (snap != nullptr)
                 {
-                    // Increment load token so stale loads are discarded.
-                    const int token = nextLoadToken.fetch_add (1, std::memory_order_relaxed) + 1;
-                    latestLoadToken.store (token, std::memory_order_release);
-                    latestLoadKind.store ((int) LoadKindReplace, std::memory_order_release);
-                    delete completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
-                    delete completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
-
-                    // Stop voices NOW on the audio thread (safe, no allocation).
-                    clearVoicesBeforeSampleSwap();
-
-                    // Ship the heavy allocation work to the background thread.
-                    const int capturedToken = token;
-                    fileLoadPool.addJob (new TrimSampleJob ([this, snap, tStart, tEnd, capturedToken]
-                    {
-                        auto trimmed = SampleData::createTrimmed (*snap, tStart, tEnd);
-                        if (trimmed != nullptr
-                            && capturedToken == latestLoadToken.load (std::memory_order_acquire))
-                        {
-                            auto* old = completedLoadData.exchange (trimmed.release(),
-                                                                     std::memory_order_acq_rel);
-                            delete old;
-                        }
-                    }), false);
+                    auto trimmed = SampleData::createTrimmed (*snap, tStart, tEnd);
+                    if (trimmed != nullptr)
+                        sampleData.applyDecodedSample (std::move (trimmed));
                 }
 
+                const int totalFrames = sampleData.getNumFrames();
                 sliceManager.clearAll();
                 sliceManager.selectedSlice.store (-1, std::memory_order_relaxed);
+                (void) totalFrames;
             }
             publishUiSliceSnapshot();
             break;
@@ -3438,7 +3398,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             const juce::File sfzFile (sfzPath);
             if (sfzFile.existsAsFile())
             {
-                sfzPlayer.loadFile (sfzFile, fileLoadPool);
+                sfzPlayer.loadFile (sfzFile);
                 // Store the preset index so the audio thread can select it
                 // once the soundfont finishes loading and posts its preset list.
                 sfzPlayer.setPresetByIndex (sfzPresetIdx);

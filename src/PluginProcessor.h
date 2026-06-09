@@ -240,21 +240,19 @@ public:
     struct UiSliceSnapshot
     {
         std::array<Slice, SliceManager::kMaxSlices> slices;
+        // Pre-computed end sample for each slice (derived from marker model).
+        // sliceEndSamples[i] = slices[i+1].startSample, or sampleNumFrames for last.
+        // Populated by publishUiSliceSnapshot() — safe to read on the UI thread.
+        std::array<int, SliceManager::kMaxSlices> sliceEndSamples {};
         int          numSlices          { 0 };
         int          selectedSlice      { -1 };
         int          rootNote           { 36 };
         bool         sampleLoaded       { false };
         bool         sampleMissing      { false };
         int          sampleNumFrames    { 0 };
-        juce::String sampleFileName;
+        char         sampleFileName[512] {};   // plain char array — lock-free-safe
         bool         isDefaultSample   { false };
         bool         midiSelectsSlice   { false };
-
-        // Pre-computed upper-case strings — populated by publishUiSliceSnapshot()
-        // so paint() methods never allocate heap memory for string transforms.
-        juce::String sampleFileNameUpper;      // sampleFileName.toUpperCase()
-        juce::String sampleFileNameUpperShort; // sampleFileName.toUpperCase().substring(0,18)
-        std::array<juce::String, SliceManager::kMaxSlices> sliceNamesUpper; // name.toUpperCase().substring(0,9) per slice
     };
 
     // ── Oscilloscope ring buffer size ─────────────────��───────────────────────
@@ -322,10 +320,19 @@ public:
     void relinkFileAsync    (const juce::File& file);
     void applyTrimToCurrentSample (int trimStart, int trimEnd);
 
-    /** Read-only access to the latest published UI snapshot (UI thread only). */
+    /** Read-only access to the latest published UI snapshot (UI thread only).
+     *  Sets uiReadingSnapshot so publishUiSliceSnapshot() won't stomp the buffer
+     *  we are about to read.  Caller must call releaseUiSliceSnapshot() when done. */
     const UiSliceSnapshot& getUiSliceSnapshot() const noexcept
     {
+        uiReadingSnapshot.store (true, std::memory_order_seq_cst);
         return uiSliceSnapshots[(size_t) uiSliceSnapshotIndex.load (std::memory_order_acquire)];
+    }
+
+    /** Release the read guard acquired by getUiSliceSnapshot(). */
+    void releaseUiSliceSnapshot() const noexcept
+    {
+        uiReadingSnapshot.store (false, std::memory_order_release);
     }
 
     int getUiSliceSnapshotVersion() const noexcept
@@ -340,11 +347,8 @@ public:
      *  Safe to call from the UI (message) thread. */
     float getWaveformPeakAt (int samplePosition) const noexcept
     {
-        // FIX #2: getBuffer() is audio-thread-only; UI thread must use getSnapshot()
-        // to avoid a data race on the underlying buffer pointer.
-        auto snap = sampleData.getSnapshot();
-        if (snap == nullptr) return 0.0f;
-        const auto& buf = snap->buffer;
+        if (! sampleData.isLoaded()) return 0.0f;
+        const auto& buf = sampleData.getBuffer();
         const int n = buf.getNumSamples();
         if (samplePosition < 0 || samplePosition >= n) return 0.0f;
         float peak = 0.0f;
@@ -589,6 +593,10 @@ private:
     std::atomic<int>      uiSliceSnapshotIndex { 0 };
     std::atomic<uint32_t> uiSnapshotVersion    { 0 };
     std::atomic<bool>     uiSnapshotDirty      { false };
+    // Set to true by the UI thread while it holds a reference to the snapshot.
+    // publishUiSliceSnapshot() skips a flip if this is set, preventing a
+    // data race on the juce::String (now char[]) fields.
+    std::atomic<bool>     uiReadingSnapshot    { false };
 
     // =========================================================================
     // Undo / redo

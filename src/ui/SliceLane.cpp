@@ -53,7 +53,7 @@ void SliceLane::paint (juce::Graphics& g)
         const auto& s = ui.slices[(size_t) i];
         if (! s.active) continue;
         int startSample = s.startSample;
-        int endSample   = processor.sliceManager.getEndForSlice (i, numFrames);
+        int endSample   = (i >= 0 && i < ui.numSlices) ? ui.sliceEndSamples[i] : numFrames;
         if (hasPreview  && i == previewIdx) { startSample = previewStart; endSample = previewEnd; }
         if (hasLinked   && i == linkedIdx)  { startSample = linkedStart;  endSample = linkedEnd;  }
 
@@ -287,7 +287,7 @@ void SliceLane::mouseDown (const juce::MouseEvent& e)
         if (! s.active) continue;
 
         int x1 = (int) ((float) (s.startSample - visStart) / visLen * w);
-        const int slaneEnd = processor.sliceManager.getEndForSlice (i, numFrames);
+        const int slaneEnd = (i >= 0 && i < ui.numSlices) ? ui.sliceEndSamples[i] : numFrames;
         int x2 = (int) ((float) (slaneEnd - visStart) / visLen * w);
 
         if (e.x >= x1 && e.x < x2)

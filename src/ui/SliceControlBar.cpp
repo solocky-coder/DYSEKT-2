@@ -1065,7 +1065,7 @@ float relMaxSec = 5.0f;
     const int total = processor.sampleData.getNumFrames();
     if (total > 0)
     {
-        const int sliceEnd = processor.sliceManager.getEndForSlice (idx, total);
+        const int sliceEnd = (idx >= 0 && idx < ui.numSlices) ? ui.sliceEndSamples[idx] : total;
         const int sliceLen = sliceEnd - s.startSample;
         const float sr = (float) processor.voicePool.getSampleRate();
         if (sliceLen > 0 && sr > 0.0f)
@@ -1431,7 +1431,7 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  if (liveSel >= 0 && liveSel < ui.numSlices)
  {
  processor.liveDragBoundsStart.store (ui.slices[(size_t) liveSel].startSample, std::memory_order_relaxed);
- processor.liveDragBoundsEnd.store (processor.sliceManager.getEndForSlice (liveSel, ui.sampleNumFrames), std::memory_order_relaxed);
+ processor.liveDragBoundsEnd.store ((liveSel >= 0 && liveSel < ui.numSlices) ? ui.sliceEndSamples[liveSel] : ui.sampleNumFrames, std::memory_order_relaxed);
  processor.liveDragSliceIdx.store (liveSel, std::memory_order_release);
  }
  }
@@ -1659,7 +1659,7 @@ void SliceControlBar::mouseDrag (const juce::MouseEvent& e)
 
  if (cell.fieldId == F::FieldSliceStart)
  {
- const int liveSliceEnd = processor.sliceManager.getEndForSlice (liveSel, ui2.sampleNumFrames);
+ const int liveSliceEnd = (liveSel >= 0 && liveSel < ui2.numSlices) ? ui2.sliceEndSamples[liveSel] : ui2.sampleNumFrames;
  int newStart = juce::jlimit (0, liveSliceEnd - 64,
  (int) dragStartValue + delta);
  processor.liveDragBoundsStart.store (newStart, std::memory_order_relaxed);
