@@ -424,7 +424,6 @@ void DysektProcessor::publishUiSliceSnapshot()
     if (sampleSnap != nullptr)
     {
         juce::String fn = sampleSnap->fileName;
-        // Hide default "Empty.wav" name — show nothing so UI can display "EMPTY"
         if (fn.equalsIgnoreCase ("Empty.wav") || fn.equalsIgnoreCase ("DYSEKT_default.wav"))
             fn = {};
         fn.copyToUTF8 (snap.sampleFileName, sizeof (snap.sampleFileName));
@@ -451,9 +450,15 @@ void DysektProcessor::publishUiSliceSnapshot()
     for (int i = 0; i < SliceManager::kMaxSlices; ++i)
     {
         if (i < snap.numSlices)
+        {
             snap.slices[(size_t) i] = sliceManager.getSlice (i);
+            snap.sliceEndSamples[i] = sliceManager.getEndForSlice (i, snap.sampleNumFrames);
+        }
         else
+        {
             snap.slices[(size_t) i].active = false;
+            snap.sliceEndSamples[i] = 0;
+        }
     }
 
     uiSliceSnapshotIndex.store (writeIndex, std::memory_order_release);

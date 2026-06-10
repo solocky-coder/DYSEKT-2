@@ -19,6 +19,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar (p),
  sliceLcd (p),
  sliceWaveformLcd (p),
+ sfzLcd (p),
+ sfzWaveformLcd (p),
  sliceLane (p),
  waveformView (p),
  waveformOverview (p),
@@ -38,6 +40,10 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  addAndMakeVisible (sliceLcd);
  addAndMakeVisible (sliceWaveformLcd);
+ addAndMakeVisible (sfzLcd);
+ addAndMakeVisible (sfzWaveformLcd);
+ sfzLcd.setVisible (false);
+ sfzWaveformLcd.setVisible (false);
  if (auto* cf = headerBar.getControlFrame())
  addAndMakeVisible (*cf);
 
@@ -792,7 +798,14 @@ void DysektEditor::resized()
  auto topRow = topArea.reduced (si (kMargin), si (4));
 
  const int sideW = (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2;
+ const bool sfMode = (uiMode == 1);
+ sliceLcd.setVisible (! sfMode);
+ sliceWaveformLcd.setVisible (! sfMode);
+ sfzLcd.setVisible (sfMode);
+ sfzWaveformLcd.setVisible (sfMode);
+
  sliceLcd.setBounds (topRow.removeFromLeft (sideW));
+ sfzLcd.setBounds (sliceLcd.getBounds());
  topRow.removeFromLeft (si (kMargin));
 
  auto centreCol = topRow.removeFromLeft (si (kCtrlFrameW));
@@ -817,6 +830,7 @@ void DysektEditor::resized()
 
  topRow.removeFromLeft (si (kMargin));
  sliceWaveformLcd.setBounds (topRow);
+ sfzWaveformLcd.setBounds (topRow);
 
  auto actionArea = area.removeFromTop (si (kActionH));
  const int kFX = si (kMargin);
@@ -1398,6 +1412,8 @@ void DysektEditor::timerCallback()
 
  sliceLcd.repaintLcd();
  sliceWaveformLcd.repaintLcd();
+ sfzLcd.repaintLcd();
+ sfzWaveformLcd.repaintLcd();
 
  {
  auto timerSnap = processor.sampleData.getSnapshot();
