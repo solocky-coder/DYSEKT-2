@@ -815,7 +815,6 @@ void DysektProcessor::handleCommand (const Command& cmd)
         case CmdLazyChopStart:
             if (sampleData.isLoaded())
             {
-                sliceManager.clearAll();
                 PreviewStretchParams psp;
                 psp.stretchEnabled = stretchParam->load() > 0.5f;
                 psp.algorithm      = (int) algoParam->load();
