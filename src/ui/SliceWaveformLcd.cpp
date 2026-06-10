@@ -89,7 +89,7 @@ void SliceWaveformLcd::buildDisplayData()
  ? processor.getSampleRate() : 44100.0;
 
  if (! data.hasSample || snap.selectedSlice < 0 || snap.selectedSlice >= snap.numSlices)
- return;
+ { processor.releaseUiSliceSnapshot(); return; }
 
  data.hasSlice = true;
  data.sliceIndex = snap.selectedSlice;
@@ -107,7 +107,7 @@ void SliceWaveformLcd::buildDisplayData()
  data.peaks.insertMultiple (-1, 0.0f, kPeaks);
 
  const int sliceLen = data.endSample - data.startSample;
- if (sliceLen <= 0) return;
+ if (sliceLen <= 0) { processor.releaseUiSliceSnapshot(); return; }
 
  for (int i = 0; i < kPeaks; i++)
  {
@@ -115,6 +115,7 @@ void SliceWaveformLcd::buildDisplayData()
  const int pos = data.startSample + (int) (t * (float) sliceLen);
  data.peaks.set (i, processor.getWaveformPeakAt (pos));
  }
+ processor.releaseUiSliceSnapshot();
 }
 
 // ── Envelope: read params → normalised nodes ──────────────────────────────────

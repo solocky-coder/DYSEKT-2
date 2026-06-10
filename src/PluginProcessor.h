@@ -347,8 +347,9 @@ public:
      *  Safe to call from the UI (message) thread. */
     float getWaveformPeakAt (int samplePosition) const noexcept
     {
-        if (! sampleData.isLoaded()) return 0.0f;
-        const auto& buf = sampleData.getBuffer();
+        auto snap = sampleData.getSnapshot();
+        if (snap == nullptr) return 0.0f;
+        const auto& buf = snap->buffer;
         const int n = buf.getNumSamples();
         if (samplePosition < 0 || samplePosition >= n) return 0.0f;
         float peak = 0.0f;
