@@ -106,77 +106,48 @@ void LazyChopEngine::stop (VoicePool& voicePool, SliceManager& /*sliceMgr*/)
 
 int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceMgr)
 {
-    // First note: start playback and place the initial slice at position 0.
-    // This is chop #1 — subsequent notes each add one more chop, so N notes
-    // always produce N slices.
+    // Unified path: every note press reads the current playhead and places a
+    // marker there.  On the very first note the preview voice hasn't started
+    // yet, so position is 0 — which is exactly right (marker at sample start).
+    // On subsequent notes the voice has been running and position reflects
+    // wherever the user chose to chop.
+    //
+    // N note presses always produce N markers (= N slices), one per press,
+    // at the exact sample position where each note landed.
+
+    // Read current playhead from the preview voice.  If not yet playing,
+    // the voice doesn't exist yet so we treat position as 0.
+    int playhead = 0;
+    if (playing)
+    {
+        auto& v = voicePool.getVoice (getPreviewVoiceIndex());
+        double rawPos = v.stretchActive ? v.stretchSrcPos : v.position;
+        playhead = (int) std::floor (rawPos);
+
+        if (snapEnabled && sampleBuffer != nullptr)
+            playhead = AudioAnalysis::findNearestZeroCrossing (*sampleBuffer, playhead);
+    }
+
+    // Place a marker at the playhead.  createSlice is idempotent on exact
+    // duplicates and has no minimum-width guard, so rapid or same-buffer
+    // presses near position 0 work correctly.
+    int idx = sliceMgr.createSlice (playhead, sampleLength);
+    if (idx >= 0)
+    {
+        sliceMgr.getSlice (idx).midiNote = nextMidiNote;
+        nextMidiNote = std::min (nextMidiNote + 1, 127);
+        sliceMgr.rebuildMidiMap();
+    }
+
+    // Start playback on the first note (after placing the marker so the
+    // voice starts into a valid slice layout).
     if (! playing)
     {
         startPreview (voicePool, 0);
-        playing  = true;
-        lastNote = note;
-        chopPos  = 0;
-
-        // Create the first slice explicitly (pos 0 -> end of sample).
-        int idx = sliceMgr.createSlice (0, sampleLength);
-        if (idx >= 0)
-        {
-            sliceMgr.getSlice (idx).midiNote = nextMidiNote;
-            nextMidiNote = std::min (nextMidiNote + 1, 127);
-            sliceMgr.rebuildMidiMap();
-        }
-        return idx;
+        playing = true;
     }
 
-    // Every note press places a chop at the current playhead.
-    // Re-audition / existing-slice checks are intentionally absent here —
-    // in lazy chop mode the user's intent is always "mark this moment".
-    auto& v = voicePool.getVoice (getPreviewVoiceIndex());
-    double rawPos = v.stretchActive ? v.stretchSrcPos
-                  :                   v.position;
-    int playhead = (int) std::floor (rawPos);
-
-    if (snapEnabled && sampleBuffer != nullptr)
-        playhead = AudioAnalysis::findNearestZeroCrossing (*sampleBuffer, playhead);
-
-    int resultIdx = -1;
-
-    // Handle wrap-around: if playhead wrapped past chopPos, close slice to end of sample
-    if (playhead < chopPos)
-    {
-        if (sampleLength - chopPos >= 64)
-        {
-            int idx = sliceMgr.createSlice (chopPos, sampleLength);
-            if (idx >= 0)
-            {
-                auto& s = sliceMgr.getSlice (idx);
-                s.midiNote = nextMidiNote;
-                nextMidiNote = std::min (nextMidiNote + 1, 127);
-                sliceMgr.rebuildMidiMap();
-                resultIdx = idx;
-            }
-        }
-        chopPos = 0;
-    }
-
-    // Insert a marker at the playhead, splitting the current open-ended slice.
-    // The left half (chopPos..playhead) already has its note from when it was
-    // first created; the right half (playhead onward) gets the new note.
-    if (playhead - chopPos >= 64)
-    {
-        // insertMarker splits the slice that owns `playhead` into two.
-        // The right-hand slice is the new one; assign this note to it.
-        int newIdx = sliceMgr.insertMarker (playhead, sampleLength);
-        if (newIdx >= 0)
-        {
-            auto& s = sliceMgr.getSlice (newIdx);
-            s.midiNote = nextMidiNote;  // sequential from C2 regardless of pressed key
-            nextMidiNote = std::min (nextMidiNote + 1, 127);
-            sliceMgr.rebuildMidiMap();
-            resultIdx = newIdx;
-        }
-    }
-
-    chopPos = playhead;
+    chopPos  = playhead;
     lastNote = note;
-    return resultIdx;
+    return idx;
 }
