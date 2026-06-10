@@ -1227,7 +1227,7 @@ void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
  DysektProcessor::Command cmd;
  cmd.type = DysektProcessor::CmdCreateSlice;
  cmd.intParam1 = samplePos;
- cmd.intParam2 = samplePos + 1;
+ cmd.intParam2 = sampleSnap->buffer.getNumSamples();
  processor.pushCommand (cmd);
 }
 
