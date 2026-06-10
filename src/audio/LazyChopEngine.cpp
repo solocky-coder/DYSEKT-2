@@ -127,26 +127,9 @@ int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceM
         return idx;
     }
 
-    // If this MIDI note is already assigned to an existing slice, audition it.
-    // (Only checked once playback is running — avoids the sentinel slice
-    //  swallowing the very first keypress.)
-    int existingSlice = sliceMgr.midiNoteToSlice (note);
-    if (existingSlice >= 0)
-    {
-        const auto& s = sliceMgr.getSlice (existingSlice);
-        startPreview (voicePool, s.startSample);
-        chopPos = -1;  // reset so next unassigned note only sets a new start
-        return -1;
-    }
-
-    // Re-press same note: re-audition from current start point
-    if (note == lastNote && chopPos >= 0)
-    {
-        startPreview (voicePool, chopPos);
-        return -1;
-    }
-
-    // Subsequent unassigned note — place slice boundary at playhead
+    // Every note press places a chop at the current playhead.
+    // Re-audition / existing-slice checks are intentionally absent here —
+    // in lazy chop mode the user's intent is always "mark this moment".
     auto& v = voicePool.getVoice (getPreviewVoiceIndex());
     double rawPos = v.stretchActive ? v.stretchSrcPos
                   :                   v.position;
@@ -154,15 +137,6 @@ int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceM
 
     if (snapEnabled && sampleBuffer != nullptr)
         playhead = AudioAnalysis::findNearestZeroCrossing (*sampleBuffer, playhead);
-
-    // chopPos < 0 means we just auditioned an existing slice with no chop point set.
-    // Record the current playhead as the new start and wait for the next note.
-    if (chopPos < 0)
-    {
-        chopPos  = playhead;
-        lastNote = note;
-        return -1;
-    }
 
     int resultIdx = -1;
 
