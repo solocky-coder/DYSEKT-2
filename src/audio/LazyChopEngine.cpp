@@ -117,27 +117,17 @@ int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceM
         return -1;
     }
 
-    // First unassigned note — start playback from beginning and immediately
-    // commit a slice marker at position 0 so the UI shows slice 1 right away.
+    // First unassigned note — start playback from beginning.
+    // Do NOT create a slice yet; no cut has been made.  The root slice at 0
+    // will be seeded the moment the second note arrives and a real cut is placed,
+    // so no full-span placeholder ever appears in the UI.
     if (! playing)
     {
         startPreview (voicePool, 0);
         playing  = true;
         lastNote = note;
         chopPos  = 0;
-
-        // Insert the first marker so slice 1 is visible immediately.
-        // Its end will be determined by the next note (marker model: end = next
-        // marker's start, so nothing more needed here).
-        int firstIdx = sliceMgr.createSlice (0, sliceMgr.getEndForSlice (0, sampleLength));
-        if (firstIdx >= 0)
-        {
-            auto& s = sliceMgr.getSlice (firstIdx);
-            s.midiNote = nextMidiNote;  // always C2 (rootNote) for slice 1
-            nextMidiNote = std::min (nextMidiNote + 1, 127);
-            sliceMgr.rebuildMidiMap();
-        }
-        return firstIdx;
+        return -1;
     }
 
     // Re-press same note: re-audition from current start point
@@ -182,6 +172,22 @@ int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceM
             }
         }
         chopPos = 0;
+    }
+
+    // If no slices exist yet, seed the root slice at 0 so insertMarker has
+    // something to split.  This is the deferred first-slice creation — we
+    // waited until a real cut is being placed so the UI never shows a
+    // full-span placeholder from the first key press alone.
+    if (sliceMgr.getNumSlices() == 0 && playhead > 0)
+    {
+        int rootIdx = sliceMgr.createSlice (0, sampleLength);
+        if (rootIdx >= 0)
+        {
+            auto& rs = sliceMgr.getSlice (rootIdx);
+            rs.midiNote = nextMidiNote;
+            nextMidiNote = std::min (nextMidiNote + 1, 127);
+            sliceMgr.rebuildMidiMap();
+        }
     }
 
     // Insert a marker at the playhead, splitting the current open-ended slice.
