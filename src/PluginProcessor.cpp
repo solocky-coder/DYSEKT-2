@@ -423,26 +423,28 @@ void DysektProcessor::publishUiSliceSnapshot()
     snap.sampleNumFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
     if (sampleSnap != nullptr)
     {
-        snap.sampleFileName = sampleSnap->fileName;
+        juce::String fn = sampleSnap->fileName;
         // Hide default "Empty.wav" name — show nothing so UI can display "EMPTY"
-        if (snap.sampleFileName.equalsIgnoreCase ("Empty.wav")
-            || snap.sampleFileName.equalsIgnoreCase ("DYSEKT_default.wav"))
-            snap.sampleFileName = {};
-        snap.isDefaultSample = snap.sampleFileName.isEmpty();
+        if (fn.equalsIgnoreCase ("Empty.wav") || fn.equalsIgnoreCase ("DYSEKT_default.wav"))
+            fn = {};
+        fn.copyToUTF8 (snap.sampleFileName, sizeof (snap.sampleFileName));
+        snap.isDefaultSample = fn.isEmpty();
     }
     else if (snap.sampleMissing && missingFilePath.isNotEmpty())
     {
-        snap.sampleFileName  = juce::File (missingFilePath).getFileName();
+        juce::String fn = juce::File (missingFilePath).getFileName();
+        fn.copyToUTF8 (snap.sampleFileName, sizeof (snap.sampleFileName));
         snap.isDefaultSample = false;
     }
     else if (sampleData.getFileName().isNotEmpty())
     {
-        snap.sampleFileName  = sampleData.getFileName();
-        snap.isDefaultSample = snap.sampleFileName.equalsIgnoreCase ("Empty.wav");
+        juce::String fn = sampleData.getFileName();
+        fn.copyToUTF8 (snap.sampleFileName, sizeof (snap.sampleFileName));
+        snap.isDefaultSample = fn.equalsIgnoreCase ("Empty.wav");
     }
     else
     {
-        snap.sampleFileName.clear();
+        snap.sampleFileName[0] = '\0';
         snap.isDefaultSample = true;
     }
 
@@ -3367,7 +3369,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             const juce::File sfzFile (sfzPath);
             if (sfzFile.existsAsFile())
             {
-                sfzPlayer.loadFile (sfzFile);
+                sfzPlayer.loadFile (sfzFile, fileLoadPool);
                 // Store the preset index so the audio thread can select it
                 // once the soundfont finishes loading and posts its preset list.
                 sfzPlayer.setPresetByIndex (sfzPresetIdx);
