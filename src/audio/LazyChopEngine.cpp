@@ -106,16 +106,25 @@ void LazyChopEngine::stop (VoicePool& voicePool, SliceManager& /*sliceMgr*/)
 
 int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceMgr)
 {
-    // First unassigned note: start playback. The full-span slice was pre-created
-    // in CmdLazyChopStart; return its index so the processor publishes the
-    // snapshot and the UI shows slice 1 immediately on the first note.
+    // First note: start playback and place the initial slice at position 0.
+    // This is chop #1 — subsequent notes each add one more chop, so N notes
+    // always produce N slices.
     if (! playing)
     {
         startPreview (voicePool, 0);
         playing  = true;
         lastNote = note;
         chopPos  = 0;
-        return (sliceMgr.getNumSlices() > 0) ? 0 : -1;
+
+        // Create the first slice explicitly (pos 0 -> end of sample).
+        int idx = sliceMgr.createSlice (0, sampleLength);
+        if (idx >= 0)
+        {
+            sliceMgr.getSlice (idx).midiNote = nextMidiNote;
+            nextMidiNote = std::min (nextMidiNote + 1, 127);
+            sliceMgr.rebuildMidiMap();
+        }
+        return idx;
     }
 
     // If this MIDI note is already assigned to an existing slice, audition it.
