@@ -736,7 +736,7 @@ void WaveformView::drawSlices (juce::Graphics& g)
  if (i == optimisticSliceIdx && optimisticStartSample >= 0)
  drawStartSample = optimisticStartSample;
 
- int drawEndSample = (i >= 0 && i < ui.numSlices) ? ui.sliceEndSamples[i] : ui.sampleNumFrames;
+ int drawEndSample = processor.sliceManager.getEndForSlice(i, ui.sampleNumFrames);
 
  // Live preview during drag: fill tracks dragPreviewStart/End for any dragged slice
  if (dragSliceIdx == i &&
@@ -935,7 +935,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
  {
  const auto& s = ui.slices[(size_t) i];
  if (! s.active) continue;
- const int slEnd = (i >= 0 && i < ui.numSlices) ? ui.sliceEndSamples[i] : ui.sampleNumFrames;
+ const int slEnd = processor.sliceManager.getEndForSlice (i, ui.sampleNumFrames);
  if (samplePos >= s.startSample && samplePos < slEnd)
  {
  if (i == ui.selectedSlice) { targetSlice = i; break; }
@@ -1163,7 +1163,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
  if (nearestSlice >= 0)
  {
  const auto& s = ui.slices[(size_t) nearestSlice];
- const int selEnd = (nearestSlice >= 0 && nearestSlice < ui.numSlices) ? ui.sliceEndSamples[nearestSlice] : ui.sampleNumFrames;
+ const int selEnd = processor.sliceManager.getEndForSlice (nearestSlice, ui.sampleNumFrames);
 
  DysektProcessor::Command gestureCmd;
  gestureCmd.type = DysektProcessor::CmdBeginGesture;
@@ -1189,7 +1189,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
  for (int i = 0; i < num; ++i)
  {
  if (i == nearestSlice || ! ui.slices[(size_t) i].active) continue;
- if (((i >= 0 && i < ui.numSlices) ? ui.sliceEndSamples[i] : ui.sampleNumFrames) == s.startSample)
+ if (processor.sliceManager.getEndForSlice (i, ui.sampleNumFrames) == s.startSample)
  {
  linkedSliceIdx = i;
  linkedPreviewStart = ui.slices[(size_t) i].startSample;
@@ -1206,7 +1206,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
  {
  const auto& sl = ui.slices[(size_t) i];
  if (sl.active && samplePos >= sl.startSample
- && samplePos < ((i >= 0 && i < ui.numSlices) ? ui.sliceEndSamples[i] : ui.sampleNumFrames))
+ && samplePos < processor.sliceManager.getEndForSlice (i, ui.sampleNumFrames))
  {
  DysektProcessor::Command cmd;
  cmd.type = DysektProcessor::CmdSelectSlice;

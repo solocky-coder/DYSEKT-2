@@ -331,7 +331,7 @@ void DysektProcessor::loadFileAsync (const juce::File& file)
 // ─────────────────────────────────────────────────────────────────────────────
 void DysektProcessor::applyTrimToCurrentSample (int trimStart, int trimEnd)
 {
-    const int total = sampleData.getBuffer().getNumSamples();
+    const int total = sampleData.getNumFrames();
     trimStart = juce::jlimit (0, juce::jmax (0, total - 1), trimStart);
     trimEnd   = juce::jlimit (trimStart + 1, total, trimEnd);
 
@@ -412,12 +412,6 @@ void DysektProcessor::clampSlicesToSampleBounds()
 
 void DysektProcessor::publishUiSliceSnapshot()
 {
-    // If the UI thread is currently reading a snapshot, skip the flip to avoid
-    // a data race on the buffer being read.  The dirty flag stays set so we
-    // retry on the next audio block.
-    if (uiReadingSnapshot.load (std::memory_order_seq_cst))
-        return;
-
     const int writeIndex = 1 - uiSliceSnapshotIndex.load (std::memory_order_relaxed);
     auto& snap = uiSliceSnapshots[(size_t) writeIndex];
     auto sampleSnap = sampleData.getSnapshot();
@@ -427,63 +421,38 @@ void DysektProcessor::publishUiSliceSnapshot()
     snap.sampleLoaded = (sampleSnap != nullptr);
     snap.sampleMissing = sampleMissing.load (std::memory_order_relaxed);
     snap.sampleNumFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
-
-    // --- sampleFileName: write into plain char[] so no heap alloc on audio thread ---
-    auto writeFileName = [&] (const juce::String& src)
-    {
-        auto utf8 = src.toRawUTF8();
-        std::strncpy (snap.sampleFileName, utf8, sizeof (snap.sampleFileName) - 1);
-        snap.sampleFileName[sizeof (snap.sampleFileName) - 1] = '\0';
-    };
-
     if (sampleSnap != nullptr)
     {
-        // Hide the built-in default name so UI shows "EMPTY"
-        if (sampleSnap->fileName.equalsIgnoreCase ("Empty.wav")
-            || sampleSnap->fileName.equalsIgnoreCase ("DYSEKT_default.wav"))
-        {
-            snap.sampleFileName[0] = '\0';
-            snap.isDefaultSample = true;
-        }
-        else
-        {
-            writeFileName (sampleSnap->fileName);
-            snap.isDefaultSample = false;
-        }
+        snap.sampleFileName = sampleSnap->fileName;
+        // Hide default "Empty.wav" name — show nothing so UI can display "EMPTY"
+        if (snap.sampleFileName.equalsIgnoreCase ("Empty.wav")
+            || snap.sampleFileName.equalsIgnoreCase ("DYSEKT_default.wav"))
+            snap.sampleFileName = {};
+        snap.isDefaultSample = snap.sampleFileName.isEmpty();
     }
     else if (snap.sampleMissing && missingFilePath.isNotEmpty())
     {
-        writeFileName (juce::File (missingFilePath).getFileName());
+        snap.sampleFileName  = juce::File (missingFilePath).getFileName();
         snap.isDefaultSample = false;
     }
     else if (sampleData.getFileName().isNotEmpty())
     {
-        writeFileName (sampleData.getFileName());
-        snap.isDefaultSample = sampleData.getFileName().equalsIgnoreCase ("Empty.wav");
+        snap.sampleFileName  = sampleData.getFileName();
+        snap.isDefaultSample = snap.sampleFileName.equalsIgnoreCase ("Empty.wav");
     }
     else
     {
-        snap.sampleFileName[0] = '\0';
+        snap.sampleFileName.clear();
         snap.isDefaultSample = true;
     }
 
-    // --- Slices + pre-computed end samples ---
-    const int total = snap.sampleNumFrames;
     for (int i = 0; i < SliceManager::kMaxSlices; ++i)
     {
         if (i < snap.numSlices)
-        {
             snap.slices[(size_t) i] = sliceManager.getSlice (i);
-            snap.sliceEndSamples[i] = sliceManager.getEndForSlice (i, total);
-        }
         else
-        {
             snap.slices[(size_t) i].active = false;
-            snap.sliceEndSamples[i] = total;
-        }
     }
-
-    snap.midiSelectsSlice = midiSelectsSlice.load (std::memory_order_relaxed);
 
     uiSliceSnapshotIndex.store (writeIndex, std::memory_order_release);
     uiSnapshotVersion.fetch_add (1, std::memory_order_release);
@@ -866,7 +835,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             if (sel >= 0 && sel < sliceManager.getNumSlices())
             {
                 auto& s = sliceManager.getSlice (sel);
-                const int stretchSliceEnd = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
+                const int stretchSliceEnd = sliceManager.getEndForSlice (sel, sampleData.getNumFrames());
                 float newBpm = GrainEngine::calcStretchBpm (
                     s.startSample, stretchSliceEnd, cmd.floatParam1, currentSampleRate);
                 s.bpm = newBpm;
@@ -1090,7 +1059,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 // switching CC control between adjacent slices.
                 if (end - start < 64)
                     start = juce::jmax (0, end - 64);
-                const int totalF = sampleData.getBuffer().getNumSamples();
+                const int totalF = sampleData.getNumFrames();
                 int oldEnd = sliceManager.getEndForSlice (idx, totalF);
                 // Clamp start against the PREVIOUS slice to prevent overlap.
                 // Slices are sorted by startSample, so slices[idx-1].startSample
@@ -1176,7 +1145,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             {
                 Slice srcCopy = sliceManager.getSlice (sel);
                 int startS = srcCopy.startSample;
-                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
+                int endS   = sliceManager.getEndForSlice (sel, sampleData.getNumFrames());
                 int count = juce::jlimit (2, 128, cmd.intParam1);
                 int len = endS - startS;
 
@@ -1226,7 +1195,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
             {
                 Slice srcCopy = sliceManager.getSlice (sel);
                 int startS = srcCopy.startSample;
-                int endS   = sliceManager.getEndForSlice (sel, sampleData.getBuffer().getNumSamples());
+                int endS   = sliceManager.getEndForSlice (sel, sampleData.getNumFrames());
 
                 sliceManager.deleteSlice (sel);
 
@@ -1270,7 +1239,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
         case CmdEqualChop:
         {
             const int n     = juce::jlimit (2, 32, cmd.intParam1);
-            const int total = sampleData.getBuffer().getNumSamples();
+            const int total = sampleData.getNumFrames();
             if (total < n * 64) break;   // sample too short for requested count
 
             // Clear all existing slices
@@ -3111,7 +3080,7 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
         const auto& s = sliceManager.getSlice (i);
         stream.writeBool (s.active);
         stream.writeInt (s.startSample);
-        stream.writeInt (sliceManager.getEndForSlice (i, sampleData.getBuffer().getNumSamples()));
+        stream.writeInt (sliceManager.getEndForSlice (i, sampleData.getNumFrames()));
         stream.writeInt (s.midiNote);
         stream.writeFloat (s.bpm);
         stream.writeFloat (s.pitchSemitones);
@@ -3398,7 +3367,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             const juce::File sfzFile (sfzPath);
             if (sfzFile.existsAsFile())
             {
-                sfzPlayer.loadFile (sfzFile, fileLoadPool);
+                sfzPlayer.loadFile (sfzFile);
                 // Store the preset index so the audio thread can select it
                 // once the soundfont finishes loading and posts its preset list.
                 sfzPlayer.setPresetByIndex (sfzPresetIdx);
