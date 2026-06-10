@@ -816,6 +816,21 @@ void DysektProcessor::handleCommand (const Command& cmd)
             if (sampleData.isLoaded())
             {
                 sliceManager.clearAll();
+                // Pre-create the full-span slice so the first MIDI note can
+                // return its index immediately, triggering a UI snapshot update.
+                {
+                    const int totalF = sampleData.getNumFrames();
+                    if (totalF > 64)
+                    {
+                        int idx = sliceManager.createSlice (0, totalF);
+                        if (idx >= 0)
+                        {
+                            sliceManager.getSlice (idx).midiNote =
+                                sliceManager.rootNote.load (std::memory_order_relaxed);
+                            sliceManager.rebuildMidiMap();
+                        }
+                    }
+                }
                 PreviewStretchParams psp;
                 psp.stretchEnabled = stretchParam->load() > 0.5f;
                 psp.algorithm      = (int) algoParam->load();

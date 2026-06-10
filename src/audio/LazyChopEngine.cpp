@@ -106,38 +106,28 @@ void LazyChopEngine::stop (VoicePool& voicePool, SliceManager& /*sliceMgr*/)
 
 int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceMgr)
 {
-    // If this MIDI note is already assigned to an existing slice, audition it
-    int existingSlice = sliceMgr.midiNoteToSlice (note);
-    if (existingSlice >= 0)
-    {
-        const auto& s = sliceMgr.getSlice (existingSlice);
-        startPreview (voicePool, s.startSample);
-        playing = true;
-        chopPos = -1;  // reset so next unassigned note only sets a new start
-        return -1;
-    }
-
-    // First unassigned note — start playback from beginning and immediately
-    // commit a slice marker at position 0 so the UI shows slice 1 right away.
+    // First unassigned note: start playback. The full-span slice was pre-created
+    // in CmdLazyChopStart; return its index so the processor publishes the
+    // snapshot and the UI shows slice 1 immediately on the first note.
     if (! playing)
     {
         startPreview (voicePool, 0);
         playing  = true;
         lastNote = note;
         chopPos  = 0;
+        return (sliceMgr.getNumSlices() > 0) ? 0 : -1;
+    }
 
-        // Insert the first marker so slice 1 is visible immediately.
-        // Its end will be determined by the next note (marker model: end = next
-        // marker's start, so nothing more needed here).
-        int firstIdx = sliceMgr.createSlice (0, sliceMgr.getEndForSlice (0, sampleLength));
-        if (firstIdx >= 0)
-        {
-            auto& s = sliceMgr.getSlice (firstIdx);
-            s.midiNote = nextMidiNote;  // always C2 (rootNote) for slice 1
-            nextMidiNote = std::min (nextMidiNote + 1, 127);
-            sliceMgr.rebuildMidiMap();
-        }
-        return firstIdx;
+    // If this MIDI note is already assigned to an existing slice, audition it.
+    // (Only checked once playback is running — avoids the sentinel slice
+    //  swallowing the very first keypress.)
+    int existingSlice = sliceMgr.midiNoteToSlice (note);
+    if (existingSlice >= 0)
+    {
+        const auto& s = sliceMgr.getSlice (existingSlice);
+        startPreview (voicePool, s.startSample);
+        chopPos = -1;  // reset so next unassigned note only sets a new start
+        return -1;
     }
 
     // Re-press same note: re-audition from current start point
@@ -156,10 +146,11 @@ int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceM
     if (snapEnabled && sampleBuffer != nullptr)
         playhead = AudioAnalysis::findNearestZeroCrossing (*sampleBuffer, playhead);
 
-    // After audition, first unassigned note just sets a new start point
+    // chopPos < 0 means we just auditioned an existing slice with no chop point set.
+    // Record the current playhead as the new start and wait for the next note.
     if (chopPos < 0)
     {
-        chopPos = playhead;
+        chopPos  = playhead;
         lastNote = note;
         return -1;
     }
