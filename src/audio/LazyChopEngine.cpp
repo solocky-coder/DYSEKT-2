@@ -106,21 +106,10 @@ void LazyChopEngine::stop (VoicePool& voicePool, SliceManager& /*sliceMgr*/)
 
 int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceMgr)
 {
-    // If this MIDI note is already assigned to an existing slice, audition it
-    int existingSlice = sliceMgr.midiNoteToSlice (note);
-    if (existingSlice >= 0)
-    {
-        const auto& s = sliceMgr.getSlice (existingSlice);
-        startPreview (voicePool, s.startSample);
-        playing = true;
-        chopPos = -1;  // reset so next unassigned note only sets a new start
-        return -1;
-    }
-
-    // First unassigned note — start playback from beginning.
-    // Do NOT create a slice yet; no cut has been made.  The root slice at 0
-    // will be seeded the moment the second note arrives and a real cut is placed,
-    // so no full-span placeholder ever appears in the UI.
+    // First note — start playback from the beginning.
+    // No slice is created yet; the root slice at 0 will be seeded the moment
+    // the first real cut is placed so the UI never shows a full-span placeholder
+    // from the first key press alone.
     if (! playing)
     {
         startPreview (voicePool, 0);
@@ -130,14 +119,21 @@ int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceM
         return -1;
     }
 
-    // Re-press same note: re-audition from current start point
+    // Re-press the same note: re-audition from the current chop start point.
     if (note == lastNote && chopPos >= 0)
     {
         startPreview (voicePool, chopPos);
         return -1;
     }
 
-    // Subsequent unassigned note — place slice boundary at playhead
+    // Every other key press places a cut at the current playhead.
+    // Intentionally NOT checking midiNoteToSlice() here — during an active
+    // Lazy Chop session every new key press must produce a chop, not an
+    // audition of a previously-assigned slice.  The old audition check was
+    // silently consuming key presses and setting chopPos = -1, which caused
+    // the following note to burn its press repositioning the start instead
+    // of cutting, giving the appearance of every other marker being skipped.
+
     auto& v = voicePool.getVoice (getPreviewVoiceIndex());
     double rawPos = v.stretchActive ? v.stretchSrcPos
                   :                   v.position;
@@ -146,62 +142,34 @@ int LazyChopEngine::onNote (int note, VoicePool& voicePool, SliceManager& sliceM
     if (snapEnabled && sampleBuffer != nullptr)
         playhead = AudioAnalysis::findNearestZeroCrossing (*sampleBuffer, playhead);
 
-    // After audition, first unassigned note just sets a new start point
+    // Clamp any stale negative chopPos (e.g. carried over from before LazyChop
+    // was restarted on a session that already had slices).
     if (chopPos < 0)
-    {
-        chopPos = playhead;
-        lastNote = note;
-        return -1;
-    }
+        chopPos = 0;
+
+    // Handle wrap-around: playhead looped back past chopPos — reset chop start
+    // to 0 so the next cut begins a fresh pass through the sample.
+    if (playhead < chopPos)
+        chopPos = 0;
 
     int resultIdx = -1;
 
-    // Handle wrap-around: if playhead wrapped past chopPos, close slice to end of sample
-    if (playhead < chopPos)
-    {
-        if (sampleLength - chopPos >= 64)
-        {
-            int idx = sliceMgr.createSlice (chopPos, sampleLength);
-            if (idx >= 0)
-            {
-                auto& s = sliceMgr.getSlice (idx);
-                s.midiNote = nextMidiNote;
-                nextMidiNote = std::min (nextMidiNote + 1, 127);
-                sliceMgr.rebuildMidiMap();
-                resultIdx = idx;
-            }
-        }
-        chopPos = 0;
-    }
-
-    // If no slices exist yet, seed the root slice at 0 so insertMarker has
-    // something to split.  This is the deferred first-slice creation — we
-    // waited until a real cut is being placed so the UI never shows a
-    // full-span placeholder from the first key press alone.
+    // Seed a root slice at position 0 the first time a real cut is placed so
+    // that insertMarker has a slice to split.  Both this createSlice call and
+    // the insertMarker below run within the same audio-thread callback; the UI
+    // snapshot is only refreshed after onNote returns, so the transient
+    // full-span root slice is never visible to the user.
     if (sliceMgr.getNumSlices() == 0 && playhead > 0)
-    {
-        int rootIdx = sliceMgr.createSlice (0, sampleLength);
-        if (rootIdx >= 0)
-        {
-            auto& rs = sliceMgr.getSlice (rootIdx);
-            rs.midiNote = nextMidiNote;
-            nextMidiNote = std::min (nextMidiNote + 1, 127);
-            sliceMgr.rebuildMidiMap();
-        }
-    }
+        sliceMgr.createSlice (0, sampleLength);   // rebuildMidiMap called inside
 
-    // Insert a marker at the playhead, splitting the current open-ended slice.
-    // The left half (chopPos..playhead) already has its note from when it was
-    // first created; the right half (playhead onward) gets the new note.
+    // Place the chop marker at the playhead.
     if (playhead - chopPos >= 64)
     {
-        // insertMarker splits the slice that owns `playhead` into two.
-        // The right-hand slice is the new one; assign this note to it.
         int newIdx = sliceMgr.insertMarker (playhead, sampleLength);
         if (newIdx >= 0)
         {
             auto& s = sliceMgr.getSlice (newIdx);
-            s.midiNote = nextMidiNote;  // sequential from C2 regardless of pressed key
+            s.midiNote = nextMidiNote;
             nextMidiNote = std::min (nextMidiNote + 1, 127);
             sliceMgr.rebuildMidiMap();
             resultIdx = newIdx;
