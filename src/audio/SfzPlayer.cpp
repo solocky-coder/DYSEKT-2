@@ -1093,6 +1093,14 @@ void SfzPlayer::applyPendingLoad()
     presetIndex.store (0, std::memory_order_relaxed);
     postPresetList();
 
+    // ── SF2 loop points are extracted by SoundFontLoader via SHDR binary parse ──
+    // (see SoundFontLoader.cpp: parseSf2LoopPoints)
+    // SfzPlayer::setLoopPoints() is called from there after the render job
+    // completes so SfzWaveformLcd can display the loop overlay.
+    // Reset them here so a reload of a non-looping SF2 clears old markers.
+    sfzLoopStartSample.store (-1, std::memory_order_relaxed);
+    sfzLoopEndSample  .store (-1, std::memory_order_relaxed);
+
     // Seed bank/program for the initial program change (preset 0).
     // We can't use cachedPresets here (audio thread), so read directly from FluidSynth.
     {

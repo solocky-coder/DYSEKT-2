@@ -26,7 +26,8 @@ public:
     void mouseMove (const juce::MouseEvent& e) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
-    void mouseUp   (const juce::MouseEvent& e) override;
+    void mouseUp        (const juce::MouseEvent& e) override;
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override;
 
     void repaintLcd();
 
@@ -76,11 +77,15 @@ private:
 
     DysektProcessor& processor;
 
-    // ── Waveform backdrop ─────────────────────────────────────────────────────
-    static constexpr int kPeaks = 256;
+    // ── Waveform backdrop (zoom/scroll-aware) ────────────────────────────────
+    static constexpr int kPeaks = 512;
     juce::Array<float> peaks;
+    int   cachedTotalFrames { 0 };
+    float cachedZoom   { 1.0f };
+    float cachedScroll { 0.0f };
     void buildWaveformPeaks();
     void drawWaveformBackdrop (juce::Graphics& g, const juce::Rectangle<float>& area);
+    void drawLoopOverlay      (juce::Graphics& g, const juce::Rectangle<float>& area);
 
     NodeRole dragRole { NodeRole::None };
     NodeRole hovRole  { NodeRole::None };

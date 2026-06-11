@@ -198,9 +198,15 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      const auto ext = f.getFileExtension().toLowerCase();
      if (ext == ".sfz" || ext == ".sf2")
      {
+         // 1. Real-time playback engine (sfizz / FluidSynth)
          processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
          sfzDropdown.reloadZones (f);
          if (uiMode != 1) setUiMode (1);
+
+         // 2. Render all notes into the slicer waveform buffer so
+         //    SfzWaveformLcd can display the preview and loop markers.
+         //    SoundFontLoader also calls sfzPlayer.setLoopPoints().
+         processor.loadSoundFontAsync (f);
      }
      else
      {

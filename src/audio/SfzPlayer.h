@@ -140,6 +140,18 @@ public:
     float getSfzSustain() const noexcept { return sfzSustainPct.load (std::memory_order_relaxed); }
     float getSfzRelease() const noexcept { return sfzReleaseSec.load (std::memory_order_relaxed); }
 
+    /** Loop point in samples within the sfizz-rendered preview buffer.
+     *  Returns -1 if no loop is defined. */
+    int  getLoopStartSample() const noexcept { return sfzLoopStartSample.load (std::memory_order_relaxed); }
+    int  getLoopEndSample()   const noexcept { return sfzLoopEndSample  .load (std::memory_order_relaxed); }
+
+    /** Called by SoundFontLoader after rendering to store loop metadata. */
+    void setLoopPoints (int loopStart, int loopEnd) noexcept
+    {
+        sfzLoopStartSample.store (loopStart, std::memory_order_relaxed);
+        sfzLoopEndSample  .store (loopEnd,   std::memory_order_relaxed);
+    }
+
     // ── Post-processing Reverb EFX (JUCE DSP — works for both SF2 & SFZ) ──
     void setReverbSize   (float pct) noexcept;   ///< 0–100 %
     void setReverbDamp   (float pct) noexcept;   ///< 0–100 %
@@ -273,7 +285,11 @@ private:
     std::atomic<float> sfzDecaySec    { 0.1f   };  ///< seconds
     std::atomic<float> sfzSustainPct  { 100.0f };  ///< percent 0-100
     std::atomic<float> sfzReleaseSec  { 0.05f  };  ///< seconds (SFZ default ~0)
-    std::atomic<bool>  sfzAdsrDirty   { false  };  ///< set by setters, cleared in processBlock
+    std::atomic<bool>  sfzAdsrDirty   { false  };
+
+    // ── SFZ loop points (written by SoundFontLoader, read by SfzWaveformLcd) ───
+    std::atomic<int>   sfzLoopStartSample { -1 };   ///< -1 = no loop
+    std::atomic<int>   sfzLoopEndSample   { -1 };  ///< set by setters, cleared in processBlock
 
     /** Set when presetIndex changes; audio thread picks it up in process(). */
     std::atomic<bool>  programChangePending { false };

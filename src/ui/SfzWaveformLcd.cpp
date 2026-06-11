@@ -228,10 +228,26 @@ void SfzWaveformLcd::buildWaveformPeaks()
     const int totalFrames = snap->buffer.getNumSamples();
     if (totalFrames <= 0) return;
 
+    const float zoom   = std::max (1.0f, processor.zoom.load());
+    const float scroll = processor.scroll.load();
+
+    // Visible window in [0..totalFrames)
+    const float windowFrac = 1.0f / zoom;
+    const float maxScroll  = (float) totalFrames * (1.0f - windowFrac);
+    const int   startF     = (int) juce::jlimit (0.0f, (float) (totalFrames - 1),
+                                                  scroll * maxScroll);
+    const int   endF       = (int) juce::jlimit ((float) startF + 1.0f,
+                                                  (float) totalFrames,
+                                                  startF + windowFrac * (float) totalFrames);
+
+    cachedTotalFrames = totalFrames;
+    cachedZoom   = zoom;
+    cachedScroll = scroll;
+
     for (int i = 0; i < kPeaks; ++i)
     {
         const float t   = (float) i / (float) kPeaks;
-        const int   pos = (int) (t * (float) totalFrames);
+        const int   pos = startF + (int) (t * (float) (endF - startF));
         peaks.set (i, processor.getWaveformPeakAt (pos));
     }
 }
@@ -246,7 +262,7 @@ void SfzWaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
     const float cx = area.getX();
     const float cy = area.getY() + H * 0.5f;
 
-    const auto col = sfzLcd2Phosphor().withAlpha (0.12f);
+    const auto col = sfzLcd2Phosphor().withAlpha (0.14f);
 
     juce::Path top, bot;
     top.startNewSubPath (cx, cy);
@@ -268,8 +284,112 @@ void SfzWaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
 
     g.setColour (col);
     g.fillPath (top);
+
+    // Draw zoom/scroll position indicator bar at bottom of backdrop
+    if (cachedZoom > 1.01f)
+    {
+        const float windowFrac = 1.0f / cachedZoom;
+        const float maxScroll  = 1.0f - windowFrac;
+        const float scrollFrac = (maxScroll > 0.0f)
+                                 ? juce::jlimit (0.0f, 1.0f, cachedScroll * maxScroll / maxScroll)
+                                 : 0.0f;
+        const float barY  = area.getBottom() - 3.0f;
+        const float barW  = W * windowFrac;
+        const float barX  = cx + scrollFrac * (W - barW);
+        g.setColour (sfzLcd2Phosphor().withAlpha (0.25f));
+        g.fillRoundedRectangle (barX, barY, barW, 2.0f, 1.0f);
+    }
 }
 
+void SfzWaveformLcd::drawLoopOverlay (juce::Graphics& g,
+                                       const juce::Rectangle<float>& area)
+{
+    // Loop points are stored as concat-buffer frame offsets by SoundFontLoader
+    // for both SFZ (text-opcode parse) and SF2 (SHDR binary parse).
+    const int bufLoopStart = processor.sfzPlayer.getLoopStartSample();
+    const int bufLoopEnd   = processor.sfzPlayer.getLoopEndSample();
+    if (bufLoopStart < 0 || bufLoopEnd <= bufLoopStart || cachedTotalFrames <= 0) return;
+
+    const float windowFrac = 1.0f / cachedZoom;
+    const float maxScroll  = (float) cachedTotalFrames * (1.0f - windowFrac);
+    const float startF_f   = cachedScroll * maxScroll;
+    const float endF_f     = startF_f + windowFrac * (float) cachedTotalFrames;
+
+    auto toX = [&] (int sample) -> float
+    {
+        const float t = ((float) sample - startF_f) / (endF_f - startF_f);
+        return area.getX() + t * area.getWidth();
+    };
+
+    const float x0 = juce::jlimit (area.getX(), area.getRight(), toX (bufLoopStart));
+    const float x1 = juce::jlimit (area.getX(), area.getRight(), toX (bufLoopEnd));
+    if (x1 <= x0 + 1.0f) return;
+
+    const juce::Colour loopColour { 0xFFFFE800 };
+    g.setColour (loopColour.withAlpha (0.06f));
+    g.fillRect  (x0, area.getY(), x1 - x0, area.getHeight());
+
+    g.setColour (loopColour.withAlpha (0.50f));
+    g.drawVerticalLine (juce::roundToInt (x0), area.getY(), area.getBottom());
+    g.drawVerticalLine (juce::roundToInt (x1), area.getY(), area.getBottom());
+
+    const float labelX = (x0 + x1) * 0.5f - 18.0f;
+    const float labelY = area.getY() + 3.0f;
+    g.setFont (DysektLookAndFeel::makeFont (7.0f, true));
+    g.setColour (loopColour.withAlpha (0.55f));
+    g.drawText ("LOOP", juce::Rectangle<float> (labelX, labelY, 36.0f, 10.0f),
+                juce::Justification::centred, false);
+}
+
+
+void SfzWaveformLcd::mouseWheelMove (const juce::MouseEvent& e,
+                                      const juce::MouseWheelDetails& w)
+{
+    const auto snap = processor.sampleData.getSnapshot();
+    if (snap == nullptr || snap->buffer.getNumSamples() <= 0)
+        return;
+
+    const bool isZoom = e.mods.isCtrlDown() || e.mods.isCommandDown();
+
+    if (isZoom)
+    {
+        // Ctrl+scroll = zoom around cursor position
+        const float anchorFrac = juce::jlimit (0.0f, 1.0f,
+            (e.position.x - screenArea.getX()) / screenArea.getWidth());
+
+        const float oldZoom   = std::max (1.0f, processor.zoom.load());
+        const float newZoom   = juce::jlimit (1.0f, 32.0f,
+                                              oldZoom * (w.deltaY > 0 ? 1.25f : 0.8f));
+        const float oldScroll = processor.scroll.load();
+        const int   total     = snap->buffer.getNumSamples();
+
+        // Keep anchor sample under cursor
+        const float oldWindowFrac = 1.0f / oldZoom;
+        const float oldStart      = oldScroll * (float) total * (1.0f - oldWindowFrac);
+        const float anchorSample  = oldStart + anchorFrac * oldWindowFrac * (float) total;
+
+        const float newWindowFrac = 1.0f / newZoom;
+        const float newStart      = anchorSample - anchorFrac * newWindowFrac * (float) total;
+        const float newMaxStart   = (float) total * (1.0f - newWindowFrac);
+        const float newScroll     = (newMaxStart > 0.0f)
+                                    ? juce::jlimit (0.0f, 1.0f, newStart / newMaxStart)
+                                    : 0.0f;
+
+        processor.zoom  .store (newZoom,   std::memory_order_relaxed);
+        processor.scroll.store (newScroll, std::memory_order_relaxed);
+    }
+    else
+    {
+        // Scroll (pan)
+        const float delta    = w.deltaX != 0.0f ? -w.deltaX : -w.deltaY;
+        const float sc       = processor.scroll.load();
+        const float newSc    = juce::jlimit (0.0f, 1.0f, sc + delta * 0.08f);
+        processor.scroll.store (newSc, std::memory_order_relaxed);
+    }
+
+    buildWaveformPeaks();
+    repaint();
+}
 
 // ── Draw helpers ──────────────────────────────────────────────────────────────
 
@@ -481,6 +601,7 @@ void SfzWaveformLcd::paint (juce::Graphics& g)
 
     drawHeader           (g, lcdArea);
     drawWaveformBackdrop (g, lcdArea);
+    drawLoopOverlay      (g, lcdArea);
     drawEnvelope         (g, lcdArea);
     drawNodes    (g, nodeArea);
 }

@@ -61,6 +61,8 @@ struct SfzSliceDescriptor
     int startSample = 0;
     int endSample   = 0;
     int midiNote    = 36;
+    int loopStart   = -1;   // -1 = no loop; sample offset within the concatenated buffer
+    int loopEnd     = -1;
 };
 
 // Heap-allocated payload posted via pendingSfzSlices atomic.
