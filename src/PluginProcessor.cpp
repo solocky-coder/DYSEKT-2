@@ -505,28 +505,34 @@ void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
     // Called on the message thread.  Atomically update the route mode so
     // processMidi() sees the new value on the next audio callback.
     //
-    // VST3/AU plugin builds must never enter MidiRouteMode::SfPlayer — the
-    // early-return in the old processMidi() that depended on it has been
-    // removed in favour of bitmask routing.  Force-downgrade to Slicer so
-    // the mode enum stays consistent with the actual routing behaviour.
-#if !DYSEKT_STANDALONE
-    if (mode == MidiRouteMode::SfPlayer)
-        mode = MidiRouteMode::Slicer;
-#endif
-
+    // midiRouteMode is a UI-display hint (SliceWaveformLcd::isSfPlayerMode).
+    // All audio routing is gated by sfPlayerChannelMask — set in the switch
+    // cases below.  No force-downgrade needed for VST3/plugin builds.
     midiRouteMode.store (static_cast<int> (mode), std::memory_order_relaxed);
 
     switch (mode)
     {
         case MidiRouteMode::Slicer:
             // No live input to the SF-player while the slicer is in front.
+            // If we were in SfPlayer mode with the default omni mask (2–16),
+            // clear it so processMidi stops routing to sfzPlayer entirely.
+            {
+                const uint32_t curMask = sfPlayerChannelMask.load (std::memory_order_relaxed);
+                constexpr uint32_t kDefaultOmni = 0x1FFFCu;  // bits 2–16
+                if (curMask == kDefaultOmni)
+                    sfPlayerChannelMask.store (0u, std::memory_order_relaxed);
+            }
 #if DYSEKT_STANDALONE
             sequencer.setSelectedSfLiveChannels (0);
 #endif
             break;
 
         case MidiRouteMode::SfPlayer:
-            // Route all SF-track channels to the live player.
+            // If no explicit channel range has been configured (mask == 0),
+            // default to channels 2–16 so sfzPlayer receives live MIDI.
+            // A saved/user-configured mask is left untouched.
+            if (sfPlayerChannelMask.load (std::memory_order_relaxed) == 0u)
+                sfPlayerChannelMask.store (0x1FFFCu, std::memory_order_relaxed);  // bits 2–16
 #if DYSEKT_STANDALONE
             sequencer.setSelectedSfLiveChannels (sequencer.getAllSfPlayerChannelMask());
 #endif
