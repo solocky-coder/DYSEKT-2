@@ -1163,8 +1163,15 @@ void MixerPanel::mouseDown (const juce::MouseEvent& e)
             }
             else
             {
-                // Left-click: cycle channel 0→1→...→16→0
-                int next = (sl.chromaticChannel + 1) % 17;
+                // Left-click: cycle channel 0→1→...→16→0, skipping channels
+                // owned by the SF player.  Use savedSfPlayerChannelMask so the
+                // exclusion works even while sfPlayerChannelMask is zeroed in
+                // Slicer mode.  Channel 0 (Off) is always reachable.
+                const uint32_t sfMask =
+                    processor.savedSfPlayerChannelMask.load (std::memory_order_relaxed);
+                int next = sl.chromaticChannel;
+                do { next = (next + 1) % 17; }
+                while (next != 0 && sfMask != 0 && (sfMask & (1u << next)));
                 DysektProcessor::Command cmd;
                 cmd.type = DysektProcessor::CmdSetSliceParam;
                 cmd.intParam1 = DysektProcessor::FieldChromaticChannel;

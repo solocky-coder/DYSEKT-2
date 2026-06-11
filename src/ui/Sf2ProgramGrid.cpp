@@ -464,10 +464,14 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
             if (kv.first != presetIdx && kv.second == ch)
                 usedByOther = true;
 
-        const bool inRange = (ch >= rangeLow && ch <= rangeHigh);
+        // Channels owned by chromatic slices are never available to the SF player.
+        const bool chromaBlocked = (blockedMask & (1u << ch)) != 0u;
+        const bool inRange       = (ch >= rangeLow && ch <= rangeHigh) && ! chromaBlocked;
+
         const juce::String label = "Channel " + juce::String (ch)
-                                   + (usedByOther ? "  [in use]" : "")
-                                   + (! inRange   ? "  [out of range]" : "");
+                                   + (usedByOther  ? "  [in use]"     : "")
+                                   + (chromaBlocked ? "  [chromatic]" : "")
+                                   + (! inRange && ! chromaBlocked ? "  [out of range]" : "");
         menu.addItem (100 + ch, label, /*isEnabled=*/ inRange, current == ch);
     }
 

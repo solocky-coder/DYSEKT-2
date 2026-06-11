@@ -483,14 +483,20 @@ public:
     // MIDI channel routing bitmasks (bit N = channel N, 1-based, bits 1–16 used).
     //
     // Channel ownership rules:
-    //   channel 1               → slicer always (hardwired, not stored in any mask)
+    //   channel 1                 → slicer always (hardwired, not stored in any mask)
     //   chromaticSliceChannelMask → channels 2–16 explicitly assigned to chromatic slices
-    //   sfPlayerChannelMask     → contiguous range 2–16 set by the CH spinners;
-    //                             never overlaps channel 1 or chromaticSliceChannelMask
-    //   0 in sfPlayerChannelMask = SF player disabled; slicer gets everything
+    //   sfPlayerChannelMask       → channels currently active for SF player live MIDI;
+    //                               set to 0 while in Slicer mode (routing gate);
+    //                               never overlaps channel 1 or chromaticSliceChannelMask
+    //   savedSfPlayerChannelMask  → user's configured SF channel range, preserved when
+    //                               sfPlayerChannelMask is zeroed for Slicer mode
+    //   0 in sfPlayerChannelMask  = SF player disabled; slicer gets everything
     //
-    // Both are derived/cached state — not serialised; rebuilt on load.
-    std::atomic<uint32_t> sfPlayerChannelMask      { 0u };   // disabled until user sets a range
+    // All three are derived/cached state — not serialised directly; rebuilt on load
+    // (sfPlayerChannelMask and savedSfPlayerChannelMask are restored from the saved
+    //  lo/hi range in setStateInformation; chromaticSliceChannelMask from slice data).
+    std::atomic<uint32_t> sfPlayerChannelMask      { 0u };       // disabled until user sets a range
+    std::atomic<uint32_t> savedSfPlayerChannelMask { 0x1FFFEu }; // user's last configured SF range
     std::atomic<uint32_t> chromaticSliceChannelMask { 0u };
 
     /** Rebuild chromaticSliceChannelMask from current slice data.

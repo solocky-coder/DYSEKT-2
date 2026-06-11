@@ -498,6 +498,20 @@ void DysektProcessor::rebuildChromaticChannelMask()
             mask |= (1u << ch);
     }
     chromaticSliceChannelMask.store (mask, std::memory_order_relaxed);
+
+    // Evict any chromatic-owned channels from the SF player masks so the two
+    // channel pools remain mutually exclusive.  Both the live routing mask and
+    // the saved mask (which survives Slicer-mode zeroing) are scrubbed.
+    if (mask != 0u)
+    {
+        const uint32_t evict = ~mask;
+        sfPlayerChannelMask.store (
+            sfPlayerChannelMask.load (std::memory_order_relaxed) & evict,
+            std::memory_order_relaxed);
+        savedSfPlayerChannelMask.store (
+            savedSfPlayerChannelMask.load (std::memory_order_relaxed) & evict,
+            std::memory_order_relaxed);
+    }
 }
 
 void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
@@ -513,14 +527,14 @@ void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
     switch (mode)
     {
         case MidiRouteMode::Slicer:
-            // No live input to the SF-player while the slicer is in front.
-            // If we were in SfPlayer mode with the default omni mask (2–16),
-            // clear it so processMidi stops routing to sfzPlayer entirely.
+            // Zero the live routing mask so processMidi stops feeding sfzPlayer.
+            // Save the current non-zero mask first so switching back to SfPlayer
+            // can restore it rather than reverting to the omni default.
             {
                 const uint32_t curMask = sfPlayerChannelMask.load (std::memory_order_relaxed);
-                constexpr uint32_t kDefaultOmni = 0x1FFFCu;  // bits 2–16
-                if (curMask == kDefaultOmni)
-                    sfPlayerChannelMask.store (0u, std::memory_order_relaxed);
+                if (curMask != 0u)
+                    savedSfPlayerChannelMask.store (curMask, std::memory_order_relaxed);
+                sfPlayerChannelMask.store (0u, std::memory_order_relaxed);
             }
 #if DYSEKT_STANDALONE
             sequencer.setSelectedSfLiveChannels (0);
@@ -528,11 +542,17 @@ void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
             break;
 
         case MidiRouteMode::SfPlayer:
-            // If no explicit channel range has been configured (mask == 0),
-            // default to channels 2–16 so sfzPlayer receives live MIDI.
-            // A saved/user-configured mask is left untouched.
+            // Restore the saved channel range (stripping any channels now claimed
+            // by chromatic slices).  Fall back to omni (ch 2–16) if never configured.
             if (sfPlayerChannelMask.load (std::memory_order_relaxed) == 0u)
-                sfPlayerChannelMask.store (0x1FFFCu, std::memory_order_relaxed);  // bits 2–16
+            {
+                uint32_t saved = savedSfPlayerChannelMask.load (std::memory_order_relaxed);
+                // Strip channels now owned by chromatic slices.
+                saved &= ~chromaticSliceChannelMask.load (std::memory_order_relaxed);
+                // Fall back to omni if nothing remains (e.g. all channels claimed).
+                if (saved == 0u) saved = 0x1FFFEu;   // bits 2–16 (ch 1 hardwired to slicer)
+                sfPlayerChannelMask.store (saved, std::memory_order_relaxed);
+            }
 #if DYSEKT_STANDALONE
             sequencer.setSelectedSfLiveChannels (sequencer.getAllSfPlayerChannelMask());
 #endif
@@ -3395,8 +3415,14 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
         sequencer.readFromStream (stream);
 #endif
 
+    // Mirror the restored sfPlayerChannelMask into savedSfPlayerChannelMask so
+    // that switching to Slicer mode and back preserves the loaded channel range.
+    savedSfPlayerChannelMask.store (
+        sfPlayerChannelMask.load (std::memory_order_relaxed),
+        std::memory_order_relaxed);
+
     // Rebuild chromaticSliceChannelMask now that all slices are restored.
-    // sfPlayerChannelMask was already set above from the saved range.
+    // This also evicts any chromatic-owned channels from both SF masks.
     rebuildChromaticChannelMask();
 }
 

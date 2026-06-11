@@ -436,7 +436,8 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
                     if (kv.second >= 1 && kv.second <= 16)
                         mask |= (1u << kv.second);
                 }
-                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+                processor.sfPlayerChannelMask.store      (mask, std::memory_order_relaxed);
+                processor.savedSfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
         }
         else
@@ -451,7 +452,8 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
             {
                 uint32_t mask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
                 mask |= (1u << ch);
-                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+                processor.sfPlayerChannelMask.store      (mask, std::memory_order_relaxed);
+                processor.savedSfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
 
             if (onPresetChannelAssigned)
@@ -1310,8 +1312,11 @@ void SfzDropdownPanel::timerCallback()
         }
     }
 
-    // Keep the program grid's range in sync so out-of-range channels are greyed out
-    programGrid.setChannelRange (cachedChLow, cachedChHigh);
+    // Keep the program grid's range and blocked-channel set in sync so the
+    // channel picker menu shows correct availability.
+    programGrid.setChannelRange    (cachedChLow, cachedChHigh);
+    programGrid.setBlockedChannels (
+        processor.chromaticSliceChannelMask.load (std::memory_order_relaxed));
 
     repaint();
 }
@@ -1410,9 +1415,13 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
             newLo = juce::jlimit (2, hi, newLo);
             if (isFree (newLo))
             {
+                // Build mask for [newLo, hi] but skip chromatic-owned holes so they
+                // are never included even when they fall inside the lo–hi range.
                 uint32_t mask = 0u;
-                for (int c = newLo; c <= hi; ++c)  mask |= (1u << c);
-                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+                for (int c = newLo; c <= hi; ++c)
+                    if (isFree (c)) mask |= (1u << c);
+                processor.sfPlayerChannelMask.store      (mask, std::memory_order_relaxed);
+                processor.savedSfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
         }
         else
@@ -1423,9 +1432,12 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
             newHi = juce::jlimit (lo, 16, newHi);
             if (isFree (newHi))
             {
+                // Build mask for [lo, newHi] but skip chromatic-owned holes.
                 uint32_t mask = 0u;
-                for (int c = lo; c <= newHi; ++c)  mask |= (1u << c);
-                processor.sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
+                for (int c = lo; c <= newHi; ++c)
+                    if (isFree (c)) mask |= (1u << c);
+                processor.sfPlayerChannelMask.store      (mask, std::memory_order_relaxed);
+                processor.savedSfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
         }
         repaint();

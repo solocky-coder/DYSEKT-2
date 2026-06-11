@@ -60,6 +60,11 @@ public:
         rangeHigh = juce::jlimit (1, 16, high);
     }
 
+    /** Called by SfzDropdownPanel whenever chromaticSliceChannelMask changes.
+     *  Channels whose bit is set are owned by chromatic slices and are disabled
+     *  (and labelled [chromatic]) in the right-click channel-picker menu. */
+    void setBlockedChannels (uint32_t mask) noexcept { blockedMask = mask; }
+
     void setPresetChannels (const std::unordered_map<int,int>& channels)
     {
         presetChannels = channels;
@@ -112,8 +117,9 @@ private:
     int   editingIdx     { -1 };  ///< preset being edited for per-channel FX, or -1
     // Maps preset index → assigned MIDI channel (1-16). 0/absent = not assigned.
     std::unordered_map<int,int> presetChannels;
-    int rangeLow  { 1 };   ///< lowest channel in sfPlayerChannelMask  — set by SfzDropdownPanel
-    int rangeHigh { 16 };  ///< highest channel in sfPlayerChannelMask — set by SfzDropdownPanel
+    int      rangeLow    { 1 };    ///< lowest channel in sfPlayerChannelMask  — set by SfzDropdownPanel
+    int      rangeHigh   { 16 };   ///< highest channel in sfPlayerChannelMask — set by SfzDropdownPanel
+    uint32_t blockedMask { 0u };   ///< chromaticSliceChannelMask — channels owned by chromatic slices
     int   hoveredCell    { -1 };
     int   previewIdx     { -1 };  ///< index of currently-previewing preset, or -1
 

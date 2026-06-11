@@ -1570,17 +1570,46 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  }
  else if (fieldId == F::FieldChromaticChannel)
  {
- int cur = sl.chromaticChannel;  // always read from slice
- // Channels owned by the SF player are not available to the slicer.
- const uint32_t sfMask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
- juce::StringArray names; names.add ("Off");
- for (int i = 1; i <= 16; ++i)
- {
-     if (sfMask != 0 && (sfMask & (1u << i)))
-         continue;  // owned by SF player — skip
-     names.add ("Channel " + juce::String (i));
- }
- addItems (names, cur);
+     // Use savedSfPlayerChannelMask (not sfPlayerChannelMask) so SF-owned channels
+     // are correctly excluded even while in Slicer mode (where sfPlayerChannelMask
+     // is always 0 and would otherwise show all 16 channels as free).
+     const int      cur    = sl.chromaticChannel;
+     const uint32_t sfMask = processor.savedSfPlayerChannelMask.load (std::memory_order_relaxed);
+
+     // Build parallel arrays: display names and their actual channel values.
+     // This is necessary because SF-owned channels are skipped, making item
+     // positions non-contiguous with channel numbers.
+     juce::StringArray    chNames;
+     std::vector<int>     chValues;
+     chNames.add ("Off");  chValues.push_back (0);
+     for (int i = 1; i <= 16; ++i)
+     {
+         if (sfMask != 0 && (sfMask & (1u << i)))
+             continue;   // owned by SF player — not available
+         chNames.add ("Channel " + juce::String (i));
+         chValues.push_back (i);
+     }
+
+     // Build menu with tick on the item whose actual value matches cur.
+     for (int i = 0; i < chNames.size(); ++i)
+         menu.addItem (i + 1, chNames[i], /*enabled=*/true, chValues[(size_t)i] == cur);
+
+     const auto cellScreenRect2 = localAreaToGlobal (
+         juce::Rectangle<int> (cell.x, cell.y, cell.w, cell.h));
+     menu.showMenuAsync (juce::PopupMenu::Options()
+         .withTargetScreenArea (cellScreenRect2)
+         .withParentComponent (getTopLevelComponent()),
+         [this, fieldId, chValues] (int result)
+         {
+             if (result <= 0 || result > (int) chValues.size()) return;
+             DysektProcessor::Command cmd;
+             cmd.type        = DysektProcessor::CmdSetSliceParam;
+             cmd.intParam1   = fieldId;
+             cmd.floatParam1 = (float) chValues[(size_t)(result - 1)];  // actual ch number
+             processor.pushCommand (cmd);
+             repaint();
+         });
+     return;   // skip the shared showMenuAsync below
  }
  else
  {
