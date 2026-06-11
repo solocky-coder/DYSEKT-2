@@ -31,7 +31,7 @@ void MixerPanel::setActiveChannels (const std::vector<Sf2PresetInfo>& presets,
     {
         auto it = presetChannels.find (i);   // key is preset index, not bank*128+preset
         if (it != presetChannels.end() && it->second >= 1 && it->second <= 16)
-            sf2Channels.push_back ({ presets[(size_t) i], it->second });
+            sf2Channels.push_back ({ presets[(size_t) i], it->second - 1 });  // convert to 0-based
     }
     repaint();
 }
