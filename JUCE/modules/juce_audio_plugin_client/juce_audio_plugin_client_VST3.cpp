@@ -3168,7 +3168,7 @@ public:
                 info.direction    = dir;
                 info.channelCount = 16;
                 toString128 (info.name, "DY-SFP");
-                info.busType = Vst::kMain;           // kMain so Nuendo shows it in MIDI routing
+                info.busType = Vst::kAux;            // DYSEKT PATCH: kAux — VST3 spec only allows one kMain event bus; kAux is the correct type for secondary MIDI inputs (matches Kontakt, Omnisphere, etc.). Ableton ignores kAux MIDI inputs by design — workaround: route via a second MIDI track.
                 info.flags   = Vst::BusInfo::kDefaultActive;
                 return kResultTrue;
             }
