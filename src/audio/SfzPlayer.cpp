@@ -324,6 +324,15 @@ void SfzPlayer::setPresetOnChannel (int channel, int bank, int preset)
                      |  juce::jlimit (0, 0xFFFF, preset);
     pendingChannelAssignment[channel].store (packed, std::memory_order_relaxed);
     anyChannelDirty.store (true, std::memory_order_release);
+
+    // Keep liveInputChannelMask in sync so live controller MIDI (arriving on
+    // ch 1) is fanned out to every FluidSynth channel that has a preset loaded.
+    // Without this, assigning a preset via the grid would load it into
+    // FluidSynth but incoming MIDI would never be routed there — resulting in
+    // "MIDI indicator blinks but no sound."
+    const uint16_t bit = uint16_t(1) << channel;
+    const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
+    liveInputChannelMask.store (mask | bit, std::memory_order_relaxed);
 }
 
 // =============================================================================
@@ -471,12 +480,11 @@ void SfzPlayer::previewPreset (int bank, int preset)
     jassert (! isSfzFile);
     if (isSfzFile) return;
 
-    // Load onto both the preview channel (15) AND channel 0.
-    // Channel 0 is the default FluidSynth playback channel; without this,
-    // any MIDI not explicitly fan-fanned to ch15 still hits ch0 and plays
-    // whatever preset was loaded at startup (always preset 0).
-    setPresetOnChannel (0,                bank, preset);
-    setPresetOnChannel (kPreviewChannel,  bank, preset);
+    // Load onto the preview channel (15) only.  Do NOT touch channel 0 —
+    // it may hold a real user-assigned preset in multi-timbral mode, and
+    // stomping it here was the root cause of presets "going silent" after
+    // previewing.
+    setPresetOnChannel (kPreviewChannel, bank, preset);
 
     // Route live controller input to the preview channel.
     const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
@@ -490,9 +498,8 @@ void SfzPlayer::clearPreview()
     const uint16_t mask = liveInputChannelMask.load (std::memory_order_relaxed);
     liveInputChannelMask.store (mask & ~(uint16_t(1) << kPreviewChannel),
                                 std::memory_order_relaxed);
-    // Reset both the preview channel and ch0 to GM piano so neither plays
-    // the previously-auditioned preset after the preview is dismissed.
-    setPresetOnChannel (0,               0, 0);
+    // Reset the preview channel only — leave ch0 untouched so any
+    // user-assigned preset on channel 1 (FluidSynth ch 0) is preserved.
     setPresetOnChannel (kPreviewChannel, 0, 0);
 }
 
