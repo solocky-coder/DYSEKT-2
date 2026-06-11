@@ -1,4 +1,4 @@
-﻿#include "PluginProcessor.h"
+#include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "audio/GrainEngine.h"
 #include "audio/AudioAnalysis.h"
@@ -6,6 +6,26 @@
 #include <BinaryData.h>
 #include <functional>
 #include <memory>
+#include "DysektMidi2Port.h"
+
+// ── DY-SFP MIDI port-1 thread_local bridge ───────────────────────────────────
+// The patched juce_audio_plugin_client_VST3.cpp sets s_sfPlayerMidiPort to a
+// MidiBuffer containing only busIndex-1 events immediately before processBlock(),
+// then clears it immediately after.  thread_local gives full isolation between
+// two plugin instances running on different audio threads — no mutex needed.
+// dysektGetSfPlayerMidiPort() is called in processBlock() (Path A routing).
+static thread_local juce::MidiBuffer* s_sfPlayerMidiPort = nullptr;
+
+extern "C" void dysektSetSfPlayerMidiPort (juce::MidiBuffer* buf) noexcept
+{
+    s_sfPlayerMidiPort = buf;
+}
+
+extern "C" juce::MidiBuffer* dysektGetSfPlayerMidiPort() noexcept
+{
+    return s_sfPlayerMidiPort;
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 namespace
 {
@@ -2951,29 +2971,48 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int numSamples = buffer.getNumSamples();
 
         // ── Build sfzMidiBuf ─────────────────────────────────────────────────
-        // Copy messages on channels owned by sfPlayerChannelMask into the SF
-        // player's buffer.  If sfPlayerChannelMask == 0 the SF player is disabled;
-        // sfzMidiBuf stays empty.  If all 16 channels are set (default omni)
-        // all messages are copied — FluidSynth routes internally.
+        //
+        // PATH A — Multi-port VST3 (Reaper, Cubase, Nuendo, Bitwig, etc.)
+        //   The patched JUCE VST3 wrapper sets a thread_local pointer to a
+        //   MidiBuffer containing only busIndex-1 (DY-SFP) events before
+        //   processBlock().  If non-null, use it directly — no channel filtering
+        //   needed; the DAW has already done the port split.  The slicer's
+        //   `midi` buffer already contains only busIndex-0 events.
+        //
+        // PATH B — Single-port fallback (Ableton Live, older hosts, MIDI-over-ch)
+        //   No thread_local pointer was set (non-VST3 path, or host that merges
+        //   all ports into one bus).  Fall back to the original channel-mask
+        //   split from the merged `midi` buffer.
+        //
         juce::MidiBuffer sfzMidiBuf;
         {
-            const uint32_t sfMaskBuild = sfPlayerChannelMask.load (std::memory_order_relaxed);
-
-            if (sfMaskBuild != 0)
+            if (juce::MidiBuffer* port1 = dysektGetSfPlayerMidiPort();
+                port1 != nullptr && ! port1->isEmpty())
             {
-                const bool allChannels = ((sfMaskBuild & 0x1FFFEu) == 0x1FFFEu); // bits 1-16 all set
-                if (allChannels)
+                // PATH A: dedicated port-1 buffer — use it as-is
+                sfzMidiBuf = *port1;
+            }
+            else
+            {
+                // PATH B: channel-mask split (single-port or non-VST3 host)
+                const uint32_t sfMaskBuild = sfPlayerChannelMask.load (std::memory_order_relaxed);
+
+                if (sfMaskBuild != 0)
                 {
-                    sfzMidiBuf = midi;
-                }
-                else
-                {
-                    for (const auto meta : midi)
+                    const bool allChannels = ((sfMaskBuild & 0x1FFFEu) == 0x1FFFEu); // bits 1-16 all set
+                    if (allChannels)
                     {
-                        const auto& msg = meta.getMessage();
-                        const int ch = msg.getChannel();   // 1-based
-                        if (ch >= 1 && ch <= 16 && (sfMaskBuild & (1u << ch)))
-                            sfzMidiBuf.addEvent (msg, meta.samplePosition);
+                        sfzMidiBuf = midi;
+                    }
+                    else
+                    {
+                        for (const auto meta : midi)
+                        {
+                            const auto& msg = meta.getMessage();
+                            const int ch = msg.getChannel();   // 1-based
+                            if (ch >= 1 && ch <= 16 && (sfMaskBuild & (1u << ch)))
+                                sfzMidiBuf.addEvent (msg, meta.samplePosition);
+                        }
                     }
                 }
             }
