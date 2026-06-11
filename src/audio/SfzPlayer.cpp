@@ -606,11 +606,16 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
                 // SFZ: no MIDI transpose — key zones are fixed, pitch is shifted audio-rate
                 sfizz_send_note_on (sfizzSynth, meta.samplePosition,
                                     msg.getNoteNumber(), msg.getVelocity());
+                // Drive the JUCE ADSR so it doesn't stay idle and multiply output by 0.
+                // (juceAdsrNoteOn() is only called for UI-keyboard injections; external
+                //  MIDI must trigger it here on the audio thread directly.)
+                juceAdsr.noteOn();
             }
             else if (msg.isNoteOff())
             {
                 sfizz_send_note_off (sfizzSynth, meta.samplePosition,
                                      msg.getNoteNumber(), msg.getVelocity());
+                juceAdsr.noteOff();
             }
             else if (msg.isController())
             {

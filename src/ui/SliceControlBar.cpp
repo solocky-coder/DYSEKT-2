@@ -1570,22 +1570,28 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  }
  else if (fieldId == F::FieldChromaticChannel)
  {
-     // Use savedSfPlayerChannelMask (not sfPlayerChannelMask) so SF-owned channels
-     // are correctly excluded even while in Slicer mode (where sfPlayerChannelMask
-     // is always 0 and would otherwise show all 16 channels as free).
      const int      cur    = sl.chromaticChannel;
      const uint32_t sfMask = processor.savedSfPlayerChannelMask.load (std::memory_order_relaxed);
 
+     // Omni mode (0x1FFFE, all 16 channels) means the SF player accepts every
+     // channel for a single SFZ/SF2 preset — it does NOT reserve individual channels
+     // for specific instruments.  Excluding all 16 in this state leaves the
+     // chromatic-channel menu empty.  Only exclude channels when the SF player is
+     // in explicit per-channel SF2 multitimbral mode (fewer than all 15 channels set).
+     constexpr uint32_t kOmniMask = 0x1FFFEu;  // bits 1-16 all set (ch 1-16)
+     const bool sfIsOmni = ((sfMask & kOmniMask) == kOmniMask);
+     const uint32_t excludeMask = (sfIsOmni || sfMask == 0) ? 0u : sfMask;
+
      // Build parallel arrays: display names and their actual channel values.
-     // This is necessary because SF-owned channels are skipped, making item
+     // This is necessary because SF-owned channels may be skipped, making item
      // positions non-contiguous with channel numbers.
      juce::StringArray    chNames;
      std::vector<int>     chValues;
      chNames.add ("Off");  chValues.push_back (0);
      for (int i = 1; i <= 16; ++i)
      {
-         if (sfMask != 0 && (sfMask & (1u << i)))
-             continue;   // owned by SF player — not available
+         if (excludeMask != 0 && (excludeMask & (1u << i)))
+             continue;   // owned by SF2 multitimbral channel — not available
          chNames.add ("Channel " + juce::String (i));
          chValues.push_back (i);
      }
