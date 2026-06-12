@@ -13,12 +13,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Fetch JUCE
-        shell: pwsh
-        run: |
-          Remove-Item -Recurse -Force JUCE -ErrorAction SilentlyContinue
-          git clone --depth 1 --branch 8.0.12 https://github.com/juce-framework/JUCE.git JUCE
+        with:
+          submodules: recursive
 
       - name: Fetch bungee
         shell: pwsh
@@ -82,19 +78,6 @@ jobs:
             echo "$vcpkgBin" >> $env:GITHUB_PATH
           }
           echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
-
-      - name: Apply JUCE VST3 patch (DY-SFP MIDI port 1)
-        shell: pwsh
-        run: |
-          $src = "juce_patches\juce_audio_plugin_client_VST3.cpp"
-          $dst = "JUCE\modules\juce_audio_plugin_client\juce_audio_plugin_client_VST3.cpp"
-          if (Test-Path $src) {
-            Copy-Item -Force $src $dst
-            Write-Host "✓ Applied JUCE VST3 wrapper patch"
-          } else {
-            Write-Error "✗ Patch not found at $src"
-            exit 1
-          }
 
       - name: Configure CMake
         shell: pwsh

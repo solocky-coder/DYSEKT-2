@@ -69,11 +69,6 @@ JUCE_BEGIN_NO_SANITIZE ("vptr")
 #include <juce_audio_processors_headless/format_types/juce_VST3Common.h>
 #include <juce_audio_plugin_client/VST3/juce_VST3ModuleInfo.h>
 
-// DYSEKT PATCH: two-port MIDI side-channel bridge (Port 0 = Slicer, Port 1 = DY-SFP)
-// DysektMidi2Port.h lives in the plugin's src/ directory, which is on the include path
-// because this file is compiled as part of the plugin's unity build target.
-#include "DysektMidi2Port.h"
-
 #if JUCE_VST3_CAN_REPLACE_VST2 && ! JUCE_FORCE_USE_LEGACY_PARAM_IDS && ! JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING
 
  // If you encounter this error there may be an issue migrating parameter
@@ -3075,7 +3070,7 @@ public:
         {
            #if JucePlugin_WantsMidiInput
             if (dir == Vst::kInput)
-                return 2; // DYSEKT PATCH: Port 0 = Slicer, Port 1 = DY-SFP (SF-Player)
+                return 1;
            #endif
 
            #if JucePlugin_ProducesMidiOutput
@@ -3146,8 +3141,8 @@ public:
            #if JucePlugin_WantsMidiInput
             if (dir == Vst::kInput && index == 0)
             {
-                info.mediaType    = Vst::kEvent;
-                info.direction    = dir;
+                info.mediaType = Vst::kEvent;
+                info.direction = dir;
 
                #ifdef JucePlugin_VSTNumMidiInputs
                 info.channelCount = JucePlugin_VSTNumMidiInputs;
@@ -3155,21 +3150,8 @@ public:
                 info.channelCount = 16;
                #endif
 
-                toString128 (info.name, "Slicer");
+                toString128 (info.name, TRANS ("MIDI Input"));
                 info.busType = Vst::kMain;
-                info.flags   = Vst::BusInfo::kDefaultActive;
-                return kResultTrue;
-            }
-
-            // DYSEKT PATCH: Port 1 = DY-SFP (SF2/SFZ Player MIDI input)
-            if (dir == Vst::kInput && index == 1)
-            {
-                info.mediaType    = Vst::kEvent;
-                info.direction    = dir;
-                info.channelCount = 16;
-                toString128 (info.name, "DY-SFP");
-                info.busType = Vst::kAux;            // DYSEKT PATCH: kAux — VST3 spec only allows one kMain event bus; kAux is the correct type for secondary MIDI inputs (matches Kontakt, Omnisphere, etc.). Ableton ignores kAux MIDI inputs by design — workaround: route via a second MIDI track.
-                info.flags   = Vst::BusInfo::kDefaultActive;
                 return kResultTrue;
             }
            #endif
@@ -3213,13 +3195,6 @@ public:
             if (index == 0 && dir == Vst::kInput)
             {
                 isMidiInputBusEnabled = (state != 0);
-                return kResultTrue;
-            }
-
-            // DYSEKT PATCH: activate/deactivate Port 1 (DY-SFP)
-            if (index == 1 && dir == Vst::kInput)
-            {
-                isMidiBus1InputEnabled = (state != 0);
                 return kResultTrue;
             }
            #endif
@@ -3612,34 +3587,8 @@ public:
             processParameterChanges (*data.inputParameterChanges);
 
        #if JucePlugin_WantsMidiInput
-        // DYSEKT PATCH: split events by busIndex
-        //   busIndex == 0  →  midiBuffer        (Port 0 "DYSEKT"  → Slicer)
-        //   busIndex == 1  →  sfPlayerMidiBuffer (Port 1 "DY-SFP" → SF-Player)
-        // Then expose Port-1 buffer via thread_local side-channel so processBlock
-        // can read it without needing a changed function signature.
         if (isMidiInputBusEnabled && data.inputEvents != nullptr)
-        {
-            bus0EventList.clear();
-            sfPlayerEventList.clear();
-
-            const auto numEvts = data.inputEvents->getEventCount();
-            for (Steinberg::int32 i = 0; i < numEvts; ++i)
-            {
-                Steinberg::Vst::Event e;
-                if (data.inputEvents->getEvent (i, e) != Steinberg::kResultOk)
-                    continue;
-                if (e.busIndex == 1)
-                    sfPlayerEventList.addEvent (e);
-                else
-                    bus0EventList.addEvent (e);
-            }
-
-            MidiEventList::toMidiBuffer (midiBuffer, bus0EventList);
-
-            sfPlayerMidiBuffer.clear();
-            if (isMidiBus1InputEnabled)
-                MidiEventList::toMidiBuffer (sfPlayerMidiBuffer, sfPlayerEventList);
-        }
+            MidiEventList::toMidiBuffer (midiBuffer, *data.inputEvents);
        #endif
 
         if (detail::PluginUtilities::getHostType().isWavelab())
@@ -3655,18 +3604,9 @@ public:
         // If all of these are zero, the host is attempting to flush parameters without processing audio.
         if (data.numSamples != 0 || data.numInputs != 0 || data.numOutputs != 0)
         {
-            // DYSEKT PATCH: expose Port-1 MidiBuffer to processBlock via thread_local side-channel
-           #if JucePlugin_WantsMidiInput
-            dysektSetSfPlayerMidiPort (&sfPlayerMidiBuffer);
-           #endif
-
             if      (processSetup.symbolicSampleSize == Vst::kSample32) processAudio<float>  (data);
             else if (processSetup.symbolicSampleSize == Vst::kSample64) processAudio<double> (data);
             else jassertfalse;
-
-           #if JucePlugin_WantsMidiInput
-            dysektSetSfPlayerMidiPort (nullptr); // DYSEKT PATCH: clear side-channel
-           #endif
         }
 
         if (auto* changes = data.outputParameterChanges)
@@ -3923,17 +3863,6 @@ private:
    #endif
    #if JucePlugin_ProducesMidiOutput
     std::atomic<bool> isMidiOutputBusEnabled { true };
-   #endif
-
-   // DYSEKT PATCH: Port 1 "DY-SFP" MIDI input bus members
-   // bus0EventList / sfPlayerEventList: reused per-block (clearQuick avoids realloc).
-   // sfPlayerMidiBuffer: holds the converted Port-1 events; injected into processBlock
-   //   via dysektSetSfPlayerMidiPort() immediately before processAudio() is called.
-   #if JucePlugin_WantsMidiInput
-    std::atomic<bool> isMidiBus1InputEnabled { true };
-    MidiEventList     bus0EventList;
-    MidiEventList     sfPlayerEventList;
-    juce::MidiBuffer  sfPlayerMidiBuffer;
    #endif
 
     inline static constexpr const char* kJucePrivateDataIdentifier = "JUCEPrivateData";
