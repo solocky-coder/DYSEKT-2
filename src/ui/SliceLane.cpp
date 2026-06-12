@@ -159,7 +159,7 @@ void SliceLane::paint (juce::Graphics& g)
             if (sw <= 14) continue;
 
             juce::String label = juce::String (si.idx + 1);
-            int labelW = g.getCurrentFont().getStringWidth (label) + 6;
+            int labelW = juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label) + 6;
             int labelX = si.x1 + 4;  // +4 to clear the left border
 
             for (int li = 0; li < labelEndCount; ++li)

@@ -238,7 +238,7 @@ void SliceLcdDisplay::drawRow (juce::Graphics& g, int row, const juce::String& l
     g.drawText (label, lx, y, b.getWidth() / 3, rowH,
                 juce::Justification::centredLeft, false);
 
-    const int vx = lx + labelFont.getStringWidth (label) + 6;
+    const int vx = lx + juce::GlyphArrangement::getStringWidthInt(labelFont, label) + 6;
     g.setFont (valueFont);
     g.setColour (highlight ? pal.highlight : pal.phosphor);
     g.drawText (value, vx, y, b.getRight() - vx - lPad, rowH,
@@ -284,11 +284,11 @@ void SliceLcdDisplay::drawRowPair (juce::Graphics& g, int row,
         juce::String lbl = leftStr.substring (0, colonPos + 1);
         juce::String val = leftStr.substring (colonPos + 1);
         g.setColour (highlight ? pal.highlight : pal.labelCol);
-        g.drawText (lbl, leftX, y, f.getStringWidth (lbl) + 2, rowH,
+        g.drawText (lbl, leftX, y, juce::GlyphArrangement::getStringWidthInt(f, lbl) + 2, rowH,
                     juce::Justification::centredLeft, false);
         g.setColour (highlight ? pal.highlight : pal.phosphor);
-        g.drawText (val, leftX + f.getStringWidth (lbl) + 2, y,
-                    leftW - f.getStringWidth (lbl) - 2, rowH,
+        g.drawText (val, leftX + juce::GlyphArrangement::getStringWidthInt(f, lbl) + 2, y,
+                    leftW - juce::GlyphArrangement::getStringWidthInt(f, lbl) - 2, rowH,
                     juce::Justification::centredLeft, false);
     }
     else
@@ -308,7 +308,7 @@ void SliceLcdDisplay::drawRowPair (juce::Graphics& g, int row,
     {
         juce::String rlbl = rightStr.substring (0, rColonPos + 1);
         juce::String rval = rightStr.substring (rColonPos + 1);
-        const int rlblW = f.getStringWidth (rlbl);
+        const int rlblW = juce::GlyphArrangement::getStringWidthInt(f, rlbl);
 
         g.setColour (highlight ? pal.highlight : pal.labelCol);
         g.drawText (rlbl, rightX, y, rlblW + 2, rowH,
@@ -602,9 +602,9 @@ void SliceLcdDisplay::paint (juce::Graphics& g)
 
         const juce::Font lblF = DysektLookAndFeel::makeFont (24.0f * sf, true);
         const juce::Font valF = DysektLookAndFeel::makeFont (26.0f * sf);
-        const int lblW = lblF.getStringWidth (sliceStr);
+        const int lblW = juce::GlyphArrangement::getStringWidthInt(lblF, sliceStr);
         const int gap  = 8;
-        const int valW = valF.getStringWidth (nameStr);
+        const int valW = juce::GlyphArrangement::getStringWidthInt(valF, nameStr);
         const int totalW = lblW + gap + valW;
         const int startX = screen.getX() + (screen.getWidth() - totalW) / 2;
 
@@ -623,7 +623,7 @@ void SliceLcdDisplay::paint (juce::Graphics& g)
         {
             const juce::Font lkF = DysektLookAndFeel::makeFont (16.0f * sf, true);
             const juce::String lkStr = "LOCK";
-            const int lkW = lkF.getStringWidth (lkStr) + 6;
+            const int lkW = juce::GlyphArrangement::getStringWidthInt(lkF, lkStr) + 6;
             const int lkX = screen.getRight() - lkW - 6;
             const int lkY = y + 1;
             const int lkH = rowH - 3;

@@ -319,7 +319,7 @@ juce::Rectangle<int> DysektLookAndFeel::getTooltipBounds (const juce::String& te
                                                             juce::Point<int> screenPos,
                                                             juce::Rectangle<int> parentArea)
 {
-    int w = (int) makeFont (14.0f).getStringWidthFloat (text) + 14;
+    int w = (int) juce::GlyphArrangement::getStringWidth(makeFont (14.0f), text) + 14;
     int h = 24;
     int x = screenPos.x;
     int y = screenPos.y + 18;

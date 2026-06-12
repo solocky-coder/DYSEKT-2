@@ -359,7 +359,7 @@ void ShortcutsPanel::paint (juce::Graphics& g)
                 && ! entry.description.toLowerCase().contains (currentFilter))
                 continue;
 
-            const int textW = (int) std::ceil (keyFont.getStringWidthFloat (entry.keys));
+            const int textW = (int) std::ceil (juce::GlyphArrangement::getStringWidth(keyFont, entry.keys));
             const int keysW = juce::jlimit (keysMin, keysMax, textW + 10);
 
             auto row     = col.removeFromTop (rowH);
