@@ -172,7 +172,7 @@ void SfzLcdDisplay::drawRow (juce::Graphics& g, int row,
     g.setColour (highlight ? pal.highlight : pal.labelCol);
     g.drawText (label, lx, y, b.getWidth() / 3, rowH, juce::Justification::centredLeft, false);
 
-    const int vx = lx + labelFont.getStringWidth (label) + 6;
+    const int vx = lx + juce::GlyphArrangement::getStringWidthInt(labelFont, label) + 6;
     g.setFont (valueFont);
     g.setColour (highlight ? pal.highlight : pal.phosphor);
     g.drawText (value, vx, y, b.getRight() - vx - lPad, rowH, juce::Justification::centredLeft, false);
@@ -212,7 +212,7 @@ void SfzLcdDisplay::drawRowPair (juce::Graphics& g, int row,
         {
             const juce::String lbl = str.substring (0, colonPos + 1);
             const juce::String val = str.substring (colonPos + 1);
-            const int lblW = f.getStringWidth (lbl);
+            const int lblW = juce::GlyphArrangement::getStringWidthInt(f, lbl);
             g.setColour (highlight ? pal.highlight : pal.labelCol);
             g.drawText (lbl, x, y, lblW + 2, rowH, juce::Justification::centredLeft, false);
             g.setColour (highlight ? pal.highlight : pal.phosphor);
@@ -290,9 +290,9 @@ void SfzLcdDisplay::paint (juce::Graphics& g)
         const juce::Font lblF = DysektLookAndFeel::makeFont (24.0f * sf, true);
         const juce::Font valF = DysektLookAndFeel::makeFont (26.0f * sf);
 
-        const int lblW  = lblF.getStringWidth (tagStr);
+        const int lblW  = juce::GlyphArrangement::getStringWidthInt(lblF, tagStr);
         const int gap   = 8;
-        const int valW  = valF.getStringWidth (nameStr);
+        const int valW  = juce::GlyphArrangement::getStringWidthInt(valF, nameStr);
         const int total = lblW + gap + valW;
         const int startX = screen.getX() + (screen.getWidth() - total) / 2;
 

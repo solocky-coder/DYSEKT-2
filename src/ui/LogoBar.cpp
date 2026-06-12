@@ -23,8 +23,8 @@ void LogoBar::paint (juce::Graphics& g)
 
     const juce::String dy   = "DY";
     const juce::String sekt = "SEKT";
-    const int dyW   = wordmarkFont.getStringWidth (dy);
-    const int sektW = wordmarkFont.getStringWidth (sekt);
+    const int dyW   = juce::GlyphArrangement::getStringWidthInt(wordmarkFont, dy);
+    const int sektW = juce::GlyphArrangement::getStringWidthInt(wordmarkFont, sekt);
     const int wordW = dyW + sektW;
 
     // Icon: 5 bars
