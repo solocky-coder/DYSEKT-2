@@ -30,7 +30,6 @@ class DysektProcessor;
 
 // =============================================================================
 #include "SfzFileBrowser.h"
-#include "Sf2ProgramGrid.h"
 
 // =============================================================================
 //  SfzPlayerDropdownPanel
@@ -56,9 +55,6 @@ public:
     void panelDidShow();
     void initEmptySfz();
 
-    /** Returns true if the SF2 program grid is currently shown (programPickerOpen). */
-    bool isProgramGridOpen() const noexcept { return programPickerOpen; }
-
     /** Returns true if the inline file browser overlay is open. */
     bool isBrowserOpen()     const noexcept { return browserOpen; }
 
@@ -69,16 +65,8 @@ public:
         Only used in standalone builds to auto-create sequencer tracks. */
     std::function<void (const juce::File&, bool isSfz)> onSfzFileLoaded;
 
-    /** Fired when the user right-clicks a preset cell and assigns a MIDI channel.
-        Only used in standalone builds to create/update piano-roll tracks. */
-    std::function<void (const Sf2PresetInfo&, int midiChannel1Based)> onPresetChannelAssigned;
-
     /** Reload zone display for the given file — public so PluginEditor can call it directly. */
     void reloadZones (const juce::File& f);
-
-    // ── SF2 channel-FX public API ─────────────────────────────────────────────
-    /** Called by PluginEditor whenever a preset<->channel mapping changes. */
-    void notifyPresetChannelChanged (const juce::String& presetName, int midiCh1Based);
 
     // ── Layout constants ──────────────────────────────────────────────────────
     static constexpr int kStripH  = 36;
@@ -93,7 +81,6 @@ private:
     // ── Header-strip drawing ──────────────────────────────────────────────────
     void drawHeaderStrip (juce::Graphics& g) const;
     void drawAdsrStrip   (juce::Graphics& g) const;
-    void drawSf2ChStrip  (juce::Graphics& g) const;
     void drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
                    float normalised, const juce::String& label,
                    const juce::String& valueStr) const;
@@ -122,8 +109,7 @@ private:
 
     // ── Drag state for knobs ──────────────────────────────────────────────────
     enum class ActiveKnob { None, Volume, Transpose, Pan, FineTune, ReverbMix, ReverbSize,
-                            AdsrAttack, AdsrDecay, AdsrSustain, AdsrRelease,
-                            ChReverbMix, ChReverbSize, ChReverbDamp, ChGain };
+                            AdsrAttack, AdsrDecay, AdsrSustain, AdsrRelease };
     ActiveKnob activeKnob  { ActiveKnob::None };
     int        dragStartY  { 0 };
     float      dragStartVal{ 0.f };
@@ -146,15 +132,6 @@ private:
     SfzFileBrowser fileBrowser;
     bool           browserOpen      { false };
 
-    // ── SF2 program grid ──────────────────────────────────────────────────────
-    Sf2ProgramGrid programGrid;
-    bool           programPickerOpen { false };
-
-    // ── SF2 per-channel FX state ───────────────────────────────────────────────
-    struct AssignedPreset { juce::String name; int ch { 0 }; };
-    std::vector<AssignedPreset>            sf2Presets;
-    int                                    selectedSf2Ch { -1 };
-
     // ── MIDI channel-range spinners (replaces sf2ChCombo) ────────────────
     // Drawn as:  CH [◂ 1 ▸] – [◂ 16 ▸]  inside the SF2 strip.
     // Hit-zones laid out in resized(); clicks handled in mouseDown().
@@ -164,12 +141,6 @@ private:
     int cachedChLow  { 1 };   ///< polled from processor each timer tick
     int cachedChHigh { 16 };
 
-    void buildSf2Combo();  ///< kept for grid-channel compat; now a no-op
-
-
-    void openProgramGrid();
-    void closeProgramGrid();
-    void restoreGridChannelAssignments();
 
     // State held between openAddZoneChooser() and onFileChosen() in kAddZone mode
     juce::File     addZoneTargetSfz;

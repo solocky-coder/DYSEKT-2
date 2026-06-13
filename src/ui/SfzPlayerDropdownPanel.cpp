@@ -379,129 +379,6 @@ SfzPlayerDropdownPanel::SfzPlayerDropdownPanel (DysektProcessor& p)
     };
     addChildComponent (fileBrowser);
 
-    // ── SF2 program grid ──────────────────────────────────────────────────────
-    // Left-click in the grid auditions the preset (handled by onPreviewToggled).
-    // It must NOT close the grid — the grid stays open until the user explicitly
-    // navigates away. Nulling onPresetSelected prevents the fallback close path
-    // in Sf2ProgramGrid::mouseDown from firing.
-    programGrid.onPresetSelected = nullptr;
-    // ── Multitimbral channel assignment ──────────────────────────────────────
-    // Right-click on a cell calls this with the preset index and the chosen
-    // MIDI channel (1-16), or ch==0 to deactivate.
-    //
-    // Routing is strictly 1:1: incoming MIDI ch N plays FluidSynth channel N-1.
-    // setPresetOnChannel() loads the correct preset onto each FluidSynth channel.
-    // No fan-out mask is needed — each MIDI channel has exactly one destination.
-    programGrid.onChannelChanged = [this] (int presetIdx, int ch)
-    {
-        if (presetIdx < 0 || presetIdx >= (int) presetList.size()) return;
-        const auto& info = presetList[(size_t) presetIdx];
-
-        // Collision check: refuse to assign a channel already owned by a chromatic slice.
-        if (ch >= 1 && ch <= 16)
-        {
-            const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
-            if (chromaMask & (1u << ch))
-                return;   // channel is slicer-owned — silently reject
-        }
-
-        if (ch == 0)
-        {
-            // Deactivate — silence all FluidSynth channels, then reload only the
-            // still-assigned presets.  This is the safest way to remove one
-            // entry without needing to track which channel it was on here.
-            for (int c = 0; c < 16; ++c)
-                processor.sfzPlayer2.setPresetOnChannel (c, 0, 0);
-
-            const auto& chMap = programGrid.getPresetChannels();
-            for (auto& kv : chMap)
-            {
-                if (kv.first == presetIdx) continue;
-                if (kv.second >= 1 && kv.second <= 16 && kv.first < (int)presetList.size())
-                    processor.sfzPlayer2.setPresetOnChannel (kv.second - 1,
-                                                            presetList[(size_t)kv.first].bank,
-                                                            presetList[(size_t)kv.first].preset);
-            }
-
-            if (onPresetChannelAssigned)
-                onPresetChannelAssigned (info, 0);
-
-            // Rebuild sfzPlayer2ChannelMask from the presets that are still assigned.
-            {
-                uint32_t mask = 0u;
-                const auto& chMap2 = programGrid.getPresetChannels();
-                for (const auto& kv : chMap2)
-                {
-                    if (kv.first == presetIdx) continue; // this one is being removed
-                    if (kv.second >= 1 && kv.second <= 16)
-                        mask |= (1u << kv.second);
-                }
-                processor.sfzPlayer2ChannelMask.store      (mask, std::memory_order_relaxed);
-                processor.savedSfzPlayer2ChannelMask.store (mask, std::memory_order_relaxed);
-            }
-        }
-        else
-        {
-            // Assign: load preset onto FluidSynth channel (ch-1, 0-based).
-            // A controller transmitting on MIDI ch N will route 1:1 to FluidSynth
-            // channel N-1, so this preset will be played when the controller
-            // sends on the assigned MIDI channel.
-            processor.sfzPlayer2.setPresetOnChannel (ch - 1, info.bank, info.preset);
-
-            // Add this channel to sfzPlayer2ChannelMask so MIDI on ch N reaches the SF player.
-            {
-                uint32_t mask = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-                mask |= (1u << ch);
-                processor.sfzPlayer2ChannelMask.store      (mask, std::memory_order_relaxed);
-                processor.savedSfzPlayer2ChannelMask.store (mask, std::memory_order_relaxed);
-            }
-
-            if (onPresetChannelAssigned)
-                onPresetChannelAssigned (info, ch);
-        }
-
-        // sfzPlayer2ChannelMask is now updated above on both assign and deactivate,
-        // so MIDI routing stays in sync with the grid's channel assignments.
-    };
-
-    // ── Preview toggle: left-click radio ─────────────────────────────────────
-    // index == -1 → deactivate preview; index >= 0 → audition on ch15.
-    // If the preset already has a real channel assigned, left-click just
-    // highlights it visually — no need to re-route anything.
-    programGrid.onPreviewToggled = [this] (int idx)
-    {
-        if (idx < 0)
-        {
-            processor.sfzPlayer2.clearPreview();
-            return;
-        }
-
-        if (idx >= (int) presetList.size()) return;
-        const auto& info = presetList[(size_t) idx];
-
-        // If this preset already has a real MIDI channel assigned, the audio
-        // routing is already correct — just highlight it visually.
-        const auto& chMap = programGrid.getPresetChannels();
-        if (chMap.count (idx) && chMap.at (idx) >= 1)
-            return;  // already routed on a real channel
-
-        // Pure audition: load onto ch15 and route live input there.
-        processor.sfzPlayer2.previewPreset (info.bank, info.preset);
-    };
-
-    programGrid.onAssignedPresetClicked = [this] (int idx)
-    {
-        // Sync combo selection to the channel of the clicked preset
-        if (idx < 0 || idx >= (int) presetList.size()) return;
-        const auto& chMap = programGrid.getPresetChannels();
-        if (! chMap.count (idx)) return;
-        const int ch = chMap.at (idx);
-        // channel-range spinners don't need per-preset sync
-        juce::ignoreUnused (ch);
-    };
-
-    addChildComponent (programGrid);
-
     // [+ ZONE] always visible — openAddZoneChooser() creates a Custom.sfz if nothing is loaded
     keysPanel.setAddZoneButtonVisible (true);
     keysPanel.onAddZoneRequested = [this] { openAddZoneChooser(); };
@@ -597,18 +474,7 @@ void SfzPlayerDropdownPanel::resized()
     // ── Keyboard panel ────────────────────────────────────────────────────────
     const int kbY = kStripH;  // ADSR is now in the top strip, no extra row
     const int kbH = juce::jmax (60, h - kbY);
-    // isSf2: true when an SF2 is loaded OR being loaded asynchronously.
-    // Checking getPendingFilePath() avoids the keysPanel flash during the
-    // window between loadFile() and isLoaded() becoming true (e.g. in VST3
-    // after setStateInformation fires before FluidSynth finishes).
-    const bool isSf2Loaded = [&]() -> bool {
-        if (processor.sfzPlayer2.isLoaded())
-            return processor.sfzPlayer2.getLoadedFile()
-                       .getFileExtension().toLowerCase() == ".sf2";
-        return processor.sfzPlayer2.getPendingFilePath()
-                   .getFileExtension().toLowerCase() == ".sf2";
-    }();
-    keysPanel.setVisible (kbH > 0 && ! browserOpen && ! programPickerOpen && ! isSf2Loaded);
+    keysPanel.setVisible (kbH > 0 && ! browserOpen);
     if (kbH > 0)
         keysPanel.setBounds (kPad, kbY, w - kPad * 2, kbH);
     else
@@ -626,21 +492,7 @@ void SfzPlayerDropdownPanel::resized()
         fileBrowser.setBounds ({});
     }
 
-    // ── SF2 program grid overlay ──────────────────────────────────────────────
-    if (programPickerOpen)
-    {
-        programGrid.setBounds (kPad, kStripH + 1, w - kPad * 2, h - kStripH - 1);
-        programGrid.setVisible (true);
-    }
-    else
-    {
-        programGrid.setVisible (false);
-        programGrid.setBounds ({});
-    }
-
-    // ── Channel-range spinner hit-zones ──────────────────────────────────
-    // Laid out inside chComboZone (the TRN+FINE area when SF2 is loaded).
-    // "CH [◂ 1 ▸] – [◂ 16 ▸]"
+    // ── Channel-range spinner hit-zones (unused, retained for layout calc) ────
     {
         // Spinner centred inside the full chComboZone width (~336 px).
         // Large hit targets for easy clicking.
@@ -718,109 +570,6 @@ void SfzPlayerDropdownPanel::closeBrowser()
     repaint();
 }
 
-// =============================================================================
-//  Program grid open / close
-// =============================================================================
-
-void SfzPlayerDropdownPanel::openProgramGrid()
-{
-    if (programPickerOpen) return;
-    programPickerOpen = true;
-
-    programGrid.setPresets (presetList,
-                            processor.sfzPlayer2.getCurrentPresetIndex(),
-                            processor.sfzPlayer2.getMidiChannel());
-    {
-        const uint32_t mask = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-        int lo = 0, hi = 0;
-        if (mask != 0)
-        {
-            for (int c = 2; c <= 16; ++c)  if (mask & (1u << c)) { lo = c; break; }
-            for (int c = 16; c >= 2; --c)  if (mask & (1u << c)) { hi = c; break; }
-        }
-        programGrid.setChannelRange (lo, hi);
-    }
-    restoreGridChannelAssignments();
-    resized();
-    repaint();
-}
-
-void SfzPlayerDropdownPanel::closeProgramGrid()
-{
-    if (! programPickerOpen) return;
-    programPickerOpen = false;
-
-    // Stop any active preview: clear ch15 routing and reset the grid visual.
-    processor.sfzPlayer2.clearPreview();
-    programGrid.clearPreviewState();
-
-    resized();
-    repaint();
-}
-
-void SfzPlayerDropdownPanel::restoreGridChannelAssignments()
-{
-    // Rebuild programGrid.presetChannels from sf2Presets (which survives reloads).
-    // Without this, presets that were assigned in a previous session have current==0
-    // in the grid, causing "Deactivate" to be permanently greyed out.
-    std::unordered_map<int, int> chMap;
-    for (const auto& ap : sf2Presets)
-    {
-        for (int i = 0; i < (int) presetList.size(); ++i)
-        {
-            if (presetList[(size_t) i].name == ap.name)
-            {
-                chMap[i] = ap.ch;
-                break;
-            }
-        }
-    }
-    programGrid.setPresetChannels (chMap);
-}
-
-// =============================================================================
-//  SF2 channel combo helpers
-// =============================================================================
-void SfzPlayerDropdownPanel::buildSf2Combo()
-{
-    // sf2ChCombo removed — channel routing is now via sfzPlayer2ChannelMask (bitmask).
-    // This method is retained as a no-op so callers (notifyPresetChannelChanged)
-    // don't need changes.
-}
-
-void SfzPlayerDropdownPanel::notifyPresetChannelChanged (const juce::String& presetName,
-                                                    int midiCh1Based)
-{
-    // midiCh1Based == 0 means the mapping was removed
-    if (midiCh1Based == 0)
-    {
-        sf2Presets.erase (std::remove_if (sf2Presets.begin(), sf2Presets.end(),
-            [&] (const AssignedPreset& ap) { return ap.name == presetName; }),
-            sf2Presets.end());
-
-        // If the removed channel was selected, clear selection
-        const bool stillValid = std::any_of (sf2Presets.begin(), sf2Presets.end(),
-            [&] (const AssignedPreset& ap) { return ap.ch == selectedSf2Ch + 1; });
-        if (! stillValid) selectedSf2Ch = -1;
-    }
-    else
-    {
-        // Add or update
-        bool found = false;
-        for (auto& ap : sf2Presets)
-        {
-            if (ap.name == presetName) { ap.ch = midiCh1Based; found = true; break; }
-        }
-        if (! found)
-            sf2Presets.push_back ({ presetName, midiCh1Based });
-        if (selectedSf2Ch < 0)
-            selectedSf2Ch = midiCh1Based - 1;
-    }
-    buildSf2Combo();
-    resized();
-    repaint();
-}
-
 void SfzPlayerDropdownPanel::onFileChosen (const juce::File& f)
 {
     if (fileBrowser.getMode() == SfzFileBrowser::Mode::kAddZone)
@@ -846,10 +595,6 @@ void SfzPlayerDropdownPanel::onFileChosen (const juce::File& f)
     processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
     reloadZones (f);
     closeBrowser();
-    if (f.getFileExtension().toLowerCase() == ".sf2")
-        openProgramGrid();
-    else
-        closeProgramGrid();
     repaint();
 
     if (onFileLoaded)
@@ -887,15 +632,7 @@ void SfzPlayerDropdownPanel::paint (juce::Graphics& g)
 
     drawHeaderStrip (g);
 
-    // When SF2 is loaded, repurpose the ADSR strip area for per-channel FX
-    {
-        const auto& f = processor.sfzPlayer2.getLoadedFile();
-        const bool isSf2 = f.existsAsFile() && f.hasFileExtension (".sf2");
-        if (isSf2)
-            drawSf2ChStrip (g);
-        else
-            drawAdsrStrip (g);
-    }
+    drawAdsrStrip (g);
 
     g.setColour (theme.accent.withAlpha (0.45f));
     g.fillRect (0, 0, w, 1);
@@ -932,85 +669,11 @@ void SfzPlayerDropdownPanel::drawAdsrStrip (juce::Graphics& g) const
               juce::String (processor.sfzPlayer2.getSfzRelease(), 2) + "s");
 }
 
-// =============================================================================
-//  drawSf2ChStrip  —  per-channel FX knobs shown instead of ADSR when SF2 loaded
-// =============================================================================
-
-void SfzPlayerDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
-{
-    const auto& theme = getTheme();
-    const auto accent  = theme.accent;
-    const auto dim     = theme.foreground.withAlpha (0.45f);
-    const auto bright  = theme.foreground;
-
-    // ── Per-channel FX knobs (mix/size/damp/gain) ─────────────────────────
-    const float chMix  = processor.sfzPlayer2.getReverbMix() / 100.0f;
-    const float chSize = processor.sfzPlayer2.getReverbSize() / 100.0f;
-    const float chDamp = processor.sfzPlayer2.getReverbDamp() / 100.0f;
-    const float chGain = processor.sfzPlayer2.getVolume();
-
-    // MIX/SIZE/PAN/VOL already drawn by drawHeaderStrip() — do not duplicate here.
-
-    // ── Channel-range spinner: CH [◂ lo ▸] – [◂ hi ▸] ───────────────────
-    // Drawn inside chComboZone (the TRN+FINE area).  Hit-zones are set in resized().
-    const int lo = cachedChLow;
-    const int hi = cachedChHigh;
-    const bool disabled = (lo == 0);
-
-    // "CH" prefix
-    g.setFont (DysektLookAndFeel::makeFont (11.f, true));
-    g.setColour (dim);
-    g.drawText ("CH", chRangeLabelZone, juce::Justification::centred, false);
-
-    // Helper lambda: draw one spinner (dec button, number label, inc button)
-    auto drawSpinner = [&](juce::Rectangle<int> decR,
-                            juce::Rectangle<int> numR,
-                            juce::Rectangle<int> incR,
-                            int value)
-    {
-        // Subtle button backgrounds
-        g.setColour ((disabled ? dim : accent).withAlpha (0.18f));
-        g.fillRoundedRectangle (decR.toFloat(), 3.f);
-        g.fillRoundedRectangle (incR.toFloat(), 3.f);
-
-        // Arrows (plain ASCII so MSVC code page 1252 never chokes)
-        g.setColour (disabled ? dim : accent);
-        g.setFont (DysektLookAndFeel::makeFont (13.f));
-        g.drawText ("<", decR, juce::Justification::centred, false);
-        g.drawText (">", incR, juce::Justification::centred, false);
-
-        // Value
-        g.setColour (disabled ? dim : bright);
-        g.setFont (DysektLookAndFeel::makeFont (14.f, true));
-        const auto valStr = disabled ? juce::String ("--") : juce::String (value);
-        g.drawText (valStr, numR, juce::Justification::centred, false);
-    };
-
-    drawSpinner (chLowDec,  chLowLabel,  chLowInc,  lo);
-
-    // " - " separator
-    const auto sepR = juce::Rectangle<int> (chLowInc.getRight(), chLowInc.getY(),
-                                            chHighDec.getX() - chLowInc.getRight(),
-                                            chLowInc.getHeight());
-    g.setColour (dim);
-    g.setFont (DysektLookAndFeel::makeFont (13.f));
-    g.drawText ("-", sepR, juce::Justification::centred, false);
-
-    drawSpinner (chHighDec, chHighLabel, chHighInc, hi);
-}
-
-
-
 void SfzPlayerDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
 {
     const auto& theme = getTheme();
     drawPresetPicker (g);
 
-    const auto& f = processor.sfzPlayer2.getLoadedFile();
-    const bool isSf2 = f.existsAsFile() && f.hasFileExtension (".sf2");
-
-    // TRN + FINE are replaced by the sf2ChCombo widget when SF2 is loaded
-    if (! isSf2)
     {
         drawKnob (g, transZone, transToNorm (processor.sfzPlayer2.getTranspose()),
                   "TRN",
@@ -1087,7 +750,7 @@ void SfzPlayerDropdownPanel::drawPresetPicker (juce::Graphics& g) const
     // Background
     {
         auto bg = nameZone.toFloat();
-        const bool anyOpen = browserOpen || programPickerOpen;
+        const bool anyOpen = browserOpen;
         g.setColour (anyOpen ? theme.accent.withAlpha (0.10f)
                              : theme.darkBar.darker (0.12f));
         g.fillRoundedRectangle (bg, 3.0f);
@@ -1132,14 +795,6 @@ void SfzPlayerDropdownPanel::drawPresetPicker (juce::Graphics& g) const
             g.setFont (DysektLookAndFeel::makeFont (12.0f));
             g.setColour (theme.accent.withAlpha (0.70f));
             g.drawText ("browsing files \u2014 double-click to load", lbl,
-                        juce::Justification::centred, true);
-        }
-        else if (programPickerOpen)
-        {
-            // Program grid is open
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.accent.withAlpha (0.70f));
-            g.drawText ("select a preset \u2014 right-click for MIDI ch", lbl,
                         juce::Justification::centred, true);
         }
         else if (! isLoaded)
@@ -1312,12 +967,6 @@ void SfzPlayerDropdownPanel::timerCallback()
         }
     }
 
-    // Keep the program grid's range and blocked-channel set in sync so the
-    // channel picker menu shows correct availability.
-    programGrid.setChannelRange    (cachedChLow, cachedChHigh);
-    programGrid.setBlockedChannels (
-        processor.chromaticSliceChannelMask.load (std::memory_order_relaxed));
-
     repaint();
 }
 
@@ -1453,25 +1102,16 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
     // ── Folder icon — toggle browser ─────────────────────────────────────────
     if (folderIconZone.contains (pos))
     {
-        // Close grid if open before opening browser
-        if (programPickerOpen) closeProgramGrid();
         if (browserOpen) closeBrowser();
         else             openBrowser();
         return;
     }
 
     // ── Clicking the label area when browser is closed and no file loaded ─────
-    if (presetLabel.contains (pos) && ! browserOpen && ! programPickerOpen
+    if (presetLabel.contains (pos) && ! browserOpen
         && ! processor.sfzPlayer2.isLoaded())
     {
         openBrowser();
-        return;
-    }
-
-    // ── Clicking label when the program grid is open — close it ──────────────
-    if (nameZone.contains (pos) && programPickerOpen)
-    {
-        closeProgramGrid();
         return;
     }
 
@@ -1479,16 +1119,6 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
     if (nameZone.contains (pos) && browserOpen)
     {
         closeBrowser();
-        return;
-    }
-
-    // ── Left-click preset label when SF2 is loaded — open program grid ────────
-    if (presetLabel.contains (pos) && ! browserOpen && ! programPickerOpen
-        && processor.sfzPlayer2.isLoaded()
-        && ! presetList.empty()
-        && ! e.mods.isRightButtonDown())
-    {
-        openProgramGrid();
         return;
     }
 
@@ -1533,12 +1163,6 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
                             {
                                 const int ch = result - 200;
                                 processor.sfzPlayer2.setMidiChannel (ch);
-                                if (onPresetChannelAssigned && ! presetList.empty())
-                                {
-                                    const int idx = juce::jlimit (0, (int) presetList.size() - 1,
-                                                                  processor.sfzPlayer2.getCurrentPresetIndex());
-                                    onPresetChannelAssigned (presetList[(size_t) idx], ch);
-                                }
                             }
                             else if (result == 300)
                             {
@@ -1587,7 +1211,6 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
 
     // ── Knob drag start ───────────────────────────────────────────────────────
     {
-        const int selCh = selectedSf2Ch >= 0 ? selectedSf2Ch + 1 : 0;
         struct { juce::Rectangle<int>& zone; ActiveKnob id; float val; } knobs[] =
         {
             { volZone,     ActiveKnob::Volume,      volToNorm   (processor.sfzPlayer2.getVolume()) },
@@ -1600,11 +1223,6 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
             { adsrDecZone, ActiveKnob::AdsrDecay,   juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzDecay()   / 30.0f) },
             { adsrSusZone, ActiveKnob::AdsrSustain, juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzSustain() / 100.0f) },
             { adsrRelZone, ActiveKnob::AdsrRelease, juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzRelease() / 60.0f) },
-            // Per-channel SF2 FX knobs (only active when a ch is selected)
-            { chMixZone,  ActiveKnob::ChReverbMix,  selCh > 0 ? processor.sfzPlayer2.getReverbMix() / 100.0f : 0.f },
-            { chSizeZone, ActiveKnob::ChReverbSize, selCh > 0 ? processor.sfzPlayer2.getReverbSize() / 100.0f : 0.f },
-            { chDampZone, ActiveKnob::ChReverbDamp, selCh > 0 ? processor.sfzPlayer2.getReverbDamp() / 100.0f : 0.f },
-            { chGainZone, ActiveKnob::ChGain,       selCh > 0 ? juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getVolume() / 2.0f) : 0.5f },
         };
 
         for (auto& k : knobs)
@@ -1638,21 +1256,6 @@ void SfzPlayerDropdownPanel::mouseDrag (const juce::MouseEvent& e)
         case ActiveKnob::AdsrDecay:   processor.sfzPlayer2.setSfzDecay   (newNorm * 30.0f);      break;
         case ActiveKnob::AdsrSustain: processor.sfzPlayer2.setSfzSustain (newNorm * 100.0f);     break;
         case ActiveKnob::AdsrRelease: processor.sfzPlayer2.setSfzRelease (newNorm * 60.0f);      break;
-        case ActiveKnob::ChReverbMix:
-        case ActiveKnob::ChReverbSize:
-        case ActiveKnob::ChReverbDamp:
-        case ActiveKnob::ChGain:
-        {
-            const int selCh = selectedSf2Ch >= 0 ? selectedSf2Ch + 1 : 0;
-            if (selCh > 0)
-            {
-                if      (activeKnob == ActiveKnob::ChReverbMix)  processor.sfzPlayer2.setReverbMix  (newNorm * 100.0f);
-                else if (activeKnob == ActiveKnob::ChReverbSize) processor.sfzPlayer2.setReverbSize (newNorm * 100.0f);
-                else if (activeKnob == ActiveKnob::ChReverbDamp) processor.sfzPlayer2.setReverbDamp (newNorm * 100.0f);
-                else if (activeKnob == ActiveKnob::ChGain)       processor.sfzPlayer2.setVolume     (newNorm * 2.0f);
-            }
-            break;
-        }
         default: break;
     }
     repaint();
@@ -1677,23 +1280,12 @@ void SfzPlayerDropdownPanel::mouseDoubleClick (const juce::MouseEvent& e)
     if (adsrDecZone.contains (pos)) { processor.sfzPlayer2.setSfzDecay   (0.1f);    repaint(); }
     if (adsrSusZone.contains (pos)) { processor.sfzPlayer2.setSfzSustain (100.0f);  repaint(); }
     if (adsrRelZone.contains (pos)) { processor.sfzPlayer2.setSfzRelease (0.05f);   repaint(); }
-    // Ch-FX defaults
-    {
-        const int selCh = selectedSf2Ch >= 0 ? selectedSf2Ch + 1 : 0;
-        if (selCh > 0)
-        {
-            if (chMixZone.contains  (pos)) { processor.sfzPlayer2.setReverbMix  (0.0f);   repaint(); }
-            if (chSizeZone.contains (pos)) { processor.sfzPlayer2.setReverbSize (50.0f);  repaint(); }
-            if (chDampZone.contains (pos)) { processor.sfzPlayer2.setReverbDamp (50.0f);  repaint(); }
-            if (chGainZone.contains (pos)) { processor.sfzPlayer2.setVolume     (1.0f);   repaint(); }
-        }
-    }
 }
 
 void SfzPlayerDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
                                         const juce::MouseWheelDetails& w)
 {
-    if (browserOpen || programPickerOpen) return;
+    if (browserOpen) return;
 
     const auto  pos  = e.getPosition();
     const float step = w.deltaY * (e.mods.isShiftDown() ? 0.01f : 0.05f);
@@ -1760,7 +1352,6 @@ void SfzPlayerDropdownPanel::filesDropped (const juce::StringArray& files, int, 
             processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
             reloadZones (file);
             closeBrowser();
-            closeProgramGrid();   // SFZ-Player: no program grid
             repaint();
             return;
         }
@@ -1775,31 +1366,10 @@ void SfzPlayerDropdownPanel::panelDidShow()
 {
     presetList = processor.sfzPlayer2.getPresetList();
 
-    // If program grid was left open, refresh it with latest data
-    if (programPickerOpen)
-    {
-        programGrid.setPresets (presetList,
-                                processor.sfzPlayer2.getCurrentPresetIndex(),
-                                processor.sfzPlayer2.getMidiChannel());
-        restoreGridChannelAssignments();
-    }
-
     if (processor.sfzPlayer2.isLoaded())
     {
-        const auto f   = processor.sfzPlayer2.getLoadedFile();
-        const bool sf2 = f.getFileExtension().toLowerCase() == ".sf2";
+        const auto f = processor.sfzPlayer2.getLoadedFile();
         reloadZones (f);
-
-        // For SF2: only open the program grid once the preset list is populated.
-        // If presets are still empty (FluidSynth hasn't finished async loading),
-        // skip openProgramGrid() here — the PluginEditor timer will call
-        // panelDidShow() again once getPresetList() returns a non-empty list.
-        if (sf2 && ! programPickerOpen)
-        {
-            if (! presetList.empty())
-                openProgramGrid();
-            // else: timer retry will open the grid when presets arrive
-        }
     }
     else
         initEmptySfz();   // bootstrap so [+ ZONE] is available and zones show immediately
@@ -2168,15 +1738,7 @@ void SfzPlayerDropdownPanel::reloadZones (const juce::File& f)
 {
     const auto ext   = f.getFileExtension().toLowerCase();
     const bool isSfz = (ext == ".sfz");
-    const bool isSf2 = (ext == ".sf2");
 
-    if (isSf2)
-    {
-        // SF2: keysPanel is hidden for SF2 files — Sf2ProgramGrid handles everything.
-        // Nothing to do here.
-        return;
-    }
-    else
     {
         // ── SFZ (or nothing): editable zone matrix ───────────────────────────
         std::vector<KeysPanel::Keyzone> zones;
