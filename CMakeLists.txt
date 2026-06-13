@@ -179,6 +179,7 @@ target_sources(Dysekt PRIVATE
     src/ui/SfzWaveformLcd.cpp
     src/ui/DualLcdControlFrame.cpp
     src/ui/SfzDropdownPanel.cpp
+    src/ui/SfzPlayerDropdownPanel.cpp
     src/ui/Sf2ProgramGrid.cpp
     src/ui/SfzModulePanel.cpp
     src/ui/WaveformOverview.cpp
@@ -268,6 +269,7 @@ target_sources(DysektStandalone PRIVATE
     src/ui/SfzWaveformLcd.cpp
     src/ui/DualLcdControlFrame.cpp
     src/ui/SfzDropdownPanel.cpp
+    src/ui/SfzPlayerDropdownPanel.cpp
     src/ui/Sf2ProgramGrid.cpp
     src/ui/SfzModulePanel.cpp
     src/ui/WaveformOverview.cpp
