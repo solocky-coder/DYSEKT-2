@@ -3204,6 +3204,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                          std::memory_order_relaxed);
         sfz2PeakR.store (std::max (sfz2PeakR.load (std::memory_order_relaxed) * decaySFZ2, pk2R),
                          std::memory_order_relaxed);
+    }   // end sfzPlayer2 block
 
     // ── Global post-mix EQ (applied to main bus only) ─────────────────────────
     if (busL[0] != nullptr && buffer.getNumSamples() > 0)
