@@ -3166,6 +3166,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             }
         }
 
+        const int numSamples = buffer.getNumSamples();
         juce::AudioBuffer<float> sfz2Buf (2, numSamples);
         sfz2Buf.clear();
         float* sfz2L = sfz2Buf.getWritePointer (0);
