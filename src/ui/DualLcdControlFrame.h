@@ -42,7 +42,10 @@ public:
     void setMidiFollowActive (bool v) { midiFollowActive = v; repaint(); }
     void setBodeActive       (bool v) { bodeActive       = v; repaint(); }
     void setEqActive         (bool v) { eqActive         = v; repaint(); }
-    void setPadGridActive    (bool v) { padGridActive     = v; repaint(); }
+    /** Set active tab: 0 = SLICER, 1 = SF2-PLAYER, 2 = SFZ-PLAYER */
+    void setUiTab            (int t)  { uiTab = juce::jlimit (0, 2, t); repaint(); }
+    /** Legacy helper: maps bool to uiTab 0/1. */
+    void setPadGridActive    (bool v) { setUiTab (v ? 1 : 0); }
     void setSeqActive        (bool v) { seqActive        = v; repaint(); }
 
 private:
@@ -56,7 +59,7 @@ private:
     bool midiFollowActive = false;
     bool bodeActive       = false;
     bool eqActive         = false;
-    bool padGridActive    = false;
+    int  uiTab            = 0;   // 0=SLICER, 1=SF2-PLAYER, 2=SFZ-PLAYER
     bool seqActive        = false;
 
     // Hit areas (set during paint, used in mouseDown)
@@ -69,6 +72,7 @@ private:
     juce::Rectangle<int> sfzIconArea;  // kept as unused placeholder for layout math
     juce::Rectangle<int> editTabArea;
     juce::Rectangle<int> padTabArea;
+    juce::Rectangle<int> sfzPlayerTabArea;   // third tab: SFZ-PLAYER
     juce::Rectangle<int> pitchKnobArea;
     juce::Rectangle<int> volKnobArea;
 

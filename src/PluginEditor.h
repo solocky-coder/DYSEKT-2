@@ -24,6 +24,7 @@
 #include "ui/SfzWaveformLcd.h"
 #include "ui/WaveformOverview.h"
 #include "ui/SfzDropdownPanel.h"
+#include "ui/SfzPlayerDropdownPanel.h"
 #include "ui/GlobalEqPanel.h"
 #include "ui/PadGridView.h"
 #if DYSEKT_STANDALONE
@@ -98,6 +99,9 @@ private:
      *  is queued so the timer re-runs panelDidShow on the next load. */
     bool sfzPanelRestored = false;
 
+    /** Same for SFZ-Player (sfzPlayer2). */
+    bool sfzPlayer2PanelRestored = false;
+
     /// Which panel occupies the bottom slot (browser or mixer).
     /// Mutually exclusive.
     enum class SlotContent { None, Browser, Mixer, Eq, Seq };
@@ -138,7 +142,8 @@ private:
     FileBrowserPanel browserPanel;
     MixerPanel       mixerPanel;
     PadGridView      padGridView;
-    SfzDropdownPanel sfzDropdown;
+    SfzDropdownPanel       sfzDropdown;
+    SfzPlayerDropdownPanel sfzPlayerDropdown;
     ShortcutsPanel   shortcutsPanel { processor };
     GlobalEqPanel    eqPanel;
 #if DYSEKT_STANDALONE

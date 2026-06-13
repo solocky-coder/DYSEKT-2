@@ -304,7 +304,7 @@ public:
      *  Sequencer — sequencer drives SF output; sfzPlayer live mask is
      *              governed by setSelectedSfLiveChannels(); slicer is bypassed.
      */
-    enum class MidiRouteMode { Slicer, SfPlayer, Sequencer };
+    enum class MidiRouteMode { Slicer, SfPlayer, SfzPlayer2, Sequencer };
     void setMidiRouteMode (MidiRouteMode mode);
 
     void loadFileAsync      (const juce::File& file);
@@ -372,8 +372,11 @@ public:
     SampleData       sampleData;
     MidiLearnManager midiLearn;
 
-    // ── SFZ live player ───────────────────────────────────────────────────────
+    // ── SF2 player (SF-PLAYER, ch2 default) ──────────────────────────────────
     SfzPlayer sfzPlayer;
+
+    // ── SFZ player (SFZ-PLAYER, ch3 default) ─────────────────────────────────
+    SfzPlayer sfzPlayer2;
 
     // ── Spectrum analyser (post-EQ FFT data, read by GlobalEqPanel timer) ────
     SpectrumAnalyser spectrumAnalyser;
@@ -399,6 +402,11 @@ public:
     std::atomic<float> sfzPeakR { 0.0f };
     // MIDI activity counter for SF player LED: +1 on NoteOn, -1 on NoteOff (clamped ≥0)
     std::atomic<int>   sfzMidiActivity { 0 };
+
+    // SFZ-Player (sfzPlayer2) peak meters and MIDI activity
+    std::atomic<float> sfz2PeakL { 0.0f };
+    std::atomic<float> sfz2PeakR { 0.0f };
+    std::atomic<int>   sfz2MidiActivity { 0 };
     // Live drag bounds (UI -> audio thread, bypasses FIFO for low latency)
     std::atomic<int> liveDragBoundsStart { 0 };
     std::atomic<int> liveDragBoundsEnd   { 0 };
@@ -476,9 +484,16 @@ public:
     std::atomic<int> sfzUiNoteOnRequest  { -1 };
     std::atomic<int> sfzUiNoteOffRequest { -1 };
 
+    // SFZ-Player (sfzPlayer2) keyboard UI note injection
+    std::atomic<int> sfz2UiNoteOnRequest  { -1 };
+    std::atomic<int> sfz2UiNoteOffRequest { -1 };
+
     // 128-bit active-note bitmask for the SF2/SFZ player (updated on audio thread,
     // read on UI thread for KeysPanel highlighting — display-only, torn reads OK)
     std::atomic<uint64_t> sfzActiveNotes[2] {}; // [0]=notes 0-63, [1]=notes 64-127
+
+    // 128-bit active-note bitmask for SFZ-Player (sfzPlayer2)
+    std::atomic<uint64_t> sfz2ActiveNotes[2] {};
 
     // MIDI channel routing bitmasks (bit N = channel N, 1-based, bits 1–16 used).
     //
@@ -498,6 +513,10 @@ public:
     std::atomic<uint32_t> sfPlayerChannelMask      { 0u };       // disabled until user sets a range
     std::atomic<uint32_t> savedSfPlayerChannelMask { 0x1FFFEu }; // user's last configured SF range
     std::atomic<uint32_t> chromaticSliceChannelMask { 0u };
+
+    // SFZ-Player (sfzPlayer2) channel ownership — default ch3 (bit 3)
+    std::atomic<uint32_t> sfzPlayer2ChannelMask      { 1u << 3 }; // ch 3 default
+    std::atomic<uint32_t> savedSfzPlayer2ChannelMask { 1u << 3 };
 
     /** Rebuild chromaticSliceChannelMask from current slice data.
      *  Must be called on the audio thread (or before first audio callback). */

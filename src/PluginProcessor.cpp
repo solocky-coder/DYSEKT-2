@@ -200,6 +200,10 @@ DysektProcessor::DysektProcessor()
     sliceStartParam  = apvts.getRawParameterValue (ParamIds::sliceStart);
     sliceEndParam    = apvts.getRawParameterValue (ParamIds::sliceEnd);
     publishUiSliceSnapshot();
+
+    // SF2-Player defaults to MIDI channel 2, SFZ-Player to channel 3
+    sfzPlayer .setMidiChannel (2);
+    sfzPlayer2.setMidiChannel (3);
 }
 
 DysektProcessor::~DysektProcessor()
@@ -250,6 +254,7 @@ void DysektProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     currentSampleRate = sampleRate;
     voicePool.setSampleRate (sampleRate);
     sfzPlayer.prepare (sampleRate, samplesPerBlock > 0 ? samplesPerBlock : 512);
+    sfzPlayer2.prepare (sampleRate, samplesPerBlock > 0 ? samplesPerBlock : 512);
     std::fill (std::begin (heldNotes), std::end (heldNotes), false);
 
     // Initialise CC smoothers — 20 ms ramp gives silky response on absolute knobs
@@ -531,6 +536,12 @@ void DysektProcessor::rebuildChromaticChannelMask()
         savedSfPlayerChannelMask.store (
             savedSfPlayerChannelMask.load (std::memory_order_relaxed) & evict,
             std::memory_order_relaxed);
+        sfzPlayer2ChannelMask.store (
+            sfzPlayer2ChannelMask.load (std::memory_order_relaxed) & evict,
+            std::memory_order_relaxed);
+        savedSfzPlayer2ChannelMask.store (
+            savedSfzPlayer2ChannelMask.load (std::memory_order_relaxed) & evict,
+            std::memory_order_relaxed);
     }
 }
 
@@ -569,12 +580,32 @@ void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
                 uint32_t saved = savedSfPlayerChannelMask.load (std::memory_order_relaxed);
                 // Strip channels now owned by chromatic slices.
                 saved &= ~chromaticSliceChannelMask.load (std::memory_order_relaxed);
-                // Fall back to omni if nothing remains (e.g. all channels claimed).
-                if (saved == 0u) saved = 0x1FFFEu;   // bits 2–16 (ch 1 hardwired to slicer)
+                // Fall back to omni if nothing remains (e.g. all channels claimed).\n                if (saved == 0u) saved = 0x1FFFEu;   // bits 2–16 (ch 1 hardwired to slicer)
                 sfPlayerChannelMask.store (saved, std::memory_order_relaxed);
             }
 #if DYSEKT_STANDALONE
             sequencer.setSelectedSfLiveChannels (sequencer.getAllSfPlayerChannelMask());
+#endif
+            break;
+
+        case MidiRouteMode::SfzPlayer2:
+            // Restore sfzPlayer2ChannelMask (default ch 3), zeroing SF-player mask.
+            {
+                const uint32_t curMask = sfPlayerChannelMask.load (std::memory_order_relaxed);
+                if (curMask != 0u)
+                    savedSfPlayerChannelMask.store (curMask, std::memory_order_relaxed);
+                sfPlayerChannelMask.store (0u, std::memory_order_relaxed);
+            }
+            if (sfzPlayer2ChannelMask.load (std::memory_order_relaxed) == 0u)
+            {
+                uint32_t saved = savedSfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+                saved &= ~chromaticSliceChannelMask.load (std::memory_order_relaxed);
+                saved &= ~sfPlayerChannelMask.load (std::memory_order_relaxed);
+                if (saved == 0u) saved = (1u << 3);   // default ch3
+                sfzPlayer2ChannelMask.store (saved, std::memory_order_relaxed);
+            }
+#if DYSEKT_STANDALONE
+            sequencer.setSelectedSfLiveChannels (0);
 #endif
             break;
 
@@ -3077,6 +3108,103 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                         std::memory_order_relaxed);
     }
 
+    // ── SFZ-Player (sfzPlayer2, ch3 default) ─────────────────────────────────
+    {
+        const uint32_t sfz2MaskBuild = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+
+        // UI note injection for sfzPlayer2
+        {
+            const int noteOn  = sfz2UiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
+            const int noteOff = sfz2UiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
+            if (sfz2MaskBuild != 0)
+            {
+                int injectCh = 3;
+                for (int c = 1; c <= 16; ++c)
+                    if (sfz2MaskBuild & (1u << c)) { injectCh = c; break; }
+                if (noteOn  >= 0 && noteOn  <= 127)
+                {
+                    midi.addEvent (juce::MidiMessage::noteOn  (injectCh, noteOn,  (juce::uint8) 100), 0);
+                    const int w = noteOn  < 64 ? 0 : 1;
+                    const int b = noteOn  < 64 ? noteOn  : noteOn  - 64;
+                    sfz2ActiveNotes[w].fetch_or  ((uint64_t)1 << b, std::memory_order_relaxed);
+                    sfzPlayer2.juceAdsrNoteOn();
+                }
+                if (noteOff >= 0 && noteOff <= 127)
+                {
+                    const int offSample = (noteOn == noteOff)
+                                        ? juce::jmax (0, buffer.getNumSamples() - 1)
+                                        : 0;
+                    midi.addEvent (juce::MidiMessage::noteOff (injectCh, noteOff, (juce::uint8) 0), offSample);
+                    if (noteOff != noteOn)
+                    {
+                        const int w = noteOff < 64 ? 0 : 1;
+                        const int b = noteOff < 64 ? noteOff : noteOff - 64;
+                        sfz2ActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
+                    }
+                    sfzPlayer2.juceAdsrNoteOff();
+                }
+            }
+        }
+
+        juce::MidiBuffer sfz2MidiBuf;
+        if (sfz2MaskBuild != 0)
+        {
+            const bool allChannels = ((sfz2MaskBuild & 0x1FFFEu) == 0x1FFFEu);
+            if (allChannels)
+            {
+                sfz2MidiBuf = midi;
+            }
+            else
+            {
+                for (const auto meta : midi)
+                {
+                    const auto& msg = meta.getMessage();
+                    const int ch = msg.getChannel();
+                    if (ch >= 1 && ch <= 16 && (sfz2MaskBuild & (1u << ch)))
+                        sfz2MidiBuf.addEvent (msg, meta.samplePosition);
+                }
+            }
+        }
+
+        juce::AudioBuffer<float> sfz2Buf (2, numSamples);
+        sfz2Buf.clear();
+        float* sfz2L = sfz2Buf.getWritePointer (0);
+        float* sfz2R = sfz2Buf.getWritePointer (1);
+
+        for (const auto meta : sfz2MidiBuf)
+        {
+            const auto& msg = meta.getMessage();
+            if (msg.isNoteOn (true))
+                sfz2MidiActivity.fetch_add (1, std::memory_order_relaxed);
+            else if (msg.isNoteOff (true))
+            {
+                int prev = sfz2MidiActivity.load (std::memory_order_relaxed);
+                while (prev > 0 &&
+                       !sfz2MidiActivity.compare_exchange_weak (prev, prev - 1,
+                           std::memory_order_relaxed, std::memory_order_relaxed))
+                {}
+            }
+        }
+
+        sfzPlayer2.process (sfz2MidiBuf, sfz2L, sfz2R, numSamples);
+
+        if (busL[0])
+            for (int i = 0; i < numSamples; ++i) busL[0][i] += sfz2L[i];
+        if (busR[0])
+            for (int i = 0; i < numSamples; ++i) busR[0][i] += sfz2R[i];
+
+        float pk2L = 0.f, pk2R = 0.f;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            pk2L = std::max (pk2L, std::abs (sfz2L[i]));
+            pk2R = std::max (pk2R, std::abs (sfz2R[i]));
+        }
+        const float decaySFZ2 = 0.85f;
+        sfz2PeakL.store (std::max (sfz2PeakL.load (std::memory_order_relaxed) * decaySFZ2, pk2L),
+                         std::memory_order_relaxed);
+        sfz2PeakR.store (std::max (sfz2PeakR.load (std::memory_order_relaxed) * decaySFZ2, pk2R),
+                         std::memory_order_relaxed);
+
     // ── Global post-mix EQ (applied to main bus only) ─────────────────────────
     if (busL[0] != nullptr && buffer.getNumSamples() > 0)
     {
@@ -3243,7 +3371,19 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
         stream.writeInt (hi);
     }
 
-    // Sequencer state
+    // v26: SFZ-Player (sfzPlayer2) channel range
+    {
+        const uint32_t mask2 = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+        int lo2 = 0, hi2 = 0;
+        if (mask2 != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (mask2 & (1u << c)) { lo2 = c; break; }
+            for (int c = 16; c >= 2; --c)  if (mask2 & (1u << c)) { hi2 = c; break; }
+        }
+        if (lo2 == 0) { lo2 = 3; hi2 = 3; }   // default ch3
+        stream.writeInt (lo2);
+        stream.writeInt (hi2);
+    }
 #if DYSEKT_STANDALONE
     sequencer.writeToStream (stream);
 #endif
@@ -3433,7 +3573,19 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             }
         }
 
-        // Restore the SF2/SFZ file — this is async; the editor polls isLoaded()
+        // v26: SFZ-Player channel range
+        if (! stream.isExhausted())
+        {
+            const int lo2 = stream.readInt();
+            const int hi2 = stream.readInt();
+            uint32_t mask2 = 0u;
+            if (lo2 >= 2 && hi2 >= lo2)
+                for (int c = juce::jmax (lo2, 2); c <= juce::jmin (hi2, 16); ++c)
+                    mask2 |= (1u << c);
+            if (mask2 == 0u) mask2 = (1u << 3);   // default ch3
+            sfzPlayer2ChannelMask.store      (mask2, std::memory_order_relaxed);
+            savedSfzPlayer2ChannelMask.store (mask2, std::memory_order_relaxed);
+        }
         if (sfzPath.isNotEmpty())
         {
             const juce::File sfzFile (sfzPath);

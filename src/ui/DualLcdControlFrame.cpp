@@ -392,14 +392,15 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
     // ── EDIT | PAD mode tab strip (centred on divider) ────────────────────────
     {
         const int tabH    = si (15);
-        const int tabW    = si (42);
-        const int tabGap  = si (4);
-        const int totalTW = tabW * 2 + tabGap;
+        const int tabW    = si (34);
+        const int tabGap  = si (3);
+        const int totalTW = tabW * 3 + tabGap * 2;
         const int tabX    = (w - totalTW) / 2;
         const int tabY    = half - tabH / 2;
 
-        editTabArea = { tabX,                tabY, tabW, tabH };
-        padTabArea  = { tabX + tabW + tabGap, tabY, tabW, tabH };
+        editTabArea      = { tabX,                          tabY, tabW, tabH };
+        padTabArea       = { tabX + tabW + tabGap,          tabY, tabW, tabH };
+        sfzPlayerTabArea = { tabX + (tabW + tabGap) * 2,    tabY, tabW, tabH };
 
         // Erase the divider line behind the tabs so they float cleanly
         {
@@ -430,12 +431,13 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
                 g.drawRoundedRectangle (rf.reduced (0.5f), 3.0f, 0.7f);
                 g.setColour (fg.withAlpha (0.50f));
             }
-            g.setFont (DysektLookAndFeel::makeFont (sf1 (7.5f), true));
+            g.setFont (DysektLookAndFeel::makeFont (sf1 (7.0f), true));
             g.drawText (label, r, juce::Justification::centred);
         };
 
-        drawTab (editTabArea, "SLICER", ! padGridActive);
-        drawTab (padTabArea,  "SF-PLAYER",  padGridActive);
+        drawTab (editTabArea,      "SLICER",      uiTab == 0);
+        drawTab (padTabArea,       "SF2-PLAYER",  uiTab == 1);
+        drawTab (sfzPlayerTabArea, "SFZ-PLAYER",  uiTab == 2);
     }
 
     // ── Top row: five icons evenly spread across full width ─────────────────
@@ -665,12 +667,12 @@ void DualLcdControlFrame::mouseDown (const juce::MouseEvent& e)
         if (onSeqToggle) onSeqToggle();
         return;
     }
-    // ── EDIT | SFZ tabs ──────────────────────────────────────────────────────
+    // ── SLICER | SF2-PLAYER | SFZ-PLAYER tabs ───────────────────────────────
     if (editTabArea.contains (pos))
     {
-        if (padGridActive)
+        if (uiTab != 0)
         {
-            padGridActive = false;
+            uiTab = 0;
             repaint();
             if (onUiModeChanged) onUiModeChanged (0);
         }
@@ -678,11 +680,21 @@ void DualLcdControlFrame::mouseDown (const juce::MouseEvent& e)
     }
     if (padTabArea.contains (pos))
     {
-        if (! padGridActive)
+        if (uiTab != 1)
         {
-            padGridActive = true;
+            uiTab = 1;
             repaint();
             if (onUiModeChanged) onUiModeChanged (1);
+        }
+        return;
+    }
+    if (sfzPlayerTabArea.contains (pos))
+    {
+        if (uiTab != 2)
+        {
+            uiTab = 2;
+            repaint();
+            if (onUiModeChanged) onUiModeChanged (2);
         }
         return;
     }

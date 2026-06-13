@@ -29,6 +29,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  mixerPanel (p),
       eqPanel (p),
  sfzDropdown (p),
+ sfzPlayerDropdown (p),
  padGridView (p),
  shortcutsPanel (p)
 {
@@ -60,6 +61,13 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  sfzDropdown.setVisible (false);
  addChildComponent (sfzDropdown);
+
+ sfzPlayerDropdown.setVisible (false);
+ addChildComponent (sfzPlayerDropdown);
+ sfzPlayerDropdown.onFileLoaded = [this] (const juce::File&)
+ {
+     sfzPlayer2PanelRestored = false;
+ };
 
  addChildComponent (padGridView);
  padGridView.onRenameRequest = [this] (int sliceIdx, const juce::String& currentName)
@@ -297,6 +305,11 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      sfzDropdown.setVisible (true);
      // sfzPanelRestored starts false; the timerCallback will populate zones.
  }
+ else if (uiMode == 2)
+ {
+     sfzPlayerDropdown.setVisible (true);
+     // sfzPlayer2PanelRestored starts false; timerCallback populates zones.
+ }
 
  // Restore the correct MIDI route mode that matches the saved uiMode.
  // setUiMode() wasn't called by loadUserSettings(), so we must do this here.
@@ -354,6 +367,7 @@ void DysektEditor::syncMidiRouteMode()
 {
     using Mode = DysektProcessor::MidiRouteMode;
     const Mode mode = (activeSlot == SlotContent::Seq) ? Mode::Sequencer
+                    : (uiMode == 2)                    ? Mode::SfzPlayer2
                     : (uiMode == 1)                    ? Mode::SfPlayer
                                                        : Mode::Slicer;
     processor.setMidiRouteMode (mode);
@@ -367,48 +381,52 @@ void DysektEditor::setUiMode (int mode)
  // Leaving slicer mode — reset pad view to waveform
  if (uiMode != 0) { showPadGrid = false; sliceControlBar.setPadViewActive (false); }
 
- // Keep the EDIT|SFZ tab in sync
- headerBar.dualFrame().setPadGridActive (uiMode == 1);
+ // Keep the tab strip in sync (0=SLICER, 1=SF2-PLAYER, 2=SFZ-PLAYER)
+ headerBar.dualFrame().setUiTab (uiMode);
 
- // Slicer note highlights must not appear on the SF-player keyboard.
- // Disable them as soon as we enter SF-player mode (uiMode == 1), before
- // any soundfont has been loaded, so the KeysPanel guard works from the
- // very first paint in that mode.
+ // Slicer note highlights must not appear on SF-player keyboards.
  sfzDropdown.keysPanel.setSlicerHighlightEnabled (uiMode == 0);
+ sfzPlayerDropdown.keysPanel.setSlicerHighlightEnabled (uiMode == 0);
 
  // Route live MIDI to the active front-end.
  syncMidiRouteMode();
 
- // Hide waveform overview immediately when switching to SFZ mode
+ // Hide waveform overview immediately when not in slicer mode
  waveformOverview.setVisible (uiMode == 0 && !showPadGrid);
 
- // Show/hide sfzDropdown panel based on mode
+ // Show/hide sfzDropdown and sfzPlayerDropdown based on mode
  if (uiMode == 1)
  {
      sfzDropdown.setVisible (true);
-     // Reset the restore flag.  Only call panelDidShow() immediately if the
-     // player is loaded AND the preset list is already available — otherwise
-     // leave sfzPanelRestored = false so the timer retries once FluidSynth
-     // finishes building its preset list (async after setStateInformation).
+     sfzPlayerDropdown.setVisible (false);
      sfzPanelRestored = false;
      if (processor.sfzPlayer.isLoaded())
      {
          const auto presets = processor.sfzPlayer.getPresetList();
          const bool sf2 = processor.sfzPlayer.getLoadedFile()
                               .getFileExtension().toLowerCase() == ".sf2";
-         // For SF2: only proceed once the preset list is populated.
-         // For SFZ: no preset list needed — show immediately.
          if (! sf2 || ! presets.empty())
          {
              sfzDropdown.panelDidShow();
              sfzPanelRestored = true;
          }
-         // else: timer will call panelDidShow() once presets arrive.
+     }
+ }
+ else if (uiMode == 2)
+ {
+     sfzDropdown.setVisible (false);
+     sfzPlayerDropdown.setVisible (true);
+     sfzPlayer2PanelRestored = false;
+     if (processor.sfzPlayer2.isLoaded())
+     {
+         sfzPlayerDropdown.panelDidShow();
+         sfzPlayer2PanelRestored = true;
      }
  }
  else
  {
      sfzDropdown.setVisible (false);
+     sfzPlayerDropdown.setVisible (false);
  }
 
  // Persist the new mode
@@ -739,10 +757,13 @@ void DysektEditor::paintOverChildren (juce::Graphics& g)
  }
 
  // SFZ player frame border — identical recipe and width as the waveform frame
- const bool sfzVisible = sfzDropdown.isVisible() && sfzDropdown.getHeight() > 0;
+ const bool sfzVisible = (sfzDropdown.isVisible() && sfzDropdown.getHeight() > 0)
+                        || (sfzPlayerDropdown.isVisible() && sfzPlayerDropdown.getHeight() > 0);
  if (sfzVisible)
  {
- const auto outerF = waveformFrameRect (*this, sfzDropdown.getBounds(), false);
+ const juce::Rectangle<int> sfzActiveBounds = sfzDropdown.isVisible() ? sfzDropdown.getBounds()
+                                                                        : sfzPlayerDropdown.getBounds();
+ const auto outerF = waveformFrameRect (*this, sfzActiveBounds, false);
  const auto ac = getTheme().accent;
 
  {
@@ -1020,17 +1041,19 @@ void DysektEditor::resized()
  if (slotCoveringFrame)
  {
      // Mixer or normal browser is open — hide all main views
-     waveformView.setVisible (false);   waveformView.setBounds ({});
-     sfzDropdown.setVisible  (false);   sfzDropdown.setBounds  ({});
-     padGridView.setVisible  (false);   padGridView.setBounds  ({});
+     waveformView.setVisible (false);       waveformView.setBounds ({});
+     sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
+     sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
+     padGridView.setVisible  (false);       padGridView.setBounds  ({});
  }
  else if (initBrowserOpen)
  {
      // No real sample yet — browser occupies the full waveform frame area
      browserPanel.setBounds (screenX, y, screenW, h);
-     waveformView.setVisible (false);   waveformView.setBounds ({});
-     sfzDropdown.setVisible  (false);   sfzDropdown.setBounds  ({});
-     padGridView.setVisible  (false);   padGridView.setBounds  ({});
+     waveformView.setVisible (false);       waveformView.setBounds ({});
+     sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
+     sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
+     padGridView.setVisible  (false);       padGridView.setBounds  ({});
  }
  else if (uiMode == 0 || trimActive)
  {
@@ -1047,13 +1070,28 @@ void DysektEditor::resized()
 
      sfzDropdown.setVisible (false);
      sfzDropdown.setBounds ({});
+     sfzPlayerDropdown.setVisible (false);
+     sfzPlayerDropdown.setBounds ({});
+ }
+ else if (uiMode == 1)
+ {
+     // SF2-Player layout
+     sfzDropdown.setVisible (true);
+     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
+     sfzPlayerDropdown.setVisible (false);
+     sfzPlayerDropdown.setBounds ({});
+     waveformView.setVisible (false);
+     waveformView.setBounds ({});
+     padGridView.setVisible (false);
+     padGridView.setBounds ({});
  }
  else
  {
-     // SFZ player layout
-     sfzDropdown.setVisible (true);
-     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
-
+     // SFZ-Player layout (uiMode == 2)
+     sfzPlayerDropdown.setVisible (true);
+     sfzPlayerDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
+     sfzDropdown.setVisible (false);
+     sfzDropdown.setBounds ({});
      waveformView.setVisible (false);
      waveformView.setBounds ({});
      padGridView.setVisible (false);
@@ -1365,6 +1403,8 @@ void DysektEditor::timerCallback()
 
   if (uiMode == 1 && (uiChanged || playbackActive))
      sfzDropdown.repaint();
+  if (uiMode == 2 && (uiChanged || playbackActive))
+     sfzPlayerDropdown.repaint();
 
  // SF-player async restore: once sfzPlayer finishes loading after
  // setStateInformation (or a fresh UI open), repopulate the zone matrix
@@ -1412,6 +1452,22 @@ void DysektEditor::timerCallback()
              const auto presets = processor.sfzPlayer.getPresetList();
              if (! presets.empty())
                  sfzDropdown.panelDidShow();
+         }
+     }
+ }
+
+ // SFZ-Player async restore (sfzPlayer2)
+ if (uiMode == 2)
+ {
+     if (uiChanged || playbackActive)
+         sfzPlayerDropdown.repaint();
+
+     if (! sfzPlayer2PanelRestored)
+     {
+         if (processor.sfzPlayer2.isLoaded())
+         {
+             sfzPlayerDropdown.panelDidShow();
+             sfzPlayer2PanelRestored = true;
          }
      }
  }
