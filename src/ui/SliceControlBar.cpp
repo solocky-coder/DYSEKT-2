@@ -800,6 +800,8 @@ void SliceControlBar::showMidiLearnMenu (int fieldId, juce::Point<int> screenPos
 // =============================================================================
 void SliceControlBar::paint (juce::Graphics& g)
 {
+ const bool sfzPlayerMode = (processor.midiRouteMode.load (std::memory_order_relaxed)
+                              == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
  // ── LCD-style frame — matches waveform + LCD screen aesthetic ────────────
  {
  const auto ac = getTheme().accent;
@@ -1010,8 +1012,6 @@ void SliceControlBar::paint (juce::Graphics& g)
  }
 
  // ── Chromatic group: hidden in SFZ-player mode ─────────────────────────
- const bool sfzPlayerMode = (processor.midiRouteMode.load (std::memory_order_relaxed)
-                              == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
  if (! sfzPlayerMode)
  {
  // ── Separator before chromatic group ────────────────────────────────

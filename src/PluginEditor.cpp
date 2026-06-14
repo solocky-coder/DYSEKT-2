@@ -1429,7 +1429,6 @@ void DysektEditor::timerCallback()
  sliceWaveformLcd.repaintLcd();
  sfzLcd.repaintLcd();
  sfzWaveformLcd.repaintLcd();
- if (uiMode == 1 &&
  {
  auto timerSnap = processor.sampleData.getSnapshot();
  const bool hasSample = (timerSnap != nullptr
