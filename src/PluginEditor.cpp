@@ -30,6 +30,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
       eqPanel (p),
  sfzDropdown (p),
  sfzPlayerDropdown (p),
+ sfzWaveformView    (p),
  padGridView (p),
  shortcutsPanel (p)
 {
@@ -64,6 +65,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  sfzPlayerDropdown.setVisible (false);
  addChildComponent (sfzPlayerDropdown);
+ sfzWaveformView.setVisible (false);
+ addChildComponent (sfzWaveformView);
  sfzPlayerDropdown.onFileLoaded = [this] (const juce::File&)
  {
      sfzPlayer2PanelRestored = false;
