@@ -162,6 +162,7 @@ target_sources(Dysekt PRIVATE
     src/ui/HeaderBar.cpp
     src/ui/SliceControlBar.cpp
     src/ui/WaveformView.cpp
+    src/ui/SFZWaveformView.cpp
     src/ui/WaveformCache.cpp
     src/ui/SliceLane.cpp
     src/ui/ActionPanel.cpp
@@ -252,6 +253,7 @@ target_sources(DysektStandalone PRIVATE
     src/ui/HeaderBar.cpp
     src/ui/SliceControlBar.cpp
     src/ui/WaveformView.cpp
+    src/ui/SFZWaveformView.cpp
     src/ui/WaveformCache.cpp
     src/ui/SliceLane.cpp
     src/ui/ActionPanel.cpp
