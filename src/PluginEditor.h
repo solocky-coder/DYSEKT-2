@@ -27,6 +27,7 @@
 #include "ui/SfzPlayerDropdownPanel.h"
 #include "ui/GlobalEqPanel.h"
 #include "ui/PadGridView.h"
+#include "ui/SFZWaveformView.h"
 #if DYSEKT_STANDALONE
 #include "ui/PianoRollPanel.h"
 #include "ui/ArrangeView.h"
@@ -144,6 +145,7 @@ private:
     PadGridView      padGridView;
     SfzDropdownPanel       sfzDropdown;
     SfzPlayerDropdownPanel sfzPlayerDropdown;
+    SFZWaveformView        sfzWaveformView;
     ShortcutsPanel   shortcutsPanel { processor };
     GlobalEqPanel    eqPanel;
 #if DYSEKT_STANDALONE

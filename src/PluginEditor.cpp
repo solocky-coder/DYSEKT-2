@@ -562,6 +562,7 @@ void DysektEditor::toggleSoftWave()
  waveformMode = (waveformMode + 1) % 8;
  waveformView.setWaveformMode (waveformMode);
  waveformOverview.setWaveformMode (waveformMode);
+ sfzWaveformView.setWaveformMode (waveformMode);
  headerBar.setBrowserActive (activeSlot == SlotContent::Browser);
  headerBar.setWaveMode (waveformMode);
  saveUserSettings (getTheme().name);
@@ -761,8 +762,12 @@ void DysektEditor::paintOverChildren (juce::Graphics& g)
                         || (sfzPlayerDropdown.isVisible() && sfzPlayerDropdown.getHeight() > 0);
  if (sfzVisible)
  {
- const juce::Rectangle<int> sfzActiveBounds = sfzDropdown.isVisible() ? sfzDropdown.getBounds()
-                                                                        : sfzPlayerDropdown.getBounds();
+ const juce::Rectangle<int> sfzActiveBounds =
+     sfzDropdown.isVisible()
+         ? (sfzWaveformView.isVisible() && sfzWaveformView.getHeight() > 0
+                ? sfzDropdown.getBounds().getUnion (sfzWaveformView.getBounds())
+                : sfzDropdown.getBounds())
+         : sfzPlayerDropdown.getBounds();
  const auto outerF = waveformFrameRect (*this, sfzActiveBounds, false);
  const auto ac = getTheme().accent;
 
@@ -1044,6 +1049,7 @@ void DysektEditor::resized()
      waveformView.setVisible (false);       waveformView.setBounds ({});
      sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
      sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
+     sfzWaveformView.setVisible (false);    sfzWaveformView.setBounds ({});
      padGridView.setVisible  (false);       padGridView.setBounds  ({});
  }
  else if (initBrowserOpen)
@@ -1053,6 +1059,7 @@ void DysektEditor::resized()
      waveformView.setVisible (false);       waveformView.setBounds ({});
      sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
      sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
+     sfzWaveformView.setVisible (false);    sfzWaveformView.setBounds ({});
      padGridView.setVisible  (false);       padGridView.setBounds  ({});
  }
  else if (uiMode == 0 || trimActive)
@@ -1070,14 +1077,20 @@ void DysektEditor::resized()
 
      sfzDropdown.setVisible (false);
      sfzDropdown.setBounds ({});
+     sfzWaveformView.setVisible (false);
+     sfzWaveformView.setBounds ({});
      sfzPlayerDropdown.setVisible (false);
      sfzPlayerDropdown.setBounds ({});
  }
  else if (uiMode == 1)
  {
-     // SF2-Player layout
+     // SF2-Player layout — split vertically: sfzDropdown (top 60%), SFZWaveformView (bottom 40%)
+     const int dropH = juce::jmax (si (80), waveH * 3 / 5);
+     const int wvwH  = juce::jmax (si (100), waveH - dropH);
      sfzDropdown.setVisible (true);
-     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
+     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, dropH));
+     sfzWaveformView.setVisible (true);
+     sfzWaveformView.setBounds (juce::Rectangle<int> (screenX, y + dropH, screenW, wvwH));
      sfzPlayerDropdown.setVisible (false);
      sfzPlayerDropdown.setBounds ({});
      waveformView.setVisible (false);
@@ -1092,6 +1105,8 @@ void DysektEditor::resized()
      sfzPlayerDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
      sfzDropdown.setVisible (false);
      sfzDropdown.setBounds ({});
+     sfzWaveformView.setVisible (false);
+     sfzWaveformView.setBounds ({});
      waveformView.setVisible (false);
      waveformView.setBounds ({});
      padGridView.setVisible (false);
@@ -1476,6 +1491,8 @@ void DysektEditor::timerCallback()
  sliceWaveformLcd.repaintLcd();
  sfzLcd.repaintLcd();
  sfzWaveformLcd.repaintLcd();
+ if (uiMode == 1 && sfzWaveformView.isVisible())
+     sfzWaveformView.timerTick();
 
  {
  auto timerSnap = processor.sampleData.getSnapshot();
