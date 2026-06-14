@@ -30,7 +30,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
       eqPanel (p),
  sfzDropdown (p),
  sfzPlayerDropdown (p),
- sfzWaveformView    (p),
  padGridView (p),
  shortcutsPanel (p)
 {
@@ -65,8 +64,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  sfzPlayerDropdown.setVisible (false);
  addChildComponent (sfzPlayerDropdown);
- sfzWaveformView.setVisible (false);
- addChildComponent (sfzWaveformView);
  sfzPlayerDropdown.onFileLoaded = [this] (const juce::File&)
  {
      sfzPlayer2PanelRestored = false;
@@ -305,8 +302,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  // sfzPlayer.isLoaded() becomes true (async after setStateInformation).
  if (uiMode == 1)
  {
-     sfzDropdown.setVisible (true);
-     // sfzPanelRestored starts false; the timerCallback will populate zones.
+     // SFZ-player mode: slicer UI — no sfzDropdown to restore
  }
  else if (uiMode == 2)
  {
@@ -394,26 +390,18 @@ void DysektEditor::setUiMode (int mode)
  // Route live MIDI to the active front-end.
  syncMidiRouteMode();
 
- // Hide waveform overview immediately when not in slicer mode
- waveformOverview.setVisible (uiMode == 0 && !showPadGrid);
+ // SFZ-player mode has no slice cap
+ processor.sliceManager.unlimitedSlices = (uiMode == 1);
+
+ // Show waveform overview for slicer and sfz-player mode
+ waveformOverview.setVisible ((uiMode == 0 || uiMode == 1) && !showPadGrid);
 
  // Show/hide sfzDropdown and sfzPlayerDropdown based on mode
  if (uiMode == 1)
  {
-     sfzDropdown.setVisible (true);
+     // SFZ-player: slicer layout — no sfzDropdown panel needed
+     sfzDropdown.setVisible (false);
      sfzPlayerDropdown.setVisible (false);
-     sfzPanelRestored = false;
-     if (processor.sfzPlayer.isLoaded())
-     {
-         const auto presets = processor.sfzPlayer.getPresetList();
-         const bool sf2 = processor.sfzPlayer.getLoadedFile()
-                              .getFileExtension().toLowerCase() == ".sf2";
-         if (! sf2 || ! presets.empty())
-         {
-             sfzDropdown.panelDidShow();
-             sfzPanelRestored = true;
-         }
-     }
  }
  else if (uiMode == 2)
  {
@@ -565,7 +553,6 @@ void DysektEditor::toggleSoftWave()
  waveformMode = (waveformMode + 1) % 8;
  waveformView.setWaveformMode (waveformMode);
  waveformOverview.setWaveformMode (waveformMode);
- sfzWaveformView.setWaveformMode (waveformMode);
  headerBar.setBrowserActive (activeSlot == SlotContent::Browser);
  headerBar.setWaveMode (waveformMode);
  saveUserSettings (getTheme().name);
@@ -766,11 +753,9 @@ void DysektEditor::paintOverChildren (juce::Graphics& g)
  if (sfzVisible)
  {
  const juce::Rectangle<int> sfzActiveBounds =
-     sfzDropdown.isVisible()
-         ? (sfzWaveformView.isVisible() && sfzWaveformView.getHeight() > 0
-                ? sfzDropdown.getBounds().getUnion (sfzWaveformView.getBounds())
-                : sfzDropdown.getBounds())
-         : sfzPlayerDropdown.getBounds();
+     sfzDropdown.isVisible()     ? sfzDropdown.getBounds()
+     : sfzPlayerDropdown.isVisible() ? sfzPlayerDropdown.getBounds()
+                                     : juce::Rectangle<int>();
  const auto outerF = waveformFrameRect (*this, sfzActiveBounds, false);
  const auto ac = getTheme().accent;
 
@@ -826,14 +811,14 @@ void DysektEditor::resized()
 
  // ── Top strip ─────────────────────────────────────────────────────────────
  // In PAD mode shrink LCD rows to 65% — frees ~116px for the pad grid
- const int lcdRowH = (uiMode == 1) ? juce::roundToInt (kLcdRowH * sf * 0.65f) : si (kLcdRowH);
- const int ctrlFrmH = (uiMode == 1) ? juce::roundToInt (kCtrlFrameH * sf * 0.65f) : si (kCtrlFrameH);
+ const int lcdRowH = si (kLcdRowH);
+ const int ctrlFrmH = si (kCtrlFrameH);
  const int kTopStripH = si (kLogoH) + lcdRowH;
  auto topArea = area.removeFromTop (kTopStripH);
  auto topRow = topArea.reduced (si (kMargin), si (4));
 
  const int sideW = (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2;
- const bool sfMode = (uiMode == 1);
+ const bool sfMode = false;  // SFZ-player (mode 1) reuses slicer LCD
  sliceLcd.setVisible (! sfMode);
  sliceWaveformLcd.setVisible (! sfMode);
  sfzLcd.setVisible (sfMode);
@@ -979,7 +964,7 @@ void DysektEditor::resized()
  waveformOverview.setBounds ({});
  } else {
  // SCB first (bottommost), then overview row sits immediately above it.
- if (hasRealSample && uiMode == 0 && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
+ if (hasRealSample && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
  {
      {
          const int scbH = si (kSliceCtrlH);
@@ -1006,7 +991,7 @@ void DysektEditor::resized()
  }
 
  // Overview row: allocate space and show only when waveform view is active.
- if (uiMode == 0 && activeSlot != SlotContent::Mixer && !normalBrowserOpen && hasRealSample && !showPadGrid)
+ if ((uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen && hasRealSample && !showPadGrid)
  {
      auto overviewRow = area.removeFromBottom (kOverviewRowH);
      const int overviewY = overviewRow.getY() + kInterGap;
@@ -1052,7 +1037,6 @@ void DysektEditor::resized()
      waveformView.setVisible (false);       waveformView.setBounds ({});
      sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
      sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
-     sfzWaveformView.setVisible (false);    sfzWaveformView.setBounds ({});
      padGridView.setVisible  (false);       padGridView.setBounds  ({});
  }
  else if (initBrowserOpen)
@@ -1062,7 +1046,6 @@ void DysektEditor::resized()
      waveformView.setVisible (false);       waveformView.setBounds ({});
      sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
      sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
-     sfzWaveformView.setVisible (false);    sfzWaveformView.setBounds ({});
      padGridView.setVisible  (false);       padGridView.setBounds  ({});
  }
  else if (uiMode == 0 || trimActive)
@@ -1080,26 +1063,23 @@ void DysektEditor::resized()
 
      sfzDropdown.setVisible (false);
      sfzDropdown.setBounds ({});
-     sfzWaveformView.setVisible (false);
-     sfzWaveformView.setBounds ({});
      sfzPlayerDropdown.setVisible (false);
      sfzPlayerDropdown.setBounds ({});
  }
  else if (uiMode == 1)
  {
-     // SF2-Player layout — split vertically: sfzDropdown (top 60%), SFZWaveformView (bottom 40%)
-     const int dropH = juce::jmax (si (80), waveH * 3 / 5);
-     const int wvwH  = juce::jmax (si (100), waveH - dropH);
-     sfzDropdown.setVisible (true);
-     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, dropH));
-     sfzWaveformView.setVisible (true);
-     sfzWaveformView.setBounds (juce::Rectangle<int> (screenX, y + dropH, screenW, wvwH));
+     // SFZ-player: exact slicer layout — WaveformView / PadGridView
+     const bool showPads1 = showPadGrid;
+     waveformView.setVisible (! showPads1);
+     waveformView.setBounds (showPads1 ? juce::Rectangle<int>()
+                                       : juce::Rectangle<int> (screenX, y, screenW, waveH));
+     padGridView.setVisible (showPads1);
+     padGridView.setBounds (showPads1 ? juce::Rectangle<int> (screenX, y, screenW, waveH)
+                                      : juce::Rectangle<int>());
+     sfzDropdown.setVisible (false);
+     sfzDropdown.setBounds ({});
      sfzPlayerDropdown.setVisible (false);
      sfzPlayerDropdown.setBounds ({});
-     waveformView.setVisible (false);
-     waveformView.setBounds ({});
-     padGridView.setVisible (false);
-     padGridView.setBounds ({});
  }
  else
  {
@@ -1108,8 +1088,6 @@ void DysektEditor::resized()
      sfzPlayerDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
      sfzDropdown.setVisible (false);
      sfzDropdown.setBounds ({});
-     sfzWaveformView.setVisible (false);
-     sfzWaveformView.setBounds ({});
      waveformView.setVisible (false);
      waveformView.setBounds ({});
      padGridView.setVisible (false);
@@ -1419,8 +1397,7 @@ void DysektEditor::timerCallback()
  // SFZ player refresh
     if (showPadGrid) padGridView.repaintGrid();
 
-  if (uiMode == 1 && (uiChanged || playbackActive))
-     sfzDropdown.repaint();
+  // uiMode==1 uses waveformView (repainted above); sfzDropdown not used
   if (uiMode == 2 && (uiChanged || playbackActive))
      sfzPlayerDropdown.repaint();
 
@@ -1432,49 +1409,7 @@ void DysektEditor::timerCallback()
  //   1. sfzPanelRestored == false: initial restore — wait for isLoaded + presets.
  //   2. sfzPanelRestored == true but programGrid not yet open: setUiMode() fired
  //      before FluidSynth finished (SF2 async); retry until presets arrive.
- if (uiMode == 1)
- {
-     if (! sfzPanelRestored)
-     {
-         if (processor.sfzPlayer.isLoaded())
-         {
-             // getPresetList() drains freshPresets; first call after load
-             // populates cachedPresets inside sfzPlayer.
-             const auto presets = processor.sfzPlayer.getPresetList();
-             if (! presets.empty())
-             {
-                 // Apply any preset index that was saved by setStateInformation.
-                 const int pending = processor.pendingSfzPresetIndex.exchange (
-                     -1, std::memory_order_relaxed);
-                 if (pending >= 0)
-                     processor.sfzPlayer.setPresetByIndex (pending);
-
-                 sfzDropdown.panelDidShow();
-                 sfzPanelRestored = true;
-             }
-         }
-     }
-     else
-     {
-         // sfzPanelRestored is true but the program grid may have been opened
-         // with an empty preset list (race between setUiMode and FluidSynth
-         // finishing).  Re-call panelDidShow() once presets are available.
-         // Skip if the mixer or browser is open — must not auto-close them.
-         if (! sfzDropdown.isProgramGridOpen()
-             && activeSlot != SlotContent::Mixer
-             && ! sfzDropdown.isBrowserOpen()
-             && processor.sfzPlayer.isLoaded()
-             && processor.sfzPlayer.getLoadedFile()
-                    .getFileExtension().toLowerCase() == ".sf2")
-         {
-             const auto presets = processor.sfzPlayer.getPresetList();
-             if (! presets.empty())
-                 sfzDropdown.panelDidShow();
-         }
-     }
- }
-
- // SFZ-Player async restore (sfzPlayer2)
+ // uiMode==1 uses slicer waveform — no sfzPanel restore needed
  if (uiMode == 2)
  {
      if (uiChanged || playbackActive)
@@ -1494,9 +1429,7 @@ void DysektEditor::timerCallback()
  sliceWaveformLcd.repaintLcd();
  sfzLcd.repaintLcd();
  sfzWaveformLcd.repaintLcd();
- if (uiMode == 1 && sfzWaveformView.isVisible())
-     sfzWaveformView.timerTick();
-
+ if (uiMode == 1 &&
  {
  auto timerSnap = processor.sampleData.getSnapshot();
  const bool hasSample = (timerSnap != nullptr

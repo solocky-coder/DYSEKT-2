@@ -1009,6 +1009,11 @@ void SliceControlBar::paint (juce::Graphics& g)
  x += cw + si (4);
  }
 
+ // ── Chromatic group: hidden in SFZ-player mode ─────────────────────────
+ const bool sfzPlayerMode = (processor.midiRouteMode.load (std::memory_order_relaxed)
+                              == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
+ if (! sfzPlayerMode)
+ {
  // ── Separator before chromatic group ────────────────────────────────
  g.setColour (getTheme().separator.withAlpha (0.5f));
  g.drawVerticalLine (x + 2, (float) row1y + 4.f, (float) row1y + 28.f);
@@ -1054,6 +1059,7 @@ void SliceControlBar::paint (juce::Graphics& g)
      }
  }
  }
+ } // end if (! sfzPlayerMode)
  g.setColour (getTheme().separator);
  g.drawHorizontalLine (si (36), (float) si (8), (float) getWidth() - (float) si (8));
 
@@ -1130,8 +1136,8 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
  adsrGroupX2 = x - 4;
  }
 
-    // GLIDE — shown only when this slice is in chromatic mode
-    if (s.chromaticChannel > 0)
+    // GLIDE — shown only when this slice is in chromatic mode (not in SFZ-player mode)
+    if (! sfzPlayerMode && s.chromaticChannel > 0)
     {
         const float glideMs = processor.voicePool.legatoGlideMs.load (std::memory_order_relaxed);
         const juce::String glideStr = (glideMs < 1.0f) ? "0ms"

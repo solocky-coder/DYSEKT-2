@@ -99,7 +99,7 @@ void SliceManager::assignColor (Slice& s, int /*idx*/)
 
 int SliceManager::insertMarker (int markerPos, int totalFrames)
 {
-    if (numSlices >= kMaxSlices)
+    if (! unlimitedSlices && numSlices >= kMaxSlices)
         return -1;
 
     markerPos = juce::jlimit (0, totalFrames, markerPos);
@@ -208,7 +208,7 @@ void SliceManager::deleteSlice (int idx)
 
 int SliceManager::createSlice (int start, int end)
 {
-    if (numSlices >= kMaxSlices)
+    if (! unlimitedSlices && numSlices >= kMaxSlices)
         return -1;
 
     if (start > end) std::swap (start, end);

@@ -1383,10 +1383,20 @@ bool WaveformView::isInterestedInFileDrag (const juce::StringArray& files)
  for (auto& f : files)
  {
  auto ext = juce::File (f).getFileExtension().toLowerCase();
- if (ext == ".wav" || ext == ".ogg" || ext == ".aif" ||
- ext == ".aiff" || ext == ".flac" || ext == ".mp3" ||
- ext == ".sf2" || ext == ".sfz")
- return true;
+ // In SFZ-player mode (uiMode==1) only accept .sfz files
+ const bool sfzMode = (processor.midiRouteMode.load (std::memory_order_relaxed)
+                       == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
+ if (sfzMode)
+ {
+     if (ext == ".sfz") return true;
+ }
+ else
+ {
+     if (ext == ".wav" || ext == ".ogg" || ext == ".aif" ||
+         ext == ".aiff" || ext == ".flac" || ext == ".mp3" ||
+         ext == ".sf2" || ext == ".sfz")
+         return true;
+ }
  }
  return false;
 }
@@ -1399,10 +1409,17 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
  processor.zoom.store (1.0f);
  processor.scroll.store (0.0f);
  prevCacheKey = {};
- if (ext == ".sf2" || ext == ".sfz")
- processor.loadSoundFontAsync (f);
+ const bool sfzMode = (processor.midiRouteMode.load (std::memory_order_relaxed)
+                       == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
+ if (sfzMode)
+ {
+     // SFZ-player mode: only load .sfz files via sfzPlayer (ch 2)
+     if (ext == ".sfz") processor.loadSoundFontAsync (f);
+ }
+ else if (ext == ".sf2" || ext == ".sfz")
+     processor.loadSoundFontAsync (f);
  else
- processor.loadFileAsync (f);
+     processor.loadFileAsync (f);
 }
 
 void WaveformView::enterTrimMode (int start, int end)
