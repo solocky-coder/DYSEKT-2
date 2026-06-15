@@ -308,7 +308,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  }
  else if (uiMode == 2)
  {
-     sfzPlayerDropdown.setVisible (true);
+     sfzDropdown.setVisible (true);
      // sfzPlayer2PanelRestored starts false; timerCallback populates zones.
  }
 
@@ -406,12 +406,13 @@ void DysektEditor::setUiMode (int mode)
  }
  else if (uiMode == 2)
  {
-     sfzDropdown.setVisible (false);
-     sfzPlayerDropdown.setVisible (true);
+     // SF2-PLAYER: show sfzDropdown (SF2 key-zone matrix); sfzPlayerDropdown hidden
+     sfzDropdown.setVisible (true);
+     sfzPlayerDropdown.setVisible (false);
      sfzPlayer2PanelRestored = false;
      if (processor.sfzPlayer2.isLoaded())
      {
-         sfzPlayerDropdown.panelDidShow();
+         sfzDropdown.panelDidShow();
          sfzPlayer2PanelRestored = true;
      }
  }
@@ -1084,11 +1085,11 @@ void DysektEditor::resized()
  }
  else
  {
-     // SFZ-Player layout (uiMode == 2)
-     sfzPlayerDropdown.setVisible (true);
-     sfzPlayerDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
-     sfzDropdown.setVisible (false);
-     sfzDropdown.setBounds ({});
+     // SF2-PLAYER layout (uiMode == 2)
+     sfzDropdown.setVisible (true);
+     sfzDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
+     sfzPlayerDropdown.setVisible (false);
+     sfzPlayerDropdown.setBounds ({});
      waveformView.setVisible (false);
      waveformView.setBounds ({});
      padGridView.setVisible (false);
@@ -1399,9 +1400,9 @@ void DysektEditor::timerCallback()
  // SFZ player refresh
     if (showPadGrid) padGridView.repaintGrid();
 
-  // uiMode==1 uses waveformView (repainted above); sfzDropdown not used
+  // uiMode==1 uses waveformView (repainted above); sfzPlayerDropdown not used for SF2
   if (uiMode == 2 && (uiChanged || playbackActive))
-     sfzPlayerDropdown.repaint();
+     sfzDropdown.repaint();
 
  // SF-player async restore: once sfzPlayer finishes loading after
  // setStateInformation (or a fresh UI open), repopulate the zone matrix
@@ -1415,13 +1416,13 @@ void DysektEditor::timerCallback()
  if (uiMode == 2)
  {
      if (uiChanged || playbackActive)
-         sfzPlayerDropdown.repaint();
+         sfzDropdown.repaint();
 
      if (! sfzPlayer2PanelRestored)
      {
          if (processor.sfzPlayer2.isLoaded())
          {
-             sfzPlayerDropdown.panelDidShow();
+             sfzDropdown.panelDidShow();
              sfzPlayer2PanelRestored = true;
          }
      }
