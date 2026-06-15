@@ -204,26 +204,37 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  browserPanel.onLoadRequest = [this] (const juce::File& f)
  {
      const auto ext = f.getFileExtension().toLowerCase();
-     if (uiMode == 1)
+     if (uiMode == 0)
      {
-         // SFZ-player mode: only .sfz files, loaded via sfzPlayer (ch 2)
-         if (ext == ".sfz")
-             processor.loadSoundFontAsync (f);
+         // SLICER: audio files only — SFZ/SF2 are silently ignored
+         if (ext != ".sfz" && ext != ".sf2")
+             showTrimDialog (f);
          return;
      }
-     if (ext == ".sfz" || ext == ".sf2")
+     if (uiMode == 1)
      {
-         processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
-         sfzDropdown.reloadZones (f);
-         if (uiMode != 1) setUiMode (1);
-         processor.loadSoundFontAsync (f);
+         // SFZ-PLAYER: .sfz only, routed to sfzPlayer2 (ch2)
+         if (ext == ".sfz")
+             processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
+         return;
      }
-     else
+     if (uiMode == 2)
      {
-         showTrimDialog (f);
+         // SF2-PLAYER: SF2 files only, routed to sfzPlayer
+         if (ext == ".sf2")
+         {
+             processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
+             sfzDropdown.reloadZones (f);
+             processor.loadSoundFontAsync (f);
+         }
      }
  };
- waveformView.onLoadRequest = [this] (const juce::File& f) { showTrimDialog (f); };
+ waveformView.onLoadRequest = [this] (const juce::File& f)
+ {
+     const auto ext = f.getFileExtension().toLowerCase();
+     if (ext != ".sfz" && ext != ".sf2")
+         showTrimDialog (f);
+ };
  waveformView.onShortcutsToggle = [this] { toggleShortcutsPanel(); };
  waveformView.onRenameRequest = [this] (int sliceIdx, const juce::String& currentName)
  {
@@ -304,12 +315,12 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  // sfzPlayer.isLoaded() becomes true (async after setStateInformation).
  if (uiMode == 1)
  {
-     // SFZ-player mode: slicer UI — no sfzDropdown to restore
+     // SFZ-PLAYER: waveform view — no dropdown panel to restore
  }
  else if (uiMode == 2)
  {
      sfzDropdown.setVisible (true);
-     // sfzPlayer2PanelRestored starts false; timerCallback populates zones.
+     // sfzPlayer2PanelRestored not needed for SF2 (preset grid populates via panelDidShow)
  }
 
  // Restore the correct MIDI route mode that matches the saved uiMode.
@@ -368,8 +379,8 @@ void DysektEditor::syncMidiRouteMode()
 {
     using Mode = DysektProcessor::MidiRouteMode;
     const Mode mode = (activeSlot == SlotContent::Seq) ? Mode::Sequencer
-                    : (uiMode == 2)                    ? Mode::SfzPlayer2
-                    : (uiMode == 1)                    ? Mode::SfPlayer
+                    : (uiMode == 1)                    ? Mode::SfzPlayer2
+                    : (uiMode == 2)                    ? Mode::SfPlayer
                                                        : Mode::Slicer;
     processor.setMidiRouteMode (mode);
 }
@@ -400,21 +411,15 @@ void DysektEditor::setUiMode (int mode)
  // Show/hide sfzDropdown and sfzPlayerDropdown based on mode
  if (uiMode == 1)
  {
-     // SFZ-player: slicer layout — no sfzDropdown panel needed
+     // SFZ-PLAYER: waveform view (same as slicer) — no dropdown panels
      sfzDropdown.setVisible (false);
      sfzPlayerDropdown.setVisible (false);
  }
  else if (uiMode == 2)
  {
-     // SF2-PLAYER: show sfzDropdown (SF2 key-zone matrix); sfzPlayerDropdown hidden
+     // SF2-PLAYER: show sfzDropdown (SF2 program grid); sfzPlayerDropdown hidden
      sfzDropdown.setVisible (true);
      sfzPlayerDropdown.setVisible (false);
-     sfzPlayer2PanelRestored = false;
-     if (processor.sfzPlayer2.isLoaded())
-     {
-         sfzDropdown.panelDidShow();
-         sfzPlayer2PanelRestored = true;
-     }
  }
  else
  {
@@ -966,7 +971,7 @@ void DysektEditor::resized()
  waveformOverview.setBounds ({});
  } else {
  // SCB first (bottommost), then overview row sits immediately above it.
- if (hasRealSample && uiMode == 0 && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
+ if (hasRealSample && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
  {
      {
          const int scbH = si (kSliceCtrlH);
@@ -993,7 +998,7 @@ void DysektEditor::resized()
  }
 
  // Overview row: allocate space and show only when waveform view is active.
- if (uiMode == 0 && activeSlot != SlotContent::Mixer && !normalBrowserOpen && hasRealSample && !showPadGrid)
+ if ((uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen && hasRealSample && !showPadGrid)
  {
      auto overviewRow = area.removeFromBottom (kOverviewRowH);
      const int overviewY = overviewRow.getY() + kInterGap;
@@ -1070,7 +1075,7 @@ void DysektEditor::resized()
  }
  else if (uiMode == 1)
  {
-     // SFZ-player: exact slicer layout — WaveformView / PadGridView
+     // SFZ-PLAYER: same waveform/pad layout as slicer — SCB and overview already allocated above
      const bool showPads1 = showPadGrid;
      waveformView.setVisible (! showPads1);
      waveformView.setBounds (showPads1 ? juce::Rectangle<int>()
@@ -1400,33 +1405,10 @@ void DysektEditor::timerCallback()
  // SFZ player refresh
     if (showPadGrid) padGridView.repaintGrid();
 
-  // uiMode==1 uses waveformView (repainted above); sfzPlayerDropdown not used for SF2
-  if (uiMode == 2 && (uiChanged || playbackActive))
+ // uiMode==1 (SFZ-PLAYER) uses waveformView — repainted above with uiMode==0 path.
+ // uiMode==2 (SF2-PLAYER): repaint sfzDropdown (SF2 program grid)
+ if (uiMode == 2 && (uiChanged || playbackActive))
      sfzDropdown.repaint();
-
- // SF-player async restore: once sfzPlayer finishes loading after
- // setStateInformation (or a fresh UI open), repopulate the zone matrix
- // and apply the saved preset index. Runs each timer tick until done.
- //
- // Two cases handled here:
- //   1. sfzPanelRestored == false: initial restore — wait for isLoaded + presets.
- //   2. sfzPanelRestored == true but programGrid not yet open: setUiMode() fired
- //      before FluidSynth finished (SF2 async); retry until presets arrive.
- // uiMode==1 uses slicer waveform — no sfzPanel restore needed
- if (uiMode == 2)
- {
-     if (uiChanged || playbackActive)
-         sfzDropdown.repaint();
-
-     if (! sfzPlayer2PanelRestored)
-     {
-         if (processor.sfzPlayer2.isLoaded())
-         {
-             sfzDropdown.panelDidShow();
-             sfzPlayer2PanelRestored = true;
-         }
-     }
- }
 
  sliceLcd.repaintLcd();
  sliceWaveformLcd.repaintLcd();

@@ -203,7 +203,7 @@ DysektProcessor::DysektProcessor()
 
     // SF2-Player defaults to MIDI channel 2, SFZ-Player to channel 3
     sfzPlayer .setMidiChannel (2);
-    sfzPlayer2.setMidiChannel (3);
+    sfzPlayer2.setMidiChannel (2);
 }
 
 DysektProcessor::~DysektProcessor()
@@ -589,7 +589,7 @@ void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
             break;
 
         case MidiRouteMode::SfzPlayer2:
-            // Restore sfzPlayer2ChannelMask (default ch 3), zeroing SF-player mask.
+            // Restore sfzPlayer2ChannelMask (default ch 2), zeroing SF-player mask.
             {
                 const uint32_t curMask = sfPlayerChannelMask.load (std::memory_order_relaxed);
                 if (curMask != 0u)
@@ -601,7 +601,7 @@ void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
                 uint32_t saved = savedSfzPlayer2ChannelMask.load (std::memory_order_relaxed);
                 saved &= ~chromaticSliceChannelMask.load (std::memory_order_relaxed);
                 saved &= ~sfPlayerChannelMask.load (std::memory_order_relaxed);
-                if (saved == 0u) saved = (1u << 3);   // default ch3
+                if (saved == 0u) saved = (1u << 2);   // default ch2
                 sfzPlayer2ChannelMask.store (saved, std::memory_order_relaxed);
             }
 #if DYSEKT_STANDALONE
@@ -3382,7 +3382,7 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
             for (int c = 2; c <= 16; ++c)  if (mask2 & (1u << c)) { lo2 = c; break; }
             for (int c = 16; c >= 2; --c)  if (mask2 & (1u << c)) { hi2 = c; break; }
         }
-        if (lo2 == 0) { lo2 = 3; hi2 = 3; }   // default ch3
+        if (lo2 == 0) { lo2 = 2; hi2 = 2; }   // default ch2
         stream.writeInt (lo2);
         stream.writeInt (hi2);
     }
@@ -3584,7 +3584,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             if (lo2 >= 2 && hi2 >= lo2)
                 for (int c = juce::jmax (lo2, 2); c <= juce::jmin (hi2, 16); ++c)
                     mask2 |= (1u << c);
-            if (mask2 == 0u) mask2 = (1u << 3);   // default ch3
+            if (mask2 == 0u) mask2 = (1u << 2);   // default ch2
             sfzPlayer2ChannelMask.store      (mask2, std::memory_order_relaxed);
             savedSfzPlayer2ChannelMask.store (mask2, std::memory_order_relaxed);
         }

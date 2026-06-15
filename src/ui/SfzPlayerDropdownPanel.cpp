@@ -1470,20 +1470,33 @@ std::vector<KeysPanel::Keyzone> SfzPlayerDropdownPanel::parseSfzZones (const juc
 
         if (inRegion)
         {
-            auto loRaw = lineLower.indexOf ("lokey=");
-            if (loRaw >= 0)
-                loKey = juce::jlimit (0, 127,
-                    lineLower.substring (loRaw + 6).upToFirstOccurrenceOf (" ", false, false).trim().getIntValue());
-            auto hiRaw = lineLower.indexOf ("hikey=");
-            if (hiRaw >= 0)
-                hiKey = juce::jlimit (0, 127,
-                    lineLower.substring (hiRaw + 6).upToFirstOccurrenceOf (" ", false, false).trim().getIntValue());
-            auto kRaw = lineLower.indexOf ("key=");
-            if (kRaw >= 0 && lineLower.indexOf ("lokey=") < 0)
+            // Helper: extract opcode value after 'prefix=' handling end-of-line (no trailing space).
+            auto getOpcodeValue = [&] (const juce::String& src, const juce::String& prefix) -> juce::String
             {
-                const int k = juce::jlimit (0, 127,
-                    lineLower.substring (kRaw + 4).upToFirstOccurrenceOf (" ", false, false).trim().getIntValue());
-                loKey = hiKey = k;
+                const int pos = src.indexOf (prefix);
+                if (pos < 0) return {};
+                auto rest = src.substring (pos + prefix.length()).trim();
+                const int sp = rest.indexOfChar (' ');
+                return sp >= 0 ? rest.substring (0, sp).trim() : rest.trim();
+            };
+
+            auto loRaw = getOpcodeValue (lineLower, "lokey=");
+            if (loRaw.isNotEmpty())
+                loKey = juce::jlimit (0, 127, loRaw.getIntValue());
+
+            auto hiRaw = getOpcodeValue (lineLower, "hikey=");
+            if (hiRaw.isNotEmpty())
+                hiKey = juce::jlimit (0, 127, hiRaw.getIntValue());
+
+            // key= only applies when neither lokey= nor hikey= present on this line
+            if (loRaw.isEmpty() && hiRaw.isEmpty())
+            {
+                auto kRaw = getOpcodeValue (lineLower, "key=");
+                if (kRaw.isNotEmpty())
+                {
+                    const int k = juce::jlimit (0, 127, kRaw.getIntValue());
+                    loKey = hiKey = k;
+                }
             }
             // Extract sample= value — strip directory and extension to get bare name.
             auto sRaw = lineLower.indexOf ("sample=");

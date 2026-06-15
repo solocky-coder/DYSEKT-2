@@ -514,9 +514,9 @@ public:
     std::atomic<uint32_t> savedSfPlayerChannelMask { 0x1FFFEu }; // user's last configured SF range
     std::atomic<uint32_t> chromaticSliceChannelMask { 0u };
 
-    // SFZ-Player (sfzPlayer2) channel ownership — default ch3 (bit 3)
-    std::atomic<uint32_t> sfzPlayer2ChannelMask      { 1u << 3 }; // ch 3 default
-    std::atomic<uint32_t> savedSfzPlayer2ChannelMask { 1u << 3 };
+    // SFZ-Player (sfzPlayer2) channel ownership — default ch2 (bit 2)
+    std::atomic<uint32_t> sfzPlayer2ChannelMask      { 1u << 2 }; // ch 2 default
+    std::atomic<uint32_t> savedSfzPlayer2ChannelMask { 1u << 2 };
 
     /** Rebuild chromaticSliceChannelMask from current slice data.
      *  Must be called on the audio thread (or before first audio callback). */

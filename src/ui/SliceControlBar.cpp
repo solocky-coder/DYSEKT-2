@@ -801,7 +801,9 @@ void SliceControlBar::showMidiLearnMenu (int fieldId, juce::Point<int> screenPos
 void SliceControlBar::paint (juce::Graphics& g)
 {
  const bool sfzPlayerMode = (processor.midiRouteMode.load (std::memory_order_relaxed)
-                              == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
+                              == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer))
+                          || (processor.midiRouteMode.load (std::memory_order_relaxed)
+                              == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
  // ── LCD-style frame — matches waveform + LCD screen aesthetic ────────────
  {
  const auto ac = getTheme().accent;
