@@ -1348,11 +1348,11 @@ void DysektEditor::timerCallback()
  processor.voicePool.voicePositions.end(),
  [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; });
 
+ const bool slicingActive    = (uiMode == 0);
  const bool waveformAnimating = waveformInteracting || previewActive
  || playbackActive || (slicingActive && processor.lazyChop.isActive())
  || (slicingActive && processor.liveDragSliceIdx.load (std::memory_order_relaxed) >= 0);
  const bool waveformShowing = ((uiMode == 0 || uiMode == 1) && ! showPadGrid) || processor.trimModeActive.load (std::memory_order_relaxed);
- const bool slicingActive    = (uiMode == 0);
  const bool waveformNeedsRepaint = waveformShowing && (uiChanged || viewportChanged || waveformAnimating || lastWaveformAnimating);
  const bool laneNeedsRepaint = slicingActive && waveformShowing && (uiChanged || viewportChanged || previewActive || lastPreviewActive);
 
