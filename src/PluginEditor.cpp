@@ -220,12 +220,13 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      }
      if (uiMode == 2)
      {
-         // SF2-PLAYER: SF2 files only, routed to sfzPlayer
+         // SF2-PLAYER: SF2 files only, routed to sfzPlayer (FluidSynth)
+         // loadSoundFontAsync intentionally NOT called — it posts to the slicer's
+         // completedLoadData buffer which would cross-load into the SLICER waveform.
          if (ext == ".sf2")
          {
              processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
              sfzDropdown.reloadZones (f);
-             processor.loadSoundFontAsync (f);
          }
      }
  };
@@ -492,10 +493,10 @@ void DysektEditor::showTrimDialog (const juce::File& file, bool isRelink)
  return;
  }
  auto ext = file.getFileExtension().toLowerCase();
- if (ext == ".sf2" || ext == ".sfz") {
- processor.loadSoundFontAsync (file);
- return;
- }
+ // SF2/SFZ files are never routed here — handled exclusively by their own tabs.
+ // Guard defensively so a future code path can't accidentally cross-load.
+ if (ext == ".sf2" || ext == ".sfz")
+     return;
  const int pref = processor.trimPreference.load (std::memory_order_relaxed);
  if (pref == DysektProcessor::TrimPrefNever) {
  processor.loadFileAsync (file);
