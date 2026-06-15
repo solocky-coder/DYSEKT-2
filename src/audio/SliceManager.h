@@ -8,9 +8,6 @@ class SliceManager
 public:
     static constexpr int kMaxSlices = 32;
 
-    /** Set to true when the 32-slice cap should be bypassed (SFZ-player mode). */
-    bool unlimitedSlices = false;
-
     /// Samples within which a placed marker snaps to an existing boundary.
     static constexpr int kSnapTolerance = 10;
 

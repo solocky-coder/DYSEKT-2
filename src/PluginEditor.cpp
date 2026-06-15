@@ -204,6 +204,14 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  browserPanel.onLoadRequest = [this] (const juce::File& f)
  {
      const auto ext = f.getFileExtension().toLowerCase();
+     if (uiMode == 1)
+     {
+         // SFZ-player mode: only .sfz files allowed
+         if (ext == ".sfz")
+             processor.loadSoundFontAsync (f);
+         // silently ignore anything else
+         return;
+     }
      if (ext == ".sfz" || ext == ".sf2")
      {
          // 1. Real-time playback engine (sfizz / FluidSynth)
@@ -390,11 +398,9 @@ void DysektEditor::setUiMode (int mode)
  // Route live MIDI to the active front-end.
  syncMidiRouteMode();
 
- // SFZ-player mode has no slice cap
- processor.sliceManager.unlimitedSlices = (uiMode == 1);
 
  // Show waveform overview for slicer and sfz-player mode
- waveformOverview.setVisible ((uiMode == 0 || uiMode == 1) && !showPadGrid);
+ waveformOverview.setVisible (uiMode == 0 && !showPadGrid);
 
  // Show/hide sfzDropdown and sfzPlayerDropdown based on mode
  if (uiMode == 1)
@@ -964,7 +970,7 @@ void DysektEditor::resized()
  waveformOverview.setBounds ({});
  } else {
  // SCB first (bottommost), then overview row sits immediately above it.
- if (hasRealSample && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
+ if (hasRealSample && uiMode == 0 && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
  {
      {
          const int scbH = si (kSliceCtrlH);
@@ -991,7 +997,7 @@ void DysektEditor::resized()
  }
 
  // Overview row: allocate space and show only when waveform view is active.
- if ((uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen && hasRealSample && !showPadGrid)
+ if (uiMode == 0 && activeSlot != SlotContent::Mixer && !normalBrowserOpen && hasRealSample && !showPadGrid)
  {
      auto overviewRow = area.removeFromBottom (kOverviewRowH);
      const int overviewY = overviewRow.getY() + kInterGap;
@@ -1343,11 +1349,12 @@ void DysektEditor::timerCallback()
  [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; });
 
  const bool waveformAnimating = waveformInteracting || previewActive
- || playbackActive || processor.lazyChop.isActive()
- || (processor.liveDragSliceIdx.load (std::memory_order_relaxed) >= 0);
- const bool waveformShowing = (uiMode == 0 && ! showPadGrid) || processor.trimModeActive.load (std::memory_order_relaxed);
+ || playbackActive || (slicingActive && processor.lazyChop.isActive())
+ || (slicingActive && processor.liveDragSliceIdx.load (std::memory_order_relaxed) >= 0);
+ const bool waveformShowing = ((uiMode == 0 || uiMode == 1) && ! showPadGrid) || processor.trimModeActive.load (std::memory_order_relaxed);
+ const bool slicingActive    = (uiMode == 0);
  const bool waveformNeedsRepaint = waveformShowing && (uiChanged || viewportChanged || waveformAnimating || lastWaveformAnimating);
- const bool laneNeedsRepaint = waveformShowing && (uiChanged || viewportChanged || previewActive || lastPreviewActive);
+ const bool laneNeedsRepaint = slicingActive && waveformShowing && (uiChanged || viewportChanged || previewActive || lastPreviewActive);
 
  lastWaveformAnimating = waveformAnimating;
  lastPreviewActive = previewActive;
@@ -1358,7 +1365,7 @@ void DysektEditor::timerCallback()
  if (snap != nullptr && snap->filePath == trimSession->file.getFullPathName())
  {
  // Trim mode requires the waveform view — auto-switch if in Pad Grid mode.
- if (uiMode != 0)
+ if (uiMode != 0 && uiMode != 1)
  setUiMode (0);
 
  trimSession->active = true;
@@ -1451,7 +1458,7 @@ void DysektEditor::timerCallback()
  resized(); repaint();
  }
 
- const bool overviewShouldShow = hasRealSampleNow && (uiMode == 0) && !showPadGrid;
+ const bool overviewShouldShow = hasRealSampleNow && uiMode == 0 && !showPadGrid;
  if (overviewShouldShow != waveformOverview.isVisible())
  {
  waveformOverview.setVisible (overviewShouldShow);
@@ -1464,8 +1471,7 @@ void DysektEditor::timerCallback()
  if (activeSlot == SlotContent::Eq)    eqPanel.repaint();
 
  headerBar.repaint();
- sliceControlBar.updateMidiLearnPulse();
- sliceControlBar.repaint();
+ if (uiMode == 0) { sliceControlBar.updateMidiLearnPulse(); sliceControlBar.repaint(); }
 if (activeSlot == SlotContent::Mixer)
 {
     // Refresh strips in case a preset was just assigned or un-assigned.
@@ -1610,7 +1616,7 @@ void DysektEditor::loadUserSettings()
 
  waveformView.setWaveformMode (waveformMode);
  waveformOverview.setWaveformMode (waveformMode);
- headerBar.dualFrame().setPadGridActive (uiMode == 1);
+ headerBar.dualFrame().setPadGridActive (false);
  headerBar.setWaveMode (waveformMode);
  headerBar.setMidiFollowActive (processor.midiSelectsSlice.load());
 }
