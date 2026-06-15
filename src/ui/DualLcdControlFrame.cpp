@@ -436,8 +436,8 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
         };
 
         drawTab (editTabArea,      "SLICER",      uiTab == 0);
-        drawTab (padTabArea,       "SF2-PLAYER",  uiTab == 1);
-        drawTab (sfzPlayerTabArea, "SFZ-PLAYER",  uiTab == 2);
+        drawTab (padTabArea,       "SFZ-PLAYER",  uiTab == 1);
+        drawTab (sfzPlayerTabArea, "SF2-PLAYER",  uiTab == 2);
     }
 
     // ── Top row: five icons evenly spread across full width ─────────────────
