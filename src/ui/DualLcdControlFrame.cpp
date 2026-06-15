@@ -436,7 +436,7 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
         };
 
         drawTab (editTabArea,      "SLICER",      uiTab == 0);
-        drawTab (padTabArea,       "SF2-PLAYER",  uiTab == 1);
+        drawTab (padTabArea,       "SFZ-PLAYER",  uiTab == 1);
         drawTab (sfzPlayerTabArea, "SFZ-PLAYER",  uiTab == 2);
     }
 
@@ -667,7 +667,7 @@ void DualLcdControlFrame::mouseDown (const juce::MouseEvent& e)
         if (onSeqToggle) onSeqToggle();
         return;
     }
-    // ── SLICER | SF2-PLAYER | SFZ-PLAYER tabs ───────────────────────────────
+    // ── SLICER | SFZ-PLAYER | SFZ-PLAYER2 tabs ──────────────────────────────
     if (editTabArea.contains (pos))
     {
         if (uiTab != 0)

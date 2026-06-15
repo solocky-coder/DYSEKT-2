@@ -206,22 +206,16 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      const auto ext = f.getFileExtension().toLowerCase();
      if (uiMode == 1)
      {
-         // SFZ-player mode: only .sfz files allowed
+         // SFZ-player mode: only .sfz files, loaded via sfzPlayer (ch 2)
          if (ext == ".sfz")
              processor.loadSoundFontAsync (f);
-         // silently ignore anything else
          return;
      }
      if (ext == ".sfz" || ext == ".sf2")
      {
-         // 1. Real-time playback engine (sfizz / FluidSynth)
          processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
          sfzDropdown.reloadZones (f);
          if (uiMode != 1) setUiMode (1);
-
-         // 2. Render all notes into the slicer waveform buffer so
-         //    SfzWaveformLcd can display the preview and loop markers.
-         //    SoundFontLoader also calls sfzPlayer.setLoopPoints().
          processor.loadSoundFontAsync (f);
      }
      else
@@ -398,6 +392,7 @@ void DysektEditor::setUiMode (int mode)
  // Route live MIDI to the active front-end.
  syncMidiRouteMode();
 
+ // SFZ-player mode has no slice cap
 
  // Show waveform overview for slicer and sfz-player mode
  waveformOverview.setVisible (uiMode == 0 && !showPadGrid);
@@ -1348,10 +1343,10 @@ void DysektEditor::timerCallback()
  processor.voicePool.voicePositions.end(),
  [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; });
 
- const bool slicingActive    = (uiMode == 0);
  const bool waveformAnimating = waveformInteracting || previewActive
  || playbackActive || (slicingActive && processor.lazyChop.isActive())
  || (slicingActive && processor.liveDragSliceIdx.load (std::memory_order_relaxed) >= 0);
+ const bool slicingActive    = (uiMode == 0);
  const bool waveformShowing = ((uiMode == 0 || uiMode == 1) && ! showPadGrid) || processor.trimModeActive.load (std::memory_order_relaxed);
  const bool waveformNeedsRepaint = waveformShowing && (uiChanged || viewportChanged || waveformAnimating || lastWaveformAnimating);
  const bool laneNeedsRepaint = slicingActive && waveformShowing && (uiChanged || viewportChanged || previewActive || lastPreviewActive);
@@ -1458,7 +1453,7 @@ void DysektEditor::timerCallback()
  resized(); repaint();
  }
 
- const bool overviewShouldShow = hasRealSampleNow && uiMode == 0 && !showPadGrid;
+ const bool overviewShouldShow = hasRealSampleNow && (uiMode == 0) && !showPadGrid;
  if (overviewShouldShow != waveformOverview.isVisible())
  {
  waveformOverview.setVisible (overviewShouldShow);
