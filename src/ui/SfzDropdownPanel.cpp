@@ -1299,3 +1299,12 @@ void SfzDropdownPanel::panelDidShow()
     resized();
     repaint();
 }
+
+float SfzDropdownPanel::volToNorm   (float linear) const { return juce::jlimit (0.f, 1.f, linear * 0.5f); }
+float SfzDropdownPanel::normToVol   (float n)      const { return n * 2.0f; }
+float SfzDropdownPanel::transToNorm (int semi)      const { return ((float) semi + 24.0f) / 48.0f; }
+int   SfzDropdownPanel::normToTrans (float n)       const { return juce::roundToInt (n * 48.0f - 24.0f); }
+float SfzDropdownPanel::panToNorm   (float p)       const { return (p + 1.0f) * 0.5f; }
+float SfzDropdownPanel::normToPan   (float n)       const { return n * 2.0f - 1.0f; }
+float SfzDropdownPanel::fineToNorm  (float cents)   const { return (cents + 100.0f) / 200.0f; }
+float SfzDropdownPanel::normToFine  (float n)       const { return n * 200.0f - 100.0f; }
