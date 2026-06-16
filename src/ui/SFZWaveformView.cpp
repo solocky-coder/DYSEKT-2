@@ -209,8 +209,8 @@ void SFZWaveformView::drawLoopOverlay (juce::Graphics& g)
 {
     if (cachedNumFrames <= 0) return;
 
-    const int loopStart = processor.sfzPlayer.getLoopStartSample();
-    const int loopEnd   = processor.sfzPlayer.getLoopEndSample();
+    const int loopStart = processor.sfzPlayer2.getLoopStartSample();
+    const int loopEnd   = processor.sfzPlayer2.getLoopEndSample();
     if (loopStart < 0 || loopEnd <= loopStart) return;
 
     const int x0 = juce::jlimit (0, getWidth() - 1, sampleToPixel (loopStart));

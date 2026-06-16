@@ -48,10 +48,10 @@ void SfzWaveformLcd::repaintLcd()
 
 void SfzWaveformLcd::buildEnvelopeNodes()
 {
-    const float attackMs  = processor.sfzPlayer.getSfzAttack()  * 1000.0f;
-    const float decayMs   = processor.sfzPlayer.getSfzDecay()   * 1000.0f;
-    const float sustainPc = processor.sfzPlayer.getSfzSustain();   // already 0-100
-    const float releaseMs = processor.sfzPlayer.getSfzRelease() * 1000.0f;
+    const float attackMs  = processor.sfzPlayer2.getSfzAttack()  * 1000.0f;
+    const float decayMs   = processor.sfzPlayer2.getSfzDecay()   * 1000.0f;
+    const float sustainPc = processor.sfzPlayer2.getSfzSustain();   // already 0-100
+    const float releaseMs = processor.sfzPlayer2.getSfzRelease() * 1000.0f;
 
     static constexpr float kMin = 0.01f, kMax = 0.99f, kGap = 0.01f;
 
@@ -111,13 +111,13 @@ void SfzWaveformLcd::commitNodes()
 
     // Direct atomic writes — no APVTS
     if (dragRole == NodeRole::Attack)
-        processor.sfzPlayer.setSfzAttack  (attackMs  / 1000.0f);
+        processor.sfzPlayer2.setSfzAttack  (attackMs  / 1000.0f);
     else if (dragRole == NodeRole::Decay)
-        processor.sfzPlayer.setSfzDecay   (decayMs   / 1000.0f);
+        processor.sfzPlayer2.setSfzDecay   (decayMs   / 1000.0f);
     else if (dragRole == NodeRole::Sustain)
-        processor.sfzPlayer.setSfzSustain (sustainPc);
+        processor.sfzPlayer2.setSfzSustain (sustainPc);
     else if (dragRole == NodeRole::Release)
-        processor.sfzPlayer.setSfzRelease (releaseMs / 1000.0f);
+        processor.sfzPlayer2.setSfzRelease (releaseMs / 1000.0f);
 
     postCommitGuard = 4;
 }
@@ -306,8 +306,8 @@ void SfzWaveformLcd::drawLoopOverlay (juce::Graphics& g,
 {
     // Loop points are stored as concat-buffer frame offsets by SoundFontLoader
     // for both SFZ (text-opcode parse) and SF2 (SHDR binary parse).
-    const int bufLoopStart = processor.sfzPlayer.getLoopStartSample();
-    const int bufLoopEnd   = processor.sfzPlayer.getLoopEndSample();
+    const int bufLoopStart = processor.sfzPlayer2.getLoopStartSample();
+    const int bufLoopEnd   = processor.sfzPlayer2.getLoopEndSample();
     if (bufLoopStart < 0 || bufLoopEnd <= bufLoopStart || cachedTotalFrames <= 0) return;
 
     const float windowFrac = 1.0f / cachedZoom;
@@ -453,9 +453,9 @@ void SfzWaveformLcd::drawHeader (juce::Graphics& g,
     g.drawText ("SF PLAYER", headerR.withRight (headerR.getX() + 64.0f),
                 juce::Justification::centredLeft, false);
 
-    if (processor.sfzPlayer.isLoaded())
+    if (processor.sfzPlayer2.isLoaded())
     {
-        const juce::String name = processor.sfzPlayer.getLoadedFile()
+        const juce::String name = processor.sfzPlayer2.getLoadedFile()
                                       .getFileNameWithoutExtension();
         if (name.isNotEmpty())
         {
@@ -588,7 +588,7 @@ void SfzWaveformLcd::paint (juce::Graphics& g)
 
     drawBackground (g);
 
-    const bool loaded = processor.sfzPlayer.isLoaded();
+    const bool loaded = processor.sfzPlayer2.isLoaded();
     const auto nodeArea = getLocalBounds().reduced (4).toFloat();
     screenArea = nodeArea;
     const auto lcdArea  = nodeArea.reduced (2.0f);

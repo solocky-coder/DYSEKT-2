@@ -1383,9 +1383,10 @@ bool WaveformView::isInterestedInFileDrag (const juce::StringArray& files)
  for (auto& f : files)
  {
  auto ext = juce::File (f).getFileExtension().toLowerCase();
- // In SFZ-player mode (uiMode==1) only accept .sfz files
- const bool sfzMode = (processor.midiRouteMode.load (std::memory_order_relaxed)
-                       == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
+        // In SFZ-PLAYER or SF2-player mode: only accept .sfz files
+        const int routeMode = processor.midiRouteMode.load (std::memory_order_relaxed);
+        const bool sfzMode = (routeMode == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer))
+                          || (routeMode == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
  if (sfzMode)
  {
      if (ext == ".sfz") return true;
@@ -1409,12 +1410,21 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
  processor.zoom.store (1.0f);
  processor.scroll.store (0.0f);
  prevCacheKey = {};
- const bool sfzMode = (processor.midiRouteMode.load (std::memory_order_relaxed)
-                       == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
+    const int routeMode2 = processor.midiRouteMode.load (std::memory_order_relaxed);
+    const bool sfzMode = (routeMode2 == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer))
+                      || (routeMode2 == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
  if (sfzMode)
  {
-     // SFZ-player mode: only load .sfz files via sfzPlayer (ch 2)
-     if (ext == ".sfz") processor.loadSoundFontAsync (f);
+        // SFZ-PLAYER (uiMode 1): route .sfz to sfzPlayer2; SF2-player uses loadSoundFontAsync
+        if (ext == ".sfz")
+        {
+            const bool isSfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
+                                          == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
+            if (isSfzPlayer2Mode)
+                processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
+            else
+                processor.loadSoundFontAsync (f);
+        }
  }
  else if (ext == ".sf2" || ext == ".sfz")
      processor.loadSoundFontAsync (f);

@@ -811,7 +811,7 @@ void DysektEditor::resized()
  auto topRow = topArea.reduced (si (kMargin), si (4));
 
  const int sideW = (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2;
- const bool sfMode = false;  // SFZ-player (mode 1) reuses slicer LCD
+ const bool sfMode = (uiMode == 1);  // SFZ-PLAYER tab drives sfzWaveformLcd
  sliceLcd.setVisible (! sfMode);
  sliceWaveformLcd.setVisible (! sfMode);
  sfzLcd.setVisible (sfMode);
@@ -945,9 +945,11 @@ void DysektEditor::resized()
  // SCB and zoom bar (overview) are only shown when a real user sample is loaded —
  // the default Empty.wav placeholder does not count.
  auto sampleSnap = processor.sampleData.getSnapshot();
- const bool hasRealSample = hasSampleLoaded
- && sampleSnap != nullptr
- && ! sampleSnap->filePath.containsIgnoreCase ("DYSEKT_default.wav");
+ const bool hasRealSample = (uiMode == 1)
+    ? processor.sfzPlayer2.isLoaded()
+    : (hasSampleLoaded
+       && sampleSnap != nullptr
+       && ! sampleSnap->filePath.containsIgnoreCase ("DYSEKT_default.wav"));
 
  const bool normalBrowserOpen = (activeSlot == SlotContent::Browser && ! initBrowserOpen);
 
