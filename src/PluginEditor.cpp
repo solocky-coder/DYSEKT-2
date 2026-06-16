@@ -105,16 +105,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 #if DYSEKT_STANDALONE
  // SFZ loaded → add one sequencer track automatically (channel 15, 0-based).
  // SF2 loaded → fires once preset list is ready; no tracks yet — user assigns
- // per-preset channels by right-clicking preset rows in the key zone matrix.
- sfzDropdown.onSfzFileLoaded = [this] (const juce::File& f, bool isSfz)
- {
-     if (isSfz)
-     {
-         const juce::String name = f.getFileNameWithoutExtension();
-         pianoRollPanel.addSfzInstrumentTrack (name, juce::Colour (0xFF407060));
-     }
-     // For SF2: do nothing here — tracks appear via onPresetChannelAssigned.
- };
+ // per-preset channels by right-clicking preset rows in the program grid.
 #endif
 
 #if DYSEKT_STANDALONE
@@ -220,14 +211,9 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      }
      if (uiMode == 2)
      {
-         // SF2-PLAYER: SF2 files only, routed to sfzPlayer (FluidSynth)
-         // loadSoundFontAsync intentionally NOT called — it posts to the slicer's
-         // completedLoadData buffer which would cross-load into the SLICER waveform.
+        // SF2-PLAYER: SF2 files only, routed to sfzPlayer (FluidSynth)
          if (ext == ".sf2")
-         {
              processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
-             sfzDropdown.reloadZones (f);
-         }
      }
  };
  waveformView.onLoadRequest = [this] (const juce::File& f)
@@ -398,7 +384,6 @@ void DysektEditor::setUiMode (int mode)
  headerBar.dualFrame().setUiTab (uiMode);
 
  // Slicer note highlights must not appear on SF-player keyboards.
- sfzDropdown.keysPanel.setSlicerHighlightEnabled (uiMode == 0);
  sfzPlayerDropdown.keysPanel.setSlicerHighlightEnabled (uiMode == 0);
 
  // Route live MIDI to the active front-end.
@@ -1587,7 +1572,7 @@ void DysektEditor::loadUserSettings()
  else if (line.startsWith ("uiMode:"))
  {
  auto val = line.fromFirstOccurrenceOf (":", false, false).trim().getIntValue();
- uiMode = juce::jlimit (0, 1, val);
+ uiMode = juce::jlimit (0, 2, val);
  }
  }
  }

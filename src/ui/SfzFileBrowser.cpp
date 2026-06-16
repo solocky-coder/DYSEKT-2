@@ -218,7 +218,9 @@ void SfzFileBrowser::rebuildList()
     // Matching files — pattern depends on current mode
     const auto* pattern = (mode == Mode::kAddZone)
                             ? "*.wav;*.aif;*.aiff;*.flac;*.ogg"
-                            : "*.sf2;*.sfz";
+                            : (mode == Mode::kSf2)
+                              ? "*.sf2"
+                              : "*.sf2;*.sfz";
 
     auto files = currentDir.findChildFiles (
         juce::File::findFiles, false, pattern);

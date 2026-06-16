@@ -202,8 +202,8 @@ DysektProcessor::DysektProcessor()
     publishUiSliceSnapshot();
 
     // SF2-Player defaults to MIDI channel 2, SFZ-Player to channel 3
-    sfzPlayer .setMidiChannel (2);
-    sfzPlayer2.setMidiChannel (2);
+    sfzPlayer .setMidiChannel (3);   // SF2-PLAYER  → ch 3
+    sfzPlayer2.setMidiChannel (2);   // SFZ-PLAYER  → ch 2
 }
 
 DysektProcessor::~DysektProcessor()

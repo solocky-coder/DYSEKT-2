@@ -15,7 +15,7 @@ class SfzFileBrowser : public juce::Component,
 {
 public:
     /** Controls which file types are listed and what happens on selection. */
-    enum class Mode { kSfz, kAddZone };
+    enum class Mode { kSfz, kSf2, kAddZone };
 
     /** Called when the user double-clicks a file (type depends on current mode). */
     std::function<void (const juce::File&)> onFileChosen;
