@@ -2449,21 +2449,29 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             }
 
             // ── SF2/SFZ: auto-create slices (one per rendered note) ──────────
+            // In SFZ-PLAYER mode (uiMode 1) the sfzPayload is consumed but not
+            // applied to sliceManager — sfzPlayer2 handles MIDI internally and
+            // there is no 32-slice cap to worry about.
             auto* sfzPayload = pendingSfzSlices.exchange (nullptr, std::memory_order_acq_rel);
             if (sfzPayload != nullptr)
             {
                 std::unique_ptr<SfzSlicePayload> sfzOwner (sfzPayload);
-                // sliceManager was just cleared above — safe to create fresh slices
-                for (auto& desc : sfzOwner->slices)
+                const bool isSfzPlayerMode = (midiRouteMode.load (std::memory_order_relaxed)
+                                              == static_cast<int> (MidiRouteMode::SfzPlayer2));
+                if (! isSfzPlayerMode)  // SFZ-PLAYER: sfzPlayer2 handles MIDI; skip sliceManager
                 {
-                    int idx = sliceManager.createSlice (desc.startSample, desc.endSample);
-                    if (idx >= 0)
+                    // sliceManager was just cleared above — safe to create fresh slices
+                    for (auto& desc : sfzOwner->slices)
                     {
-                        auto& s = sliceManager.getSlice (idx);
-                        s.midiNote = juce::jlimit (0, 127, desc.midiNote);
+                        int idx = sliceManager.createSlice (desc.startSample, desc.endSample);
+                        if (idx >= 0)
+                        {
+                            auto& s = sliceManager.getSlice (idx);
+                            s.midiNote = juce::jlimit (0, 127, desc.midiNote);
+                        }
                     }
+                    sliceManager.rebuildMidiMap();
                 }
-                sliceManager.rebuildMidiMap();
             }
             // ────────────────────────────────────────────────────────────────
 

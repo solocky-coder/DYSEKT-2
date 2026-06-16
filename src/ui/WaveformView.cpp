@@ -1415,13 +1415,16 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
                       || (routeMode2 == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
  if (sfzMode)
  {
-        // SFZ-PLAYER (uiMode 1): route .sfz to sfzPlayer2; SF2-player uses loadSoundFontAsync
+        // SFZ-PLAYER: load live engine (sfzPlayer2) AND post waveform preview via SoundFontLoader
         if (ext == ".sfz")
         {
             const bool isSfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
                                           == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
             if (isSfzPlayer2Mode)
-                processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
+            {
+                processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);  // live MIDI engine
+                processor.loadSoundFontAsync (f);                           // waveform preview → sampleData
+            }
             else
                 processor.loadSoundFontAsync (f);
         }

@@ -397,9 +397,9 @@ void DysektEditor::setUiMode (int mode)
  // Show/hide sfzDropdown and sfzPlayerDropdown based on mode
  if (uiMode == 1)
  {
-    // SFZ-PLAYER: show sfzPlayerDropdown panel (keyboard + SFZ browser)
+    // SFZ-PLAYER: waveform view (same as slicer) — dropdown panels hidden
      sfzDropdown.setVisible (false);
-    sfzPlayerDropdown.setVisible (true);
+    sfzPlayerDropdown.setVisible (false);
  }
  else if (uiMode == 2)
  {
@@ -1063,15 +1063,18 @@ void DysektEditor::resized()
  }
  else if (uiMode == 1)
  {
-    // SFZ-PLAYER: sfzPlayerDropdown occupies the main frame; waveformView hidden
-    waveformView.setVisible (false);
-    waveformView.setBounds ({});
-    padGridView.setVisible (false);
-    padGridView.setBounds ({});
+    // SFZ-PLAYER: same waveform view as slicer — no dropdown panels
+    const bool showPads1 = showPadGrid;
+    waveformView.setVisible (! showPads1);
+    waveformView.setBounds (showPads1 ? juce::Rectangle<int>()
+                                      : juce::Rectangle<int> (screenX, y, screenW, waveH));
+    padGridView.setVisible (showPads1);
+    padGridView.setBounds (showPads1 ? juce::Rectangle<int> (screenX, y, screenW, waveH)
+                                     : juce::Rectangle<int>());
     sfzDropdown.setVisible (false);
     sfzDropdown.setBounds ({});
-    sfzPlayerDropdown.setVisible (true);
-    sfzPlayerDropdown.setBounds (juce::Rectangle<int> (screenX, y, screenW, waveH));
+    sfzPlayerDropdown.setVisible (false);
+    sfzPlayerDropdown.setBounds ({});
 }
  else
  {

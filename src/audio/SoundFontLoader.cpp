@@ -362,15 +362,18 @@ public:
                         payload->slices[0].loopStart = bufStart;
                         payload->slices[0].loopEnd   = bufEnd;
                         processor.sfzPlayer.setLoopPoints (bufStart, bufEnd);
+                        processor.sfzPlayer2.setLoopPoints (bufStart, bufEnd);
                     }
                     else
                     {
                         processor.sfzPlayer.setLoopPoints (-1, -1);
+                        processor.sfzPlayer2.setLoopPoints (-1, -1);
                     }
                 }
                 else
                 {
                     processor.sfzPlayer.setLoopPoints (-1, -1);
+                    processor.sfzPlayer2.setLoopPoints (-1, -1);
                 }
             }
             else if (ext == ".sf2")
@@ -398,20 +401,24 @@ public:
                         payload->slices[0].loopStart = bufStart;
                         payload->slices[0].loopEnd   = bufEnd;
                         processor.sfzPlayer.setLoopPoints (bufStart, bufEnd);
+                        processor.sfzPlayer2.setLoopPoints (bufStart, bufEnd);
                     }
                     else
                     {
                         processor.sfzPlayer.setLoopPoints (-1, -1);
+                        processor.sfzPlayer2.setLoopPoints (-1, -1);
                     }
                 }
                 else
                 {
                     processor.sfzPlayer.setLoopPoints (-1, -1);
+                    processor.sfzPlayer2.setLoopPoints (-1, -1);
                 }
             }
             else
             {
                 processor.sfzPlayer.setLoopPoints (-1, -1);
+                processor.sfzPlayer2.setLoopPoints (-1, -1);
             }
         }
 
