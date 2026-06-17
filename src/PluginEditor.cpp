@@ -350,7 +350,29 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  setResizeLimits (kBaseW / 2, kTotalH / 2, 3840, 2160);
  if (auto* c = getConstrainer())
      c->setFixedAspectRatio ((double) kBaseW / (double) kTotalH);
- setSize (kInitW, kInitH);
+ // Start at 1.5x design units (the preferred big default), but clamp to
+    // 90% of the primary display's usable area so the window is never
+    // taller than the screen on first launch.
+    {
+        const auto& displays = juce::Desktop::getInstance().getDisplays();
+        const auto* primary  = displays.getPrimaryDisplay();
+        const auto  userArea = (primary != nullptr)
+                                   ? primary->userArea
+                                   : juce::Rectangle<int> (0, 0, 1920, 1080);
+
+        const double aspect = (double) kBaseW / (double) kTotalH;
+        const int maxW = juce::roundToInt (userArea.getWidth()  * 0.90);
+        const int maxH = juce::roundToInt (userArea.getHeight() * 0.90);
+
+        int w = juce::jmin (kInitW, maxW);
+        int h = juce::roundToInt ((double) w / aspect);
+        if (h > maxH)
+        {
+            h = maxH;
+            w = juce::roundToInt ((double) h * aspect);
+        }
+        setSize (w, h);
+    }
  lastUiSnapshotVersion = processor.getUiSliceSnapshotVersion();
  startTimerHz (30);
 }
