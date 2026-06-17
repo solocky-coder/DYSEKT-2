@@ -97,11 +97,15 @@ bool WaveformView::isInteracting() const noexcept
  return dragMode != None || midDragging || shiftPreviewActive;
 }
 
+bool WaveformView::isSfzPlayer2Mode() const noexcept
+{
+    return processor.midiRouteMode.load (std::memory_order_relaxed)
+           == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2);
+}
+
 SampleData& WaveformView::activeSampleData() const noexcept
 {
-    const bool sfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
-                                 == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
-    return sfzPlayer2Mode ? processor.sampleData2 : processor.sampleData;
+    return isSfzPlayer2Mode() ? processor.sampleData2 : processor.sampleData;
 }
 
 WaveformView::ViewState WaveformView::buildViewState (const SampleData::SnapshotPtr& sampleSnap) const
@@ -182,9 +186,7 @@ void WaveformView::paint (juce::Graphics& g)
  paintViewStateActive = cachedPaintViewState.valid;
  rebuildCacheIfNeeded();
  drawWaveform (g);
- const bool sfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
-                              == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
- if (sfzPlayer2Mode)
+ if (isSfzPlayer2Mode())
      drawPreviewZones (g);
  else
      drawSlices (g);
@@ -927,6 +929,15 @@ void WaveformView::mouseMove (const juce::MouseEvent& e)
  setMouseCursor (juce::MouseCursor::NormalCursor);
  return;
  }
+
+ if (isSfzPlayer2Mode())
+ {
+     // previewZones2 has no draggable edges — always the plain cursor.
+     setMouseCursor (juce::MouseCursor::NormalCursor);
+     if (hoveredEdge != HoveredEdge::None) { hoveredEdge = HoveredEdge::None; repaint(); }
+     return;
+ }
+
  auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap == nullptr) return;
  const auto& ui = processor.getUiSliceSnapshot();
@@ -977,6 +988,13 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
  }
  return;
  }
+
+ // ── SFZ-PLAYER mode: previewZones2 is a read-only display, not an
+ // editable sliceManager — none of the slice context menu, selection, or
+ // edge-dragging below means anything here, and would otherwise mutate
+ // the Slicer's real slices using coordinates from a different buffer.
+ if (isSfzPlayer2Mode())
+     return;
 
  // ── MIDI Slice overlay: handled by midiSliceBtn child component ──────────
  if (midiSliceOverlayActive && ! e.mods.isRightButtonDown() && e.y < kMidiOverlayH)
@@ -1279,6 +1297,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
 void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
 {
  if (trimMode) return;
+ if (isSfzPlayer2Mode()) return;   // no slice creation against previewZones2
  auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap == nullptr) return;
  int rawPos = juce::jlimit (0, sampleSnap->buffer.getNumSamples(), pixelToSample (e.x));

@@ -96,6 +96,16 @@ private:
      *  other. */
     SampleData& activeSampleData() const noexcept;
 
+    /** True when the current MIDI route mode is SfzPlayer2 — i.e. the
+     *  SFZ-PLAYER tab is driving this shared component, showing sampleData2
+     *  and the read-only previewZones2 overlay rather than the Slicer's
+     *  real, editable sliceManager. Mouse handlers use this to disable
+     *  slice creation/selection/dragging and the context menu entirely:
+     *  those all mutate sliceManager, which has nothing to do with what's
+     *  on screen in this mode (and previewZones2 has no concept of editing
+     *  in the first place). */
+    bool isSfzPlayer2Mode() const noexcept;
+
     void drawWaveform (juce::Graphics& g);
     void drawSlices (juce::Graphics& g);
     void drawPreviewZones (juce::Graphics& g);

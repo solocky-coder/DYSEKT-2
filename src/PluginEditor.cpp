@@ -1252,7 +1252,7 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
  return true;
  }
 
- if (code == 'L')
+ if (code == 'L' && uiMode == 0)
  {
  DysektProcessor::Command c;
  c.type = processor.lazyChop.isActive() ? DysektProcessor::CmdLazyChopStop
