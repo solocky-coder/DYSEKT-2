@@ -316,7 +316,8 @@ public:
     std::atomic<float>* sustainParam      { nullptr };
     std::atomic<float>* releaseParam      { nullptr };
     std::atomic<float>* holdParam         { nullptr };
-    void loadSoundFontAsync (const juce::File& file);
+    void loadSoundFontAsync (const juce::File& file,
+                              SoundFontLoadTarget target = SoundFontLoadTarget::Slicer);
     void relinkFileAsync    (const juce::File& file);
     void applyTrimToCurrentSample (int trimStart, int trimEnd);
 
@@ -370,6 +371,15 @@ public:
 #endif
     LazyChopEngine   lazyChop;
     SampleData       sampleData;
+
+    /** The SFZ-PLAYER tab's own independent preview waveform buffer.
+     *  Purely visual — never touched by any audio engine (sfzPlayer2 has its
+     *  own internal sfizz state for actual playback) and decoupled from the
+     *  Slicer engine's sampleData so that loading a file into one mode can
+     *  never bleed into, or corrupt, the other mode's sample. Not persisted
+     *  in session state — it's an ephemeral preview, lost on reload, same as
+     *  the Slicer's own pre-fix preview behaviour was for this case. */
+    SampleData       sampleData2;
     MidiLearnManager midiLearn;
 
     // ── SF2 player (SF-PLAYER, ch2 default) ──────────────────────────────────
@@ -643,6 +653,12 @@ public:
     std::atomic<SampleData::DecodedSample*> completedLoadData   { nullptr };
     std::atomic<FailedLoadResult*>          completedLoadFailure { nullptr };
     std::atomic<SfzSlicePayload*>           pendingSfzSlices     { nullptr };
+
+    /** Second, independent load-result pipeline for the SFZ-PLAYER's preview
+     *  buffer (sampleData2). Populated by loadSoundFontAsync(file,
+     *  SoundFontLoadTarget::SfzPlayer2) via SoundFontLoader; consumed in
+     *  processBlock and applied to sampleData2 only — never sampleData. */
+    std::atomic<SampleData::DecodedSample*> completedLoadData2  { nullptr };
 
 
     // =========================================================================

@@ -213,6 +213,8 @@ DysektProcessor::~DysektProcessor()
     delete pending;
     auto* failed = completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
     delete failed;
+    auto* pending2 = completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
+    delete pending2;
 }
 
 bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -370,29 +372,40 @@ void DysektProcessor::applyTrimToCurrentSample (int trimStart, int trimEnd)
     pushCommand (c);
 }
 
-void DysektProcessor::loadSoundFontAsync (const juce::File& file)
+void DysektProcessor::loadSoundFontAsync (const juce::File& file, SoundFontLoadTarget target)
 {
 #if DYSEKT_HAS_SFIZZ
     // Delegate to SoundFontLoader which uses sfizz to render all active notes
-    // into a single stereo buffer and posts the result back via completedLoadData.
+    // into a single stereo buffer and posts the result back via
+    // completedLoadData (Slicer target) or completedLoadData2 (SFZ-PLAYER
+    // preview target) depending on `target`.
     SoundFontLoader loader (*this);
-    loader.load (file);
+    loader.load (file, target);
 #else
     // sfizz is not linked — SF2/SFZ files cannot be decoded.
-    // Post a failure result so the UI shows the normal "failed to load" state
-    // rather than silently doing nothing.
-    const int token = nextLoadToken.fetch_add (1, std::memory_order_relaxed) + 1;
-    latestLoadToken.store (token, std::memory_order_release);
-    latestLoadKind.store  ((int) LoadKindReplace, std::memory_order_release);
+    if (target == SoundFontLoadTarget::Slicer)
+    {
+        // Post a failure result so the UI shows the normal "failed to load" state
+        // rather than silently doing nothing.
+        const int token = nextLoadToken.fetch_add (1, std::memory_order_relaxed) + 1;
+        latestLoadToken.store (token, std::memory_order_release);
+        latestLoadKind.store  ((int) LoadKindReplace, std::memory_order_release);
 
-    delete completedLoadData.exchange    (nullptr, std::memory_order_acq_rel);
-    delete completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
+        delete completedLoadData.exchange    (nullptr, std::memory_order_acq_rel);
+        delete completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
 
-    auto* payload  = new FailedLoadResult();
-    payload->token = token;
-    payload->kind  = LoadKindReplace;
-    payload->file  = file;
-    delete completedLoadFailure.exchange (payload, std::memory_order_acq_rel);
+        auto* payload  = new FailedLoadResult();
+        payload->token = token;
+        payload->kind  = LoadKindReplace;
+        payload->file  = file;
+        delete completedLoadFailure.exchange (payload, std::memory_order_acq_rel);
+    }
+    else
+    {
+        // SFZ-PLAYER preview is visual-only and has no failure UI of its own —
+        // just discard any stale preview payload and silently no-op.
+        delete completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
+    }
 #endif
 }
 
@@ -2497,6 +2510,21 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 loadStateChanged = true;
                 uiSnapshotDirty.store (true, std::memory_order_release);
             }
+        }
+    }
+
+    // ── SFZ-PLAYER preview pipeline (sampleData2) ────────────────────────────
+    // Completely independent of the Slicer's sampleData/sliceManager above —
+    // this is the SFZ-PLAYER tab's own visual-only preview buffer, so there is
+    // no voice-swap safety, slice creation, or availability-state bookkeeping
+    // to do here; just publish the decoded buffer for the UI to display.
+    {
+        auto* rawDecoded2 = completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
+        if (rawDecoded2 != nullptr)
+        {
+            std::unique_ptr<SampleData::DecodedSample> decoded2 (rawDecoded2);
+            sampleData2.applyDecodedSample (std::move (decoded2));
+            uiSnapshotDirty.store (true, std::memory_order_release);
         }
     }
 

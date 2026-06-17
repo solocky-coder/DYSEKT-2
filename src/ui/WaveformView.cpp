@@ -97,6 +97,13 @@ bool WaveformView::isInteracting() const noexcept
  return dragMode != None || midDragging || shiftPreviewActive;
 }
 
+SampleData& WaveformView::activeSampleData() const noexcept
+{
+    const bool sfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
+                                 == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
+    return sfzPlayer2Mode ? processor.sampleData2 : processor.sampleData;
+}
+
 WaveformView::ViewState WaveformView::buildViewState (const SampleData::SnapshotPtr& sampleSnap) const
 {
  ViewState state;
@@ -125,7 +132,7 @@ int WaveformView::pixelToSample (int px) const
  if (paintViewStateActive && cachedPaintViewState.valid)
  return cachedPaintViewState.visibleStart
  + (int) ((float) px / (float) cachedPaintViewState.width * cachedPaintViewState.visibleLen);
- const auto state = buildViewState (processor.sampleData.getSnapshot());
+ const auto state = buildViewState (activeSampleData().getSnapshot());
  if (! state.valid) return 0;
  return state.visibleStart + (int) ((float) px / (float) state.width * state.visibleLen);
 }
@@ -136,14 +143,14 @@ int WaveformView::sampleToPixel (int sample) const
  return (int) ((float) (sample - cachedPaintViewState.visibleStart)
  / (float) cachedPaintViewState.visibleLen
  * (float) cachedPaintViewState.width);
- const auto state = buildViewState (processor.sampleData.getSnapshot());
+ const auto state = buildViewState (activeSampleData().getSnapshot());
  if (! state.valid) return 0;
  return (int) ((float) (sample - state.visibleStart) / (float) state.visibleLen * (float) state.width);
 }
 
 void WaveformView::rebuildCacheIfNeeded()
 {
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  const auto view = buildViewState (sampleSnap);
  if (! view.valid) return;
  const CacheKey key { view.visibleStart, view.visibleLen, view.width, view.numFrames, sampleSnap.get() };
@@ -162,7 +169,7 @@ void WaveformView::paint (juce::Graphics& g)
  // from bleeding into the surrounding frame border, especially on top/bottom.
  g.reduceClipRegion (getLocalBounds());
 
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  g.fillAll (getTheme().waveformBg);
  int cy = getHeight() / 2;
  g.setColour (getTheme().gridLine.withAlpha (0.5f));
@@ -224,7 +231,7 @@ void WaveformView::paintTrimOverlay (juce::Graphics& g)
  const int w = getWidth();
  const int h = getHeight();
 
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  int totalFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 1;
 
  int clampedTrimIn = juce::jlimit(0, totalFrames - 1, trimInPoint);
@@ -291,7 +298,7 @@ void WaveformView::drawWaveform (juce::Graphics& g)
  samplesPerPixel = cachedPaintViewState.samplesPerPixel;
  else
  {
- const auto view = buildViewState (processor.sampleData.getSnapshot());
+ const auto view = buildViewState (activeSampleData().getSnapshot());
  if (view.valid)
  samplesPerPixel = view.samplesPerPixel;
  }
@@ -840,7 +847,7 @@ void WaveformView::drawSlices (juce::Graphics& g)
 void WaveformView::resized()
 {
  prevCacheKey = {};
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap) {
  int totalFrames = sampleSnap->buffer.getNumSamples();
  trimInPoint = juce::jlimit(0, totalFrames - 1, trimInPoint);
@@ -868,7 +875,7 @@ void WaveformView::mouseMove (const juce::MouseEvent& e)
  setMouseCursor (juce::MouseCursor::NormalCursor);
  return;
  }
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap == nullptr) return;
  const auto& ui = processor.getUiSliceSnapshot();
  int sel = ui.selectedSlice;
@@ -893,7 +900,7 @@ void WaveformView::mouseExit (const juce::MouseEvent&) { if (hoveredEdge != Hove
 
 void WaveformView::mouseDown (const juce::MouseEvent& e)
 {
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap == nullptr) return;
  int samplePos = std::max (0, std::min (pixelToSample (e.x), sampleSnap->buffer.getNumSamples()));
 
@@ -1220,7 +1227,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
 void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
 {
  if (trimMode) return;
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap == nullptr) return;
  int rawPos = juce::jlimit (0, sampleSnap->buffer.getNumSamples(), pixelToSample (e.x));
  int samplePos = AudioAnalysis::findNearestZeroCrossing (sampleSnap->buffer, rawPos);
@@ -1233,7 +1240,7 @@ void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
 
 void WaveformView::mouseDrag (const juce::MouseEvent& e)
 {
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap == nullptr) return;
 
  if (trimMode && trimDragging && (dragMode == DragTrimIn || dragMode == DragTrimOut))
@@ -1423,7 +1430,7 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
             if (isSfzPlayer2Mode)
             {
                 processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);  // live MIDI engine
-                processor.loadSoundFontAsync (f);                           // waveform preview → sampleData
+                processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);  // waveform preview → sampleData2
             }
             else
                 processor.loadSoundFontAsync (f);
@@ -1445,7 +1452,7 @@ void WaveformView::enterTrimMode (int start, int end)
  trimDragging = false;
  dragMode = None;
  repaint();
- auto sampleSnap = processor.sampleData.getSnapshot();
+ auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap) {
  int totalFrames = sampleSnap->buffer.getNumSamples();
  trimInPoint = juce::jlimit(0, totalFrames - 1, trimInPoint);

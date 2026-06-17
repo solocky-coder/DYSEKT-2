@@ -85,6 +85,17 @@ private:
     int pixelToSample (int px) const;
     int sampleToPixel (int sample) const;
     ViewState buildViewState (const SampleData::SnapshotPtr& sampleSnap) const;
+
+    /** Returns the buffer this view should currently display/interact with:
+     *  the Slicer's real engine sample (processor.sampleData) normally, or
+     *  the SFZ-PLAYER's own decoupled preview buffer (processor.sampleData2)
+     *  when the current MIDI route mode is SfzPlayer2. WaveformView is shared
+     *  between the Slicer (uiMode 0) and SFZ-PLAYER (uiMode 1) tabs, so every
+     *  read needs to go through this rather than processor.sampleData
+     *  directly — otherwise the two modes' loaded files bleed into each
+     *  other. */
+    SampleData& activeSampleData() const noexcept;
+
     void drawWaveform (juce::Graphics& g);
     void drawSlices (juce::Graphics& g);
     void drawPlaybackCursors (juce::Graphics& g);

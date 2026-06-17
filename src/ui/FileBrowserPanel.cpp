@@ -104,7 +104,12 @@ void FileBrowserPanel::ArchiveListModel::listBoxItemDoubleClicked (int row, cons
 
                 auto ext = localFile.getFileExtension().toLowerCase();
                 if (ext == ".sf2" || ext == ".sfz")
-                    owner->processor.loadSoundFontAsync (localFile);
+                {
+                    const bool sfzPlayer2Mode = (owner->processor.midiRouteMode.load (std::memory_order_relaxed)
+                                                 == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
+                    owner->processor.loadSoundFontAsync (localFile,
+                        sfzPlayer2Mode ? SoundFontLoadTarget::SfzPlayer2 : SoundFontLoadTarget::Slicer);
+                }
                 else if (owner->onLoadRequest)
                     owner->onLoadRequest (localFile);
                 else
@@ -511,7 +516,10 @@ void FileBrowserPanel::fileDoubleClicked (const juce::File& f)
 
     if (ext == ".sf2" || ext == ".sfz")
     {
-        processor.loadSoundFontAsync (f);
+        const bool sfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
+                                     == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
+        processor.loadSoundFontAsync (f,
+            sfzPlayer2Mode ? SoundFontLoadTarget::SfzPlayer2 : SoundFontLoadTarget::Slicer);
         if (onFileLoaded) onFileLoaded();
         return;
     }

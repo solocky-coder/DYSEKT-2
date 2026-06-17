@@ -223,7 +223,7 @@ void SfzWaveformLcd::buildWaveformPeaks()
     peaks.clearQuick();
     peaks.insertMultiple (-1, 0.0f, kPeaks);
 
-    const auto snap = processor.sampleData.getSnapshot();
+    const auto snap = processor.sampleData2.getSnapshot();
     if (snap == nullptr) return;
     const int totalFrames = snap->buffer.getNumSamples();
     if (totalFrames <= 0) return;
@@ -345,7 +345,7 @@ void SfzWaveformLcd::drawLoopOverlay (juce::Graphics& g,
 void SfzWaveformLcd::mouseWheelMove (const juce::MouseEvent& e,
                                       const juce::MouseWheelDetails& w)
 {
-    const auto snap = processor.sampleData.getSnapshot();
+    const auto snap = processor.sampleData2.getSnapshot();
     if (snap == nullptr || snap->buffer.getNumSamples() <= 0)
         return;
 

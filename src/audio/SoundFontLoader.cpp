@@ -200,12 +200,13 @@ static std::pair<int,int> parseSf2LoopPoints (const juce::File& sf2File)
 class SoundFontLoader::LoadJob final : public juce::ThreadPoolJob
 {
 public:
-    LoadJob (juce::File f, double sr, int tok, DysektProcessor& proc)
+    LoadJob (juce::File f, double sr, int tok, DysektProcessor& proc, SoundFontLoadTarget tgt)
         : juce::ThreadPoolJob ("SfzLoadJob"),
           file (std::move (f)),
           sampleRate (sr),
           token (tok),
-          processor (proc)
+          processor (proc),
+          target (tgt)
     {}
 
     // ── Main entry point ──────────────────────────────────────────────────────
@@ -423,18 +424,33 @@ public:
         }
 
         // ── Step 4: post results ──────────────────────────────────────────────
-        // Post slice layout (processBlock picks this up right after applyDecodedSample)
-        auto* oldPayload = processor.pendingSfzSlices.exchange (payload,
-                                                                 std::memory_order_acq_rel);
-        delete oldPayload;
+        if (target == SoundFontLoadTarget::Slicer)
+        {
+            // Post slice layout (processBlock picks this up right after applyDecodedSample)
+            auto* oldPayload = processor.pendingSfzSlices.exchange (payload,
+                                                                     std::memory_order_acq_rel);
+            delete oldPayload;
 
-        // Post decoded audio (same path as WAV loader — processBlock polls this)
-        auto* old = processor.completedLoadData.exchange (decoded.release(),
-                                                          std::memory_order_acq_rel);
-        delete old;
+            // Post decoded audio (same path as WAV loader — processBlock polls this)
+            auto* old = processor.completedLoadData.exchange (decoded.release(),
+                                                              std::memory_order_acq_rel);
+            delete old;
 
-        processor.latestLoadKind.store ((int) DysektProcessor::LoadKindReplace,
-                                        std::memory_order_release);
+            processor.latestLoadKind.store ((int) DysektProcessor::LoadKindReplace,
+                                            std::memory_order_release);
+        }
+        else
+        {
+            // SFZ-PLAYER preview: no slice payload is needed (sfzPlayer2 handles
+            // MIDI internally), so discard it and post audio to the separate
+            // preview-only pipeline instead — completely decoupled from the
+            // Slicer's sampleData / sliceManager.
+            delete payload;
+
+            auto* old = processor.completedLoadData2.exchange (decoded.release(),
+                                                               std::memory_order_acq_rel);
+            delete old;
+        }
         return jobHasFinished;
     }
 
@@ -518,6 +534,13 @@ private:
 
     void postFailure()
     {
+        // SFZ-PLAYER preview is visual-only and has no failure-state UI of its
+        // own (sfzPlayer2's live engine handles its own failure reporting
+        // separately) — so for that target we simply no-op rather than add a
+        // second failure-result atomic.
+        if (target != SoundFontLoadTarget::Slicer)
+            return;
+
         auto* payload = new DysektProcessor::FailedLoadResult();
         payload->token = token;
         payload->kind  = DysektProcessor::LoadKindReplace;
@@ -527,40 +550,57 @@ private:
         delete old;
     }
 
-    juce::File       file;
-    double           sampleRate;
-    int              token;
-    DysektProcessor& processor;
+    juce::File          file;
+    double              sampleRate;
+    int                 token;
+    DysektProcessor&    processor;
+    SoundFontLoadTarget target;
 };
 
 // =============================================================================
 //  SoundFontLoader::load  (public entry point — UI thread)
 // =============================================================================
-void SoundFontLoader::load (const juce::File& file)
+void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
 {
     const double sr = processor.currentSampleRate > 0.0
                       ? processor.currentSampleRate : 44100.0;
 
-    const int token = processor.nextLoadToken.fetch_add (1, std::memory_order_relaxed) + 1;
-    processor.latestLoadToken.store (token, std::memory_order_release);
-    processor.latestLoadKind.store  ((int) DysektProcessor::LoadKindReplace,
-                                     std::memory_order_release);
+    int token = 0;
 
-    // Discard any pending payload from a previous load
-    delete processor.completedLoadData.exchange  (nullptr, std::memory_order_acq_rel);
-    delete processor.completedLoadFailure.exchange(nullptr, std::memory_order_acq_rel);
-    delete processor.pendingSfzSlices.exchange   (nullptr, std::memory_order_acq_rel);
+    if (target == SoundFontLoadTarget::Slicer)
+    {
+        token = processor.nextLoadToken.fetch_add (1, std::memory_order_relaxed) + 1;
+        processor.latestLoadToken.store (token, std::memory_order_release);
+        processor.latestLoadKind.store  ((int) DysektProcessor::LoadKindReplace,
+                                         std::memory_order_release);
 
-    processor.fileLoadPool.addJob (new LoadJob (file, sr, token, processor), true);
+        // Discard any pending payload from a previous Slicer-target load
+        delete processor.completedLoadData.exchange  (nullptr, std::memory_order_acq_rel);
+        delete processor.completedLoadFailure.exchange(nullptr, std::memory_order_acq_rel);
+        delete processor.pendingSfzSlices.exchange   (nullptr, std::memory_order_acq_rel);
+    }
+    else
+    {
+        // SFZ-PLAYER preview pipeline is independent of the Slicer's token
+        // sequence — it never checks tokens, so there's nothing to bump here.
+        // Just discard any stale preview payload from a previous preview load.
+        delete processor.completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
+    }
+
+    processor.fileLoadPool.addJob (new LoadJob (file, sr, token, processor, target), true);
 }
 
 #else  // DYSEKT_HAS_SFIZZ not defined
 
-void SoundFontLoader::load (const juce::File& file)
+void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
 {
     // sfizz not linked — hand off to the regular audio file loader.
     // It will likely fail and show the normal "failed to load" UI.
-    processor.requestSampleLoad (file, DysektProcessor::LoadKindReplace);
+    // (SfzPlayer2-target preview loads have no failure UI of their own, so
+    // this fallback only makes sense for the Slicer target; for the preview
+    // target there is nothing to route the failure to, so just ignore it.)
+    if (target == SoundFontLoadTarget::Slicer)
+        processor.requestSampleLoad (file, DysektProcessor::LoadKindReplace);
 }
 
 #endif // DYSEKT_HAS_SFIZZ

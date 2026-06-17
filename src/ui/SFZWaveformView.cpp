@@ -53,7 +53,7 @@ int SFZWaveformView::pixelToSample (int px) const
 
 void SFZWaveformView::rebuildCacheIfNeeded()
 {
-    auto sampleSnap = processor.sampleData.getSnapshot();
+    auto sampleSnap = processor.sampleData2.getSnapshot();
     if (sampleSnap == nullptr) return;
 
     const int numFrames  = sampleSnap->buffer.getNumSamples();
@@ -88,7 +88,7 @@ void SFZWaveformView::paint (juce::Graphics& g)
     g.drawHorizontalLine (getHeight() / 4,     0.0f, (float) getWidth());
     g.drawHorizontalLine (getHeight() * 3 / 4, 0.0f, (float) getWidth());
 
-    auto sampleSnap = processor.sampleData.getSnapshot();
+    auto sampleSnap = processor.sampleData2.getSnapshot();
     if (sampleSnap == nullptr || sampleSnap->buffer.getNumSamples() <= 0)
     {
         drawPlaceholder (g);
@@ -361,6 +361,6 @@ void SFZWaveformView::filesDropped (const juce::StringArray& files, int, int)
         processor.zoom.store   (1.0f);
         processor.scroll.store (0.0f);
         prevCacheKey = {};
-        processor.loadSoundFontAsync (f);
+        processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);
     }
 }
