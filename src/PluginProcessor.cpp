@@ -215,6 +215,8 @@ DysektProcessor::~DysektProcessor()
     delete failed;
     auto* pending2 = completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
     delete pending2;
+    auto* pendingZones2 = pendingPreviewZones2.exchange (nullptr, std::memory_order_acq_rel);
+    delete pendingZones2;
 }
 
 bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -2524,6 +2526,19 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         {
             std::unique_ptr<SampleData::DecodedSample> decoded2 (rawDecoded2);
             sampleData2.applyDecodedSample (std::move (decoded2));
+            uiSnapshotDirty.store (true, std::memory_order_release);
+        }
+
+        // Same load event also carries the read-only "preview zones" overlay
+        // (one band per rendered note) — published into previewZones2 so the
+        // waveform can draw it instead of real slices while in SfzPlayer2 mode.
+        auto* rawZones2 = pendingPreviewZones2.exchange (nullptr, std::memory_order_acq_rel);
+        if (rawZones2 != nullptr)
+        {
+            std::unique_ptr<SfzPreviewZonePayload> zonesOwner2 (rawZones2);
+            auto zoneList = std::make_unique<SfzPreviewZoneStore::ZoneList> (
+                std::move (zonesOwner2->slices));
+            previewZones2.set (std::move (zoneList));
             uiSnapshotDirty.store (true, std::memory_order_release);
         }
     }

@@ -380,6 +380,14 @@ public:
      *  in session state — it's an ephemeral preview, lost on reload, same as
      *  the Slicer's own pre-fix preview behaviour was for this case. */
     SampleData       sampleData2;
+
+    /** Read-only "preview zones" overlay for the SFZ-PLAYER tab's
+     *  waveform -- one colored band per rendered note in sampleData2,
+     *  mirroring the Slicer's real slice overlay but purely for display.
+     *  Published by processBlock from pendingPreviewZones2 whenever a
+     *  SoundFontLoadTarget::SfzPlayer2 load completes; never touched by
+     *  sliceManager or any audio engine. */
+    SfzPreviewZoneStore previewZones2;
     MidiLearnManager midiLearn;
 
     // ── SF2 player (SF-PLAYER, ch2 default) ──────────────────────────────────
@@ -659,6 +667,13 @@ public:
      *  SoundFontLoadTarget::SfzPlayer2) via SoundFontLoader; consumed in
      *  processBlock and applied to sampleData2 only — never sampleData. */
     std::atomic<SampleData::DecodedSample*> completedLoadData2  { nullptr };
+
+    /** Heap-allocated zone payload posted by SoundFontLoader for a
+     *  SoundFontLoadTarget::SfzPlayer2 load -- the same per-note
+     *  descriptors as pendingSfzSlices, but for the read-only preview
+     *  overlay. processBlock takes ownership and folds it into
+     *  previewZones2 alongside consuming completedLoadData2. */
+    std::atomic<SfzPreviewZonePayload*> pendingPreviewZones2 { nullptr };
 
 
     // =========================================================================

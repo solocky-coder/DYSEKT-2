@@ -16,9 +16,13 @@
 //     SoundFontLoadTarget::Slicer (same path as a normal WAV load), or via
 //     completedLoadData2 for SoundFontLoadTarget::SfzPlayer2 (a separate,
 //     visual-only preview buffer decoupled from the Slicer engine).
-//  7. For SoundFontLoadTarget::Slicer only, also posts matching slice
-//     positions + MIDI notes via the pendingSfzSlices atomic so processBlock
-//     can create them after apply.
+//  7. For SoundFontLoadTarget::Slicer, also posts matching slice positions +
+//     MIDI notes via the pendingSfzSlices atomic so processBlock can create
+//     them after apply. For SoundFontLoadTarget::SfzPlayer2, the same
+//     per-note descriptors are instead posted via the pendingPreviewZones2
+//     atomic into a SfzPreviewZoneStore — a read-only "preview zones"
+//     overlay so the SFZ-PLAYER's waveform can show the same colored
+//     per-note zone bands as the Slicer, without ever touching sliceManager.
 //
 //  Thread safety
 //  ─────────────
@@ -29,6 +33,7 @@
 
 #include <juce_core/juce_core.h>
 #include <juce_audio_basics/juce_audio_basics.h>
+#include "SampleData.h"   // for INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
 
 #if DYSEKT_HAS_SFIZZ
   #include "../../sfizz/src/sfizz.h"
@@ -44,11 +49,14 @@ class DysektProcessor;
 //                atomics, same as a normal WAV load. This is the Slicer
 //                engine's actual sample buffer (sampleData), used for
 //                real-time playback/slicing.
-//  SfzPlayer2 — posts to the processor's completedLoadData2 atomic only.
-//                This is a visual-only preview buffer (sampleData2) for the
+//  SfzPlayer2 — posts to the processor's completedLoadData2 atomic for the
+//                visual-only preview buffer (sampleData2) used by the
 //                SFZ-PLAYER tab; it is never touched by any audio engine
 //                (sfzPlayer2 has its own internal sfizz state for actual
-//                playback), so no slice payload is computed/posted for it.
+//                playback). Also posts the same per-note descriptors via
+//                pendingPreviewZones2 into a SfzPreviewZoneStore, so the
+//                waveform can draw a read-only zone overlay — no slices
+//                are ever created in sliceManager for this target.
 // =============================================================================
 enum class SoundFontLoadTarget { Slicer = 0, SfzPlayer2 = 1 };
 
@@ -86,6 +94,68 @@ struct SfzSliceDescriptor
 // Heap-allocated payload posted via pendingSfzSlices atomic.
 // processBlock takes ownership, creates slices, then deletes it.
 struct SfzSlicePayload
+{
+    std::vector<SfzSliceDescriptor> slices;
+};
+
+// =============================================================================
+//  SfzPreviewZoneStore — read-only "preview zones" for the SFZ-PLAYER tab.
+//  ─────────────────────────────────────────────────────────────────────────
+//  Holds the same per-note descriptors as SfzSlicePayload, but for display
+//  only — there is no sliceManager involvement, no editing, no playback
+//  binding. The UI thread reads a snapshot every paint(); processBlock
+//  publishes a new one whenever a SfzPlayer2-target load completes.
+//
+//  Uses the same atomic-shared-ptr snapshot idiom as SampleData (see
+//  INTERSECT_HAS_STD_ATOMIC_SHARED_PTR in SampleData.h) so reads from the UI
+//  thread never race with a concurrent publish from processBlock.
+// =============================================================================
+class SfzPreviewZoneStore
+{
+public:
+    using ZoneList    = std::vector<SfzSliceDescriptor>;
+    using SnapshotPtr = std::shared_ptr<const ZoneList>;
+
+    /** Publish a new zone list (UI/audio thread — called from processBlock
+     *  after consuming pendingPreviewZones2). Takes ownership. */
+    void set (std::unique_ptr<ZoneList> zones)
+    {
+        SnapshotPtr view = std::move (zones);
+
+#if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
+        snapshot.store (view, std::memory_order_release);
+#else
+        std::atomic_store_explicit (&snapshot, view, std::memory_order_release);
+#endif
+    }
+
+    /** Read the current zone list (UI thread, called from paint()). May be
+     *  empty (but never null) if no SfzPlayer2-target load has completed yet. */
+    SnapshotPtr get() const
+    {
+#if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
+        auto view = snapshot.load (std::memory_order_acquire);
+#else
+        auto view = std::atomic_load_explicit (&snapshot, std::memory_order_acquire);
+#endif
+        if (view == nullptr)
+            view = std::make_shared<const ZoneList>();
+        return view;
+    }
+
+private:
+#if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
+    std::atomic<SnapshotPtr> snapshot;
+#else
+    SnapshotPtr snapshot;
+#endif
+};
+
+// Heap-allocated payload posted via pendingPreviewZones2 atomic.
+// processBlock takes ownership and folds it into previewZones2, then
+// the unique_ptr is destroyed — no manual delete needed, unlike
+// SfzSlicePayload (which predates this and still uses raw new/delete).
+struct SfzPreviewZonePayload
 {
     std::vector<SfzSliceDescriptor> slices;
 };

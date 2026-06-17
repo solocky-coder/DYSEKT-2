@@ -98,6 +98,7 @@ private:
 
     void drawWaveform (juce::Graphics& g);
     void drawSlices (juce::Graphics& g);
+    void drawPreviewZones (juce::Graphics& g);
     void drawPlaybackCursors (juce::Graphics& g);
     void paintLazyChopOverlay (juce::Graphics& g);
     void paintTransientMarkers (juce::Graphics& g);

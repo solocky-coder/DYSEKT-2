@@ -441,11 +441,20 @@ public:
         }
         else
         {
-            // SFZ-PLAYER preview: no slice payload is needed (sfzPlayer2 handles
-            // MIDI internally), so discard it and post audio to the separate
-            // preview-only pipeline instead — completely decoupled from the
-            // Slicer's sampleData / sliceManager.
+            // SFZ-PLAYER preview: sfzPlayer2 handles MIDI internally, so the
+            // slice descriptors are never turned into real slices — but they
+            // ARE reused as a read-only "preview zones" overlay so the
+            // SFZ-PLAYER's waveform can show the same colored per-note bands
+            // as the Slicer. Repackage as SfzPreviewZonePayload and post via
+            // pendingPreviewZones2; completely decoupled from the Slicer's
+            // sampleData / sliceManager.
+            auto* zonePayload = new SfzPreviewZonePayload();
+            zonePayload->slices = std::move (payload->slices);
             delete payload;
+
+            auto* oldZones = processor.pendingPreviewZones2.exchange (zonePayload,
+                                                                       std::memory_order_acq_rel);
+            delete oldZones;
 
             auto* old = processor.completedLoadData2.exchange (decoded.release(),
                                                                std::memory_order_acq_rel);
@@ -585,6 +594,7 @@ void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
         // sequence — it never checks tokens, so there's nothing to bump here.
         // Just discard any stale preview payload from a previous preview load.
         delete processor.completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
+        delete processor.pendingPreviewZones2.exchange (nullptr, std::memory_order_acq_rel);
     }
 
     processor.fileLoadPool.addJob (new LoadJob (file, sr, token, processor, target), true);

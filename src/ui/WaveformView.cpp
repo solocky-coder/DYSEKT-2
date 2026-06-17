@@ -182,7 +182,12 @@ void WaveformView::paint (juce::Graphics& g)
  paintViewStateActive = cachedPaintViewState.valid;
  rebuildCacheIfNeeded();
  drawWaveform (g);
- drawSlices (g);
+ const bool sfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
+                              == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
+ if (sfzPlayer2Mode)
+     drawPreviewZones (g);
+ else
+     drawSlices (g);
  paintLazyChopOverlay (g);
  paintTransientMarkers (g);
  paintTrimOverlay (g);
@@ -841,6 +846,53 @@ void WaveformView::drawSlices (juce::Graphics& g)
  g.setFont (DysektLookAndFeel::makeFont (10.0f, true));
  g.drawText (juce::String (i + 1), mx + 13, 3, 20, 12, juce::Justification::left);
  }
+ }
+}
+
+// ── Read-only "preview zones" overlay for the SFZ-PLAYER tab ──────────────────
+// Mirrors drawSlices()'s visual language (colored full-height bands, numbered
+// labels) but reads from processor.previewZones2 instead of the real
+// sliceManager snapshot — there is no selection, no dragging, no editing.
+// Colors are generated deterministically via golden-angle hue rotation so
+// each zone is visually distinct without needing a persisted Slice.colour.
+void WaveformView::drawPreviewZones (juce::Graphics& g)
+{
+ auto zones = processor.previewZones2.get();
+ const int num = (int) zones->size();
+ if (num <= 0) return;
+
+ const int kTopPad = 3;
+ const int kBotPad = 3;
+ const int markerH = getHeight() - kTopPad - kBotPad;
+ constexpr float kGoldenAngle = 0.61803398875f; // golden-ratio hue step
+
+ for (int i = 0; i < num; ++i)
+ {
+ const auto& z = (*zones)[(size_t) i];
+
+ int x1 = std::max (0, sampleToPixel (z.startSample));
+ int x2 = std::min (getWidth(), sampleToPixel (z.endSample));
+ int sw = x2 - x1;
+ if (sw <= 0) continue;
+
+ const float hue = std::fmod ((float) i * kGoldenAngle, 1.0f);
+ const juce::Colour zoneColour = juce::Colour::fromHSV (hue, 0.65f, 0.85f, 1.0f);
+
+ g.setColour (zoneColour.withAlpha (0.18f));
+ g.fillRect (x1, kTopPad, sw, markerH);
+
+ g.setColour (zoneColour.withAlpha (0.75f));
+ g.drawHorizontalLine (kTopPad, (float) x1, (float) x2);
+ g.drawHorizontalLine (getHeight() - kBotPad, (float) x1, (float) x2);
+
+ g.setColour (zoneColour.withAlpha (0.92f));
+ g.drawVerticalLine (x1, (float) kTopPad, (float) (kTopPad + markerH));
+
+ // Sequential zone number, matching the Slicer's own label convention
+ // (1-32) rather than note names — read-only preview, no per-zone LCD.
+ g.setColour (juce::Colours::white);
+ g.setFont (DysektLookAndFeel::makeFont (10.0f, true));
+ g.drawText (juce::String (i + 1), x1 + 3, 3, 20, 12, juce::Justification::left);
  }
 }
 
