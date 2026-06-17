@@ -107,6 +107,8 @@ void FileBrowserPanel::ArchiveListModel::listBoxItemDoubleClicked (int row, cons
                 {
                     const bool sfzPlayer2Mode = (owner->processor.midiRouteMode.load (std::memory_order_relaxed)
                                                  == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
+                    if (sfzPlayer2Mode)
+                        owner->processor.sfzPlayer2.loadFile (localFile, owner->processor.fileLoadPool);  // live MIDI engine
                     owner->processor.loadSoundFontAsync (localFile,
                         sfzPlayer2Mode ? SoundFontLoadTarget::SfzPlayer2 : SoundFontLoadTarget::Slicer);
                 }
@@ -518,6 +520,8 @@ void FileBrowserPanel::fileDoubleClicked (const juce::File& f)
     {
         const bool sfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
                                      == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
+        if (sfzPlayer2Mode)
+            processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);  // live MIDI engine
         processor.loadSoundFontAsync (f,
             sfzPlayer2Mode ? SoundFontLoadTarget::SfzPlayer2 : SoundFontLoadTarget::Slicer);
         if (onFileLoaded) onFileLoaded();

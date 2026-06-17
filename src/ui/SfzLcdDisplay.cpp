@@ -76,33 +76,33 @@ void SfzLcdDisplay::buildDisplayData()
 {
     data = {};
 
-    data.loaded = processor.sfzPlayer.isLoaded();
+    data.loaded = processor.sfzPlayer2.isLoaded();
     if (! data.loaded)
         return;
 
-    const juce::File f = processor.sfzPlayer.getLoadedFile();
+    const juce::File f = processor.sfzPlayer2.getLoadedFile();
     data.fileName  = f.getFileNameWithoutExtension();
     data.filePath  = f.getParentDirectory().getFullPathName();
 
     // Volume: sfzPlayer returns linear gain; convert to dB
-    const float gainLinear = processor.sfzPlayer.getVolume();
+    const float gainLinear = processor.sfzPlayer2.getVolume();
     data.volume = gainLinear > 0.0f
                       ? 20.0f * std::log10 (gainLinear)
                       : -96.0f;
 
-    data.transpose   = processor.sfzPlayer.getTranspose();
+    data.transpose   = processor.sfzPlayer2.getTranspose();
 
     // ADSR — sfzPlayer stores in seconds (ATK/DEC/REL) and percent (SUS)
-    data.attackSec   = processor.sfzPlayer.getSfzAttack();
-    data.decaySec    = processor.sfzPlayer.getSfzDecay();
-    data.sustainPct  = processor.sfzPlayer.getSfzSustain();   // already 0-100
-    data.releaseSec  = processor.sfzPlayer.getSfzRelease();
+    data.attackSec   = processor.sfzPlayer2.getSfzAttack();
+    data.decaySec    = processor.sfzPlayer2.getSfzDecay();
+    data.sustainPct  = processor.sfzPlayer2.getSfzSustain();   // already 0-100
+    data.releaseSec  = processor.sfzPlayer2.getSfzRelease();
 
     // Reverb (0–100 each)
-    data.reverbSize  = processor.sfzPlayer.getReverbSize();
-    data.reverbDamp  = processor.sfzPlayer.getReverbDamp();
-    data.reverbWidth = processor.sfzPlayer.getReverbWidth();
-    data.reverbMix   = processor.sfzPlayer.getReverbMix();
+    data.reverbSize  = processor.sfzPlayer2.getReverbSize();
+    data.reverbDamp  = processor.sfzPlayer2.getReverbDamp();
+    data.reverbWidth = processor.sfzPlayer2.getReverbWidth();
+    data.reverbMix   = processor.sfzPlayer2.getReverbMix();
 
     // Pre-compute upper-case string so paint() never allocates heap memory.
     data.fileNameUpperShort = data.fileName.toUpperCase().substring (0, 18);
