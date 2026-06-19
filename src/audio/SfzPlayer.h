@@ -218,8 +218,15 @@ public:
     void setJuceAdsr (float attackSec, float decaySec,
                       float sustainLvl, float releaseSec) noexcept;
 
-    /** Signal a note-on to the JUCE envelope (called from UI when key is pressed). */
-    void juceAdsrNoteOn()  noexcept { juceAdsrNoteOnPending .store (true, std::memory_order_relaxed); }
+    /** Signal a note-on to the JUCE envelope (called from UI when key is pressed).
+     *  noteNumber is stashed so the audio thread can publish it as
+     *  lastTriggeredNote alongside the previewPositionSample reset — this lets
+     *  the UI look up which previewZones2 region the playhead belongs to. */
+    void juceAdsrNoteOn (int noteNumber) noexcept
+    {
+        pendingTriggeredNote.store (noteNumber, std::memory_order_relaxed);
+        juceAdsrNoteOnPending.store (true, std::memory_order_relaxed);
+    }
 
     /** Signal a note-off to the JUCE envelope. */
     void juceAdsrNoteOff() noexcept { juceAdsrNoteOffPending.store (true, std::memory_order_relaxed); }
@@ -236,6 +243,15 @@ public:
     int getPreviewPositionSample() const noexcept
     {
         return previewPositionSample.load (std::memory_order_relaxed);
+    }
+
+    /** MIDI note number of the most recently triggered note (raw, no transpose
+     *  applied), used by the UI to look up the corresponding region in
+     *  processor.previewZones2 so the playhead can be placed at the right
+     *  offset within the concatenated multi-region preview buffer. */
+    int getLastTriggeredNote() const noexcept
+    {
+        return lastTriggeredNote.load (std::memory_order_relaxed);
     }
 
     // ── Per-channel peak meters (public — read by MixerPanel timer) ──────────
@@ -380,6 +396,19 @@ private:
     // once the envelope goes idle (matches VoicePool::voicePositions semantics
     // — see WaveformView::drawPlaybackCursors's `pos <= 0.0f` idle check).
     std::atomic<int>           previewPositionSample  { 0 };
+
+    /** MIDI note number behind the most recent previewPositionSample reset.
+     *  Written on the audio thread at every note-on site (sfizz + FluidSynth,
+     *  both the MIDI path and the UI-injection path); left untouched on the
+     *  idle-freeze sites since those aren't new triggers. Read by the UI to
+     *  resolve which previewZones2 region the playhead position belongs to. */
+    std::atomic<int>           lastTriggeredNote      { 0 };
+
+    /** UI → audio thread handoff for juceAdsrNoteOn(noteNumber): the note
+     *  number is stashed here when the UI thread signals a note-on, then
+     *  consumed (and published into lastTriggeredNote) the moment process()
+     *  consumes juceAdsrNoteOnPending. */
+    std::atomic<int>           pendingTriggeredNote   { 0 };
 
     /** Called once after a successful SF2/SFZ load to zero FluidSynth's internal
      *  envelope generators on all channels so JUCE ADSR has exclusive control.

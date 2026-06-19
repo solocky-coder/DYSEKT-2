@@ -607,10 +607,11 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
                 sfizz_send_note_on (sfizzSynth, meta.samplePosition,
                                     msg.getNoteNumber(), msg.getVelocity());
                 // Drive the JUCE ADSR so it doesn't stay idle and multiply output by 0.
-                // (juceAdsrNoteOn() is only called for UI-keyboard injections; external
-                //  MIDI must trigger it here on the audio thread directly.)
+                // (juceAdsrNoteOn(noteNumber) is only called for UI-keyboard injections;
+                //  external MIDI must trigger it here on the audio thread directly.)
                 juceAdsr.noteOn();
                 previewPositionSample.store (0, std::memory_order_relaxed);
+                lastTriggeredNote.store (msg.getNoteNumber(), std::memory_order_relaxed);
             }
             else if (msg.isNoteOff())
             {
@@ -721,6 +722,7 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         {
             juceAdsr.noteOn();
             previewPositionSample.store (0, std::memory_order_relaxed);
+            lastTriggeredNote.store (pendingTriggeredNote.load (std::memory_order_relaxed), std::memory_order_relaxed);
         }
         if (juceAdsrNoteOffPending.exchange (false, std::memory_order_acquire))
             juceAdsr.noteOff();
@@ -785,7 +787,10 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         const int  midiCh = msg.getChannel();   // 1-16
 
         if (msg.isNoteOn())
+        {
             previewPositionSample.store (0, std::memory_order_relaxed);
+            lastTriggeredNote.store (msg.getNoteNumber(), std::memory_order_relaxed);
+        }
 
         // Determine the set of FluidSynth channels to address.
         // Fan-out applies only to ch-1 messages when a live mask is configured.
@@ -892,6 +897,7 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     {
         juceAdsr.noteOn();
         previewPositionSample.store (0, std::memory_order_relaxed);
+        lastTriggeredNote.store (pendingTriggeredNote.load (std::memory_order_relaxed), std::memory_order_relaxed);
     }
     if (juceAdsrNoteOffPending.exchange (false, std::memory_order_acquire))
         juceAdsr.noteOff();

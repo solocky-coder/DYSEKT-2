@@ -2713,7 +2713,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 const int w = noteOn < 64 ? 0 : 1;
                 const int b = noteOn < 64 ? noteOn : noteOn - 64;
                 sfzActiveNotes[w].fetch_or ((uint64_t)1 << b, std::memory_order_relaxed);
-                sfzPlayer.juceAdsrNoteOn();   // trigger JUCE ADSR envelope
+                sfzPlayer.juceAdsrNoteOn (noteOn);   // trigger JUCE ADSR envelope
             }
             if (noteOff >= 0 && noteOff <= 127)
             {
@@ -3203,7 +3203,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     const int w = noteOn  < 64 ? 0 : 1;
                     const int b = noteOn  < 64 ? noteOn  : noteOn  - 64;
                     sfz2ActiveNotes[w].fetch_or  ((uint64_t)1 << b, std::memory_order_relaxed);
-                    sfzPlayer2.juceAdsrNoteOn();
+                    sfzPlayer2.juceAdsrNoteOn (noteOn);
                 }
                 if (noteOff >= 0 && noteOff <= 127)
                 {

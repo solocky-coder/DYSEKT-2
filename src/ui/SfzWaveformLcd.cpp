@@ -582,13 +582,35 @@ void SfzWaveformLcd::drawPlayhead (juce::Graphics& g, const juce::Rectangle<floa
     const int posSample = processor.sfzPlayer2.getPreviewPositionSample();
     if (posSample <= 0 || cachedTotalFrames <= 0) return;
 
+    // posSample is elapsed-samples-since-note-on, not an absolute position
+    // within the concatenated multi-region preview buffer
+    // (processor.sampleData2) — for any region other than the first the
+    // playhead would otherwise always render at the buffer start. Look up
+    // the most recently triggered note's region in previewZones2 and add
+    // its startSample offset before mapping to a pixel, same as
+    // WaveformView::drawPlaybackCursors.
+    int absoluteSample = posSample;
+    auto zones = processor.previewZones2.get();
+    if (zones != nullptr)
+    {
+        const int note = processor.sfzPlayer2.getLastTriggeredNote();
+        for (const auto& z : *zones)
+        {
+            if (z.midiNote == note)
+            {
+                absoluteSample = z.startSample + posSample;
+                break;
+            }
+        }
+    }
+
     const float windowFrac = 1.0f / cachedZoom;
     const float maxScroll  = (float) cachedTotalFrames * (1.0f - windowFrac);
     const float startF_f   = cachedScroll * maxScroll;
     const float endF_f     = startF_f + windowFrac * (float) cachedTotalFrames;
     if (endF_f <= startF_f) return;
 
-    const float t = ((float) posSample - startF_f) / (endF_f - startF_f);
+    const float t = ((float) absoluteSample - startF_f) / (endF_f - startF_f);
     if (t < 0.0f || t > 1.0f) return;   // playhead outside the visible window
 
     const float px = area.getX() + t * area.getWidth();
