@@ -388,6 +388,30 @@ public:
      *  SoundFontLoadTarget::SfzPlayer2 load completes; never touched by
      *  sliceManager or any audio engine. */
     SfzPreviewZoneStore previewZones2;
+
+    /** Index into the current previewZones2 snapshot of the zone last clicked
+     *  in the SFZ-PLAYER waveform view. -1 = no selection. Written by
+     *  WaveformView::mouseDown (UI thread), read by WaveformView::
+     *  drawPreviewZones (highlight) and SfzLcdDisplay (info row). Not
+     *  persisted -- like previewZones2 itself, this is ephemeral display
+     *  state, cleared on reload. */
+    std::atomic<int> selectedPreviewZone2 { -1 };
+
+    /** One-shot click-to-audition voice for SFZ-PLAYER preview zones.
+     *  Plays back [start, end) directly out of sampleData2's rendered
+     *  buffer -- bypasses sfizz entirely, since sfizz's internal region
+     *  key-mapping isn't something the public C API exposes for ad-hoc
+     *  range playback. Triggered by WaveformView::mouseDown on a zone
+     *  click; consumed once per trigger by processBlock, which then owns
+     *  the running position until it reaches end or is re-triggered. */
+    struct ZonePreviewVoice
+    {
+        std::atomic<int>  triggerStart  { -1 };   // new-trigger request; -1 = none pending
+        std::atomic<int>  triggerEnd    { -1 };
+        std::atomic<int>  playPosition  { -1 };   // -1 = idle; else current sample offset
+        std::atomic<int>  playEnd       { -1 };
+    } zonePreview2;
+
     MidiLearnManager midiLearn;
 
     // ── SF2 player (SF-PLAYER, ch2 default) ──────────────────────────────────

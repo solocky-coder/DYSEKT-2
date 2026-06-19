@@ -53,6 +53,13 @@ private:
         float         reverbWidth   = 0.0f;
         float         reverbMix     = 0.0f;
 
+        // Selected previewZones2 zone (-1 = none). Populated from
+        // processor.selectedPreviewZone2 / previewZones2 each paint().
+        int           selectedZoneIdx   = -1;
+        int           selectedZoneNote  = 0;
+        int           selectedZoneStart = 0;
+        int           selectedZoneEnd   = 0;
+
         // Pre-computed — populated by buildDisplayData() so paint() never allocates.
         juce::String  fileNameUpperShort; // fileName.toUpperCase().substring(0,18)
     };
@@ -74,6 +81,7 @@ private:
     // ── Formatters ────────────────────────────────────────────────────────────
     static juce::String formatMs  (float secs);
     static juce::String formatPct (float v);
+    static juce::String midiNoteName (int note);
 
     DysektProcessor& processor;
     DisplayData      data;

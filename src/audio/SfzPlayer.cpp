@@ -610,6 +610,7 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
                 // (juceAdsrNoteOn() is only called for UI-keyboard injections; external
                 //  MIDI must trigger it here on the audio thread directly.)
                 juceAdsr.noteOn();
+                previewPositionSample.store (0, std::memory_order_relaxed);
             }
             else if (msg.isNoteOff())
             {
@@ -717,7 +718,10 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
             juceAdsr.setParameters (juceAdsrParams);
         }
         if (juceAdsrNoteOnPending .exchange (false, std::memory_order_acquire))
+        {
             juceAdsr.noteOn();
+            previewPositionSample.store (0, std::memory_order_relaxed);
+        }
         if (juceAdsrNoteOffPending.exchange (false, std::memory_order_acquire))
             juceAdsr.noteOff();
 
@@ -731,6 +735,10 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
             }
         }
         juceAdsrActive.store (juceAdsr.isActive(), std::memory_order_relaxed);
+        if (juceAdsr.isActive())
+            previewPositionSample.fetch_add (numSamples, std::memory_order_relaxed);
+        else
+            previewPositionSample.store (0, std::memory_order_relaxed);
 
         // Mix into output
         for (int i = 0; i < numSamples; ++i)
@@ -775,6 +783,9 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     {
         const auto msg    = meta.getMessage();
         const int  midiCh = msg.getChannel();   // 1-16
+
+        if (msg.isNoteOn())
+            previewPositionSample.store (0, std::memory_order_relaxed);
 
         // Determine the set of FluidSynth channels to address.
         // Fan-out applies only to ch-1 messages when a live mask is configured.
@@ -878,7 +889,10 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         juceAdsr.setParameters (juceAdsrParams);
     }
     if (juceAdsrNoteOnPending .exchange (false, std::memory_order_acquire))
+    {
         juceAdsr.noteOn();
+        previewPositionSample.store (0, std::memory_order_relaxed);
+    }
     if (juceAdsrNoteOffPending.exchange (false, std::memory_order_acquire))
         juceAdsr.noteOff();
 
@@ -889,6 +903,10 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
         scratchR[(size_t) i] *= env;
     }
     juceAdsrActive.store (juceAdsr.isActive(), std::memory_order_relaxed);
+    if (juceAdsr.isActive())
+        previewPositionSample.fetch_add (numSamples, std::memory_order_relaxed);
+    else
+        previewPositionSample.store (0, std::memory_order_relaxed);
 
     // Mix into output
     for (int i = 0; i < numSamples; ++i)

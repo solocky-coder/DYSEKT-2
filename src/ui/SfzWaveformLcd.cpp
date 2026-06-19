@@ -576,6 +576,33 @@ void SfzWaveformLcd::drawNoInstrument (juce::Graphics& g)
     g.drawText ("-- NO INSTRUMENT LOADED --", b, juce::Justification::centred);
 }
 
+void SfzWaveformLcd::drawPlayhead (juce::Graphics& g, const juce::Rectangle<float>& area)
+{
+    // Mirrors WaveformView::drawPlaybackCursors: 0 = idle/not playing.
+    const int posSample = processor.sfzPlayer2.getPreviewPositionSample();
+    if (posSample <= 0 || cachedTotalFrames <= 0) return;
+
+    const float windowFrac = 1.0f / cachedZoom;
+    const float maxScroll  = (float) cachedTotalFrames * (1.0f - windowFrac);
+    const float startF_f   = cachedScroll * maxScroll;
+    const float endF_f     = startF_f + windowFrac * (float) cachedTotalFrames;
+    if (endF_f <= startF_f) return;
+
+    const float t = ((float) posSample - startF_f) / (endF_f - startF_f);
+    if (t < 0.0f || t > 1.0f) return;   // playhead outside the visible window
+
+    const float px = area.getX() + t * area.getWidth();
+
+    g.setColour (juce::Colours::white.withAlpha (0.85f));
+    g.drawVerticalLine (juce::roundToInt (px), area.getY(), area.getBottom());
+
+    juce::Path tri;
+    tri.addTriangle (px - 5.0f, area.getY(),
+                      px + 5.0f, area.getY(),
+                      px,        area.getY() + 8.0f);
+    g.fillPath (tri);
+}
+
 // ── Paint ─────────────────────────────────────────────────────────────────────
 
 void SfzWaveformLcd::paint (juce::Graphics& g)
@@ -604,4 +631,5 @@ void SfzWaveformLcd::paint (juce::Graphics& g)
     drawLoopOverlay      (g, lcdArea);
     drawEnvelope         (g, lcdArea);
     drawNodes    (g, nodeArea);
+    drawPlayhead (g, lcdArea);
 }

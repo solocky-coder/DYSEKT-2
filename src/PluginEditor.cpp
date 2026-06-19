@@ -1373,7 +1373,9 @@ void DysektEditor::timerCallback()
 
  const bool playbackActive = std::any_of (processor.voicePool.voicePositions.begin(),
  processor.voicePool.voicePositions.end(),
- [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; });
+ [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; })
+ || (processor.sfzPlayer2.getPreviewPositionSample() > 0)
+ || (processor.zonePreview2.playPosition.load (std::memory_order_relaxed) >= 0);
 
  const bool slicingActive    = (uiMode == 0);
  const bool waveformAnimating = waveformInteracting || previewActive

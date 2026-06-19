@@ -69,6 +69,7 @@ private:
     void drawNodes         (juce::Graphics& g, const juce::Rectangle<float>& area);
     void drawHeader        (juce::Graphics& g, const juce::Rectangle<float>& area);
     void drawNoInstrument  (juce::Graphics& g);
+    void drawPlayhead      (juce::Graphics& g, const juce::Rectangle<float>& area);
     void drawSegmentLabel  (juce::Graphics& g,
                             float x0, float y0, float x1, float y1,
                             const char* text, juce::Colour col,

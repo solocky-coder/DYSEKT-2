@@ -227,6 +227,17 @@ public:
     /** True when the JUCE ADSR is active (envelope not idle). */
     bool juceAdsrIsActive() const noexcept { return juceAdsrActive.load (std::memory_order_relaxed); }
 
+    /** Sample position within the rendered preview buffer (processor.sampleData2)
+     *  of the most recently triggered note, advancing each block while a note
+     *  is active.  Mirrors VoicePool::voicePositions semantics: 0 = not
+     *  playing/idle.  Resets to 0 on note-on, freezes when the envelope goes
+     *  idle (after release tail completes) so the UI playhead disappears the
+     *  same way the Slicer's does.  Safe to read from the UI/message thread. */
+    int getPreviewPositionSample() const noexcept
+    {
+        return previewPositionSample.load (std::memory_order_relaxed);
+    }
+
     // ── Per-channel peak meters (public — read by MixerPanel timer) ──────────
     // Written on audio thread after each process() block; read on UI thread.
     std::atomic<float> channelPeakL[16] {};
@@ -361,6 +372,14 @@ private:
     std::atomic<bool>          juceAdsrNoteOnPending  { false  };
     std::atomic<bool>          juceAdsrNoteOffPending { false  };
     std::atomic<bool>          juceAdsrActive         { false  };
+
+    // ── Preview playhead position (UI display only) ──────────────────────────
+    // Tracks elapsed samples since the most recent note-on for the waveform
+    // LCD's playhead cursor. 0 = idle/not playing. Reset to 0 on note-on,
+    // advanced each block in process() while the envelope is active, frozen
+    // once the envelope goes idle (matches VoicePool::voicePositions semantics
+    // — see WaveformView::drawPlaybackCursors's `pos <= 0.0f` idle check).
+    std::atomic<int>           previewPositionSample  { 0 };
 
     /** Called once after a successful SF2/SFZ load to zero FluidSynth's internal
      *  envelope generators on all channels so JUCE ADSR has exclusive control.

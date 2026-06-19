@@ -2563,6 +2563,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             auto zoneList = std::make_unique<SfzPreviewZoneStore::ZoneList> (
                 std::move (zonesOwner2->slices));
             previewZones2.set (std::move (zoneList));
+            selectedPreviewZone2.store (-1, std::memory_order_relaxed);
             uiSnapshotDirty.store (true, std::memory_order_release);
         }
     }
@@ -3268,6 +3269,55 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             for (int i = 0; i < numSamples; ++i) busL[0][i] += sfz2L[i];
         if (busR[0])
             for (int i = 0; i < numSamples; ++i) busR[0][i] += sfz2R[i];
+
+        // -- Zone-preview click-to-audition (SFZ-PLAYER waveform clicks) --
+        // Plays back the clicked previewZones2 region directly out of
+        // sampleData2's rendered buffer. Independent of sfzPlayer2/sfizz --
+        // a fresh trigger always wins over whatever is currently playing.
+        {
+            const int newStart = zonePreview2.triggerStart.exchange (-1, std::memory_order_acq_rel);
+            if (newStart >= 0)
+            {
+                const int newEnd = zonePreview2.triggerEnd.load (std::memory_order_relaxed);
+                zonePreview2.playPosition.store (newStart, std::memory_order_relaxed);
+                zonePreview2.playEnd.store (newEnd, std::memory_order_relaxed);
+            }
+
+            int pos = zonePreview2.playPosition.load (std::memory_order_relaxed);
+            if (pos >= 0)
+            {
+                const int end = zonePreview2.playEnd.load (std::memory_order_relaxed);
+                auto snap = sampleData2.getSnapshot();
+                if (snap != nullptr && end > pos)
+                {
+                    const auto& src      = snap->buffer;
+                    const int   srcChans = src.getNumChannels();
+                    const int   srcLen   = src.getNumSamples();
+                    const int   playable = juce::jmin (end, srcLen) - pos;
+                    const int   n        = juce::jlimit (0, numSamples, playable);
+
+                    if (n > 0)
+                    {
+                        const float* srcL = src.getReadPointer (0, pos);
+                        const float* srcR = (srcChans > 1) ? src.getReadPointer (1, pos) : srcL;
+                        if (busL[0])
+                            for (int i = 0; i < n; ++i) busL[0][i] += srcL[i];
+                        if (busR[0])
+                            for (int i = 0; i < n; ++i) busR[0][i] += srcR[i];
+                    }
+
+                    pos += numSamples;
+                    if (pos >= juce::jmin (end, srcLen))
+                        zonePreview2.playPosition.store (-1, std::memory_order_relaxed);
+                    else
+                        zonePreview2.playPosition.store (pos, std::memory_order_relaxed);
+                }
+                else
+                {
+                    zonePreview2.playPosition.store (-1, std::memory_order_relaxed);
+                }
+            }
+        }
 
         float pk2L = 0.f, pk2R = 0.f;
         for (int i = 0; i < numSamples; ++i)

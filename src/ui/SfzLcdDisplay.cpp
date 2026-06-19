@@ -45,6 +45,16 @@ juce::String SfzLcdDisplay::formatPct (float v)
     return juce::String (juce::roundToInt (v)) + "%";
 }
 
+juce::String SfzLcdDisplay::midiNoteName (int note)
+{
+    static const char* names[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+    note = juce::jlimit (0, 127, note);
+    juce::String s (names[note % 12]);
+    s += juce::String (note / 12 - 2);
+    while (s.length() < 3) s += " ";
+    return s;
+}
+
 // ── Constructor ───────────────────────────────────────────────────────────────
 
 SfzLcdDisplay::SfzLcdDisplay (DysektProcessor& p)
@@ -103,6 +113,23 @@ void SfzLcdDisplay::buildDisplayData()
     data.reverbDamp  = processor.sfzPlayer2.getReverbDamp();
     data.reverbWidth = processor.sfzPlayer2.getReverbWidth();
     data.reverbMix   = processor.sfzPlayer2.getReverbMix();
+
+    // Selected previewZones2 zone, if any — for the STATUS row override.
+    {
+        const int idx = processor.selectedPreviewZone2.load (std::memory_order_relaxed);
+        if (idx >= 0)
+        {
+            auto zones = processor.previewZones2.get();
+            if (idx < (int) zones->size())
+            {
+                const auto& z = (*zones)[(size_t) idx];
+                data.selectedZoneIdx   = idx;
+                data.selectedZoneNote  = z.midiNote;
+                data.selectedZoneStart = z.startSample;
+                data.selectedZoneEnd   = z.endSample;
+            }
+        }
+    }
 
     // Pre-compute upper-case string so paint() never allocates heap memory.
     data.fileNameUpperShort = data.fileName.toUpperCase().substring (0, 18);
@@ -348,7 +375,18 @@ void SfzLcdDisplay::paint (juce::Graphics& g)
         drawRowPair (g, 6, widStr, mixStr);
     }
 
-    // ── Row 7: status ─────────────────────────────────────────────────────────
+    // ── Row 7: status, or selected-zone info if a previewZones2 zone is picked ──
+    if (data.selectedZoneIdx >= 0)
+    {
+        juce::String noteStr  = midiNoteName (data.selectedZoneNote).trimEnd()
+                               + "(" + juce::String (data.selectedZoneNote).paddedLeft ('0', 3) + ")";
+        juce::String rangeStr = "ZN" + juce::String (data.selectedZoneIdx + 1)
+                               + " " + noteStr
+                               + " [" + juce::String (data.selectedZoneStart)
+                               + "-" + juce::String (data.selectedZoneEnd) + "]";
+        drawRow (g, 7, "ZONE:", rangeStr, true);
+    }
+    else
     {
         drawRow (g, 7, "STATUS:", "LOADED", false);
     }

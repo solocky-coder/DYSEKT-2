@@ -10,6 +10,27 @@ void WaveformView::drawPlaybackCursors (juce::Graphics& g)
  const int h = getHeight();
  const int w = getWidth();
 
+ if (isSfzPlayer2Mode())
+ {
+     // SFZ-PLAYER tab: single preview playhead from the sfizz/FluidSynth
+     // engine's note-tracking, not the Slicer's VoicePool.
+     const int pos = processor.sfzPlayer2.getPreviewPositionSample();
+     if (pos <= 0) return;
+
+     const int px = sampleToPixel (pos);
+     if (px < 0 || px >= w) return;
+
+     g.setColour (juce::Colours::white.withAlpha (0.85f));
+     g.drawVerticalLine (px, 0.0f, (float) h);
+
+     juce::Path tri;
+     tri.addTriangle ((float) px - 5.0f, 0.0f,
+                       (float) px + 5.0f, 0.0f,
+                       (float) px,        8.0f);
+     g.fillPath (tri);
+     return;
+ }
+
  // The MIDI slice preview voice is drawn exclusively by paintLazyChopOverlay.
  // Skipping it here prevents a ghost white line from persisting after MIDI slice stops.
  const int midiPreviewVoice = LazyChopEngine::getPreviewVoiceIndex();
@@ -880,15 +901,25 @@ void WaveformView::drawPreviewZones (juce::Graphics& g)
  const float hue = std::fmod ((float) i * kGoldenAngle, 1.0f);
  const juce::Colour zoneColour = juce::Colour::fromHSV (hue, 0.65f, 0.85f, 1.0f);
 
- g.setColour (zoneColour.withAlpha (0.18f));
+ const bool isSelected = (i == processor.selectedPreviewZone2.load (std::memory_order_relaxed));
+ const float fillAlpha = isSelected ? 0.38f : 0.18f;
+ const float lineAlpha = isSelected ? 1.0f  : 0.75f;
+
+ g.setColour (zoneColour.withAlpha (fillAlpha));
  g.fillRect (x1, kTopPad, sw, markerH);
 
- g.setColour (zoneColour.withAlpha (0.75f));
+ g.setColour (zoneColour.withAlpha (lineAlpha));
  g.drawHorizontalLine (kTopPad, (float) x1, (float) x2);
  g.drawHorizontalLine (getHeight() - kBotPad, (float) x1, (float) x2);
 
  g.setColour (zoneColour.withAlpha (0.92f));
  g.drawVerticalLine (x1, (float) kTopPad, (float) (kTopPad + markerH));
+
+ if (isSelected)
+ {
+     g.setColour (juce::Colours::white.withAlpha (0.85f));
+     g.drawRect (x1, kTopPad, sw, markerH, 2);
+ }
 
  // Sequential zone number, matching the Slicer's own label convention
  // (1-32) rather than note names — read-only preview, no per-zone LCD.
@@ -990,11 +1021,34 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
  }
 
  // ── SFZ-PLAYER mode: previewZones2 is a read-only display, not an
- // editable sliceManager — none of the slice context menu, selection, or
- // edge-dragging below means anything here, and would otherwise mutate
- // the Slicer's real slices using coordinates from a different buffer.
+ // editable sliceManager — none of the slice context menu, edge-dragging,
+ // or move/lock logic below applies, since those mutate the Slicer's real
+ // slices using coordinates from a different buffer. Clicking a zone here
+ // only selects it for highlight/info display and triggers a one-shot
+ // audition of that exact sample range (see DysektProcessor::zonePreview2).
  if (isSfzPlayer2Mode())
+ {
+     auto zones = processor.previewZones2.get();
+     const int num = (int) zones->size();
+     int hitIdx = -1;
+     for (int i = 0; i < num; ++i)
+     {
+         const auto& z = (*zones)[(size_t) i];
+         if (samplePos >= z.startSample && samplePos < z.endSample) { hitIdx = i; break; }
+     }
+
+     processor.selectedPreviewZone2.store (hitIdx, std::memory_order_relaxed);
+
+     if (hitIdx >= 0 && ! e.mods.isRightButtonDown())
+     {
+         const auto& z = (*zones)[(size_t) hitIdx];
+         processor.zonePreview2.triggerEnd.store (z.endSample, std::memory_order_relaxed);
+         processor.zonePreview2.triggerStart.store (z.startSample, std::memory_order_release);
+     }
+
+     repaint();
      return;
+ }
 
  // ── MIDI Slice overlay: handled by midiSliceBtn child component ──────────
  if (midiSliceOverlayActive && ! e.mods.isRightButtonDown() && e.y < kMidiOverlayH)
