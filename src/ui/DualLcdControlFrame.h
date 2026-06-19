@@ -42,7 +42,7 @@ public:
     void setMidiFollowActive (bool v) { midiFollowActive = v; repaint(); }
     void setBodeActive       (bool v) { bodeActive       = v; repaint(); }
     void setEqActive         (bool v) { eqActive         = v; repaint(); }
-    /** Set active tab: 0 = SLICER, 1 = SF2-PLAYER, 2 = SFZ-PLAYER */
+    /** Set active tab: 0 = SLICER, 1 = SFZ-PLAYER, 2 = SF2-PLAYER */
     void setUiTab            (int t)  { uiTab = juce::jlimit (0, 2, t); repaint(); }
     /** Legacy helper: maps bool to uiTab 0/1. */
     void setPadGridActive    (bool v) { setUiTab (v ? 1 : 0); }
@@ -59,7 +59,7 @@ private:
     bool midiFollowActive = false;
     bool bodeActive       = false;
     bool eqActive         = false;
-    int  uiTab            = 0;   // 0=SLICER, 1=SF2-PLAYER, 2=SFZ-PLAYER
+    int  uiTab            = 0;   // 0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER
     bool seqActive        = false;
 
     // Hit areas (set during paint, used in mouseDown)

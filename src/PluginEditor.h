@@ -22,6 +22,8 @@
 #include "ui/SliceWaveformLcd.h"
 #include "ui/SfzLcdDisplay.h"
 #include "ui/SfzWaveformLcd.h"
+#include "ui/Sf2LcdDisplay.h"
+#include "ui/Sf2WaveformLcd.h"
 #include "ui/WaveformOverview.h"
 #include "ui/SfzDropdownPanel.h"
 #include "ui/SfzPlayerDropdownPanel.h"
@@ -133,6 +135,8 @@ private:
     SliceWaveformLcd sliceWaveformLcd;
     SfzLcdDisplay    sfzLcd;
     SfzWaveformLcd   sfzWaveformLcd;
+    Sf2LcdDisplay    sf2Lcd;
+    Sf2WaveformLcd   sf2WaveformLcd;
 
     SliceLane        sliceLane;
     WaveformView     waveformView;

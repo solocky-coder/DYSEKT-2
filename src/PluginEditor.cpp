@@ -21,6 +21,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  sliceWaveformLcd (p),
  sfzLcd (p),
  sfzWaveformLcd (p),
+ sf2Lcd (p),
+ sf2WaveformLcd (p),
  sliceLane (p),
  waveformView (p),
  waveformOverview (p),
@@ -45,6 +47,10 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  addAndMakeVisible (sfzWaveformLcd);
  sfzLcd.setVisible (false);
  sfzWaveformLcd.setVisible (false);
+ addAndMakeVisible (sf2Lcd);
+ addAndMakeVisible (sf2WaveformLcd);
+ sf2Lcd.setVisible (false);
+ sf2WaveformLcd.setVisible (false);
  if (auto* cf = headerBar.getControlFrame())
  addAndMakeVisible (*cf);
 
@@ -402,7 +408,7 @@ void DysektEditor::setUiMode (int mode)
  // Leaving slicer mode — reset pad view to waveform
  if (uiMode != 0) { showPadGrid = false; sliceControlBar.setPadViewActive (false); }
 
- // Keep the tab strip in sync (0=SLICER, 1=SF2-PLAYER, 2=SFZ-PLAYER)
+ // Keep the tab strip in sync (0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER)
  headerBar.dualFrame().setUiTab (uiMode);
 
  // Slicer note highlights must not appear on SF-player keyboards.
@@ -416,12 +422,15 @@ void DysektEditor::setUiMode (int mode)
  // Show waveform overview for slicer and sfz-player mode
  waveformOverview.setVisible (uiMode == 0 && !showPadGrid);
 
- // Show/hide sfzDropdown and sfzPlayerDropdown based on mode
+ // Show/hide sfzDropdown and sfzPlayerDropdown based on mode.
+ // Real tab order (see DualLcdControlFrame::drawTab): 0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER.
+ // sfzPlayerDropdown drives sfzPlayer2ChannelMask (sfizz / SFZ-PLAYER).
+ // sfzDropdown       drives sfPlayerChannelMask   (FluidSynth / SF2-PLAYER), despite its name.
  if (uiMode == 1)
  {
-    // SFZ-PLAYER: waveform view (same as slicer) — dropdown panels hidden
+     // SFZ-PLAYER: show sfzPlayerDropdown; sfzDropdown hidden
      sfzDropdown.setVisible (false);
-    sfzPlayerDropdown.setVisible (false);
+     sfzPlayerDropdown.setVisible (true);
  }
  else if (uiMode == 2)
  {
@@ -833,14 +842,20 @@ void DysektEditor::resized()
  auto topRow = topArea.reduced (si (kMargin), si (4));
 
  const int sideW = (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2;
- const bool sfMode = (uiMode == 1);  // SFZ-PLAYER tab drives sfzWaveformLcd
- sliceLcd.setVisible (! sfMode);
- sliceWaveformLcd.setVisible (! sfMode);
- sfzLcd.setVisible (sfMode);
- sfzWaveformLcd.setVisible (sfMode);
+ // Show/hide LCD panels per mode.
+ // Real tab order: 0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER.
+ const bool sfzMode = (uiMode == 1);
+ const bool sf2Mode = (uiMode == 2);
+ sliceLcd.setVisible (! sfzMode && ! sf2Mode);
+ sliceWaveformLcd.setVisible (! sfzMode && ! sf2Mode);
+ sfzLcd.setVisible (sfzMode);
+ sfzWaveformLcd.setVisible (sfzMode);
+ sf2Lcd.setVisible (sf2Mode);
+ sf2WaveformLcd.setVisible (sf2Mode);
 
  sliceLcd.setBounds (topRow.removeFromLeft (sideW));
  sfzLcd.setBounds (sliceLcd.getBounds());
+ sf2Lcd.setBounds (sliceLcd.getBounds());
  topRow.removeFromLeft (si (kMargin));
 
  auto centreCol = topRow.removeFromLeft (si (kCtrlFrameW));
@@ -866,6 +881,7 @@ void DysektEditor::resized()
  topRow.removeFromLeft (si (kMargin));
  sliceWaveformLcd.setBounds (topRow);
  sfzWaveformLcd.setBounds (topRow);
+ sf2WaveformLcd.setBounds (topRow);
 
  auto actionArea = area.removeFromTop (si (kActionH));
  const int kFX = si (kMargin);
@@ -1424,6 +1440,8 @@ void DysektEditor::timerCallback()
  sliceWaveformLcd.repaintLcd();
  sfzLcd.repaintLcd();
  sfzWaveformLcd.repaintLcd();
+ sf2Lcd.repaintLcd();
+ sf2WaveformLcd.repaintLcd();
  {
  auto timerSnap = processor.sampleData.getSnapshot();
  const bool hasSample = (timerSnap != nullptr
