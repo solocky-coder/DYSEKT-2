@@ -439,7 +439,7 @@ public:
             processor.latestLoadKind.store ((int) DysektProcessor::LoadKindReplace,
                                             std::memory_order_release);
         }
-        else
+        else if (target == SoundFontLoadTarget::SfzPlayer2)
         {
             // SFZ-PLAYER preview: sfzPlayer2 handles MIDI internally, so the
             // slice descriptors are never turned into real slices — but they
@@ -457,6 +457,23 @@ public:
             delete oldZones;
 
             auto* old = processor.completedLoadData2.exchange (decoded.release(),
+                                                               std::memory_order_acq_rel);
+            delete old;
+        }
+        else // SoundFontLoadTarget::SfPlayer
+        {
+            // SF2-PLAYER preview — mirrors the SfzPlayer2 branch above exactly,
+            // posting to the parallel completedLoadData3/pendingPreviewZones3
+            // pipeline instead, so the two preview tabs never share a buffer.
+            auto* zonePayload = new SfzPreviewZonePayload();
+            zonePayload->slices = std::move (payload->slices);
+            delete payload;
+
+            auto* oldZones = processor.pendingPreviewZones3.exchange (zonePayload,
+                                                                       std::memory_order_acq_rel);
+            delete oldZones;
+
+            auto* old = processor.completedLoadData3.exchange (decoded.release(),
                                                                std::memory_order_acq_rel);
             delete old;
         }
@@ -588,13 +605,19 @@ void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
         delete processor.completedLoadFailure.exchange(nullptr, std::memory_order_acq_rel);
         delete processor.pendingSfzSlices.exchange   (nullptr, std::memory_order_acq_rel);
     }
-    else
+    else if (target == SoundFontLoadTarget::SfzPlayer2)
     {
         // SFZ-PLAYER preview pipeline is independent of the Slicer's token
         // sequence — it never checks tokens, so there's nothing to bump here.
         // Just discard any stale preview payload from a previous preview load.
         delete processor.completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
         delete processor.pendingPreviewZones2.exchange (nullptr, std::memory_order_acq_rel);
+    }
+    else // SoundFontLoadTarget::SfPlayer
+    {
+        // SF2-PLAYER preview pipeline — mirrors SfzPlayer2 exactly, own buffer.
+        delete processor.completedLoadData3.exchange (nullptr, std::memory_order_acq_rel);
+        delete processor.pendingPreviewZones3.exchange (nullptr, std::memory_order_acq_rel);
     }
 
     processor.fileLoadPool.addJob (new LoadJob (file, sr, token, processor, target), true);

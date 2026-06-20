@@ -359,6 +359,23 @@ public:
         return peak;
     }
 
+    /** Same as getWaveformPeakAt, but reads from an arbitrary SampleData
+     *  instance instead of always reading the Slicer's sampleData. Used by
+     *  SfzWaveformLcd/Sf2WaveformLcd, which need peaks from sampleData2/
+     *  sampleData3 respectively, not the Slicer's buffer. */
+    static float getWaveformPeakAtIn (const SampleData& source, int samplePosition) noexcept
+    {
+        auto snap = source.getSnapshot();
+        if (snap == nullptr) return 0.0f;
+        const auto& buf = snap->buffer;
+        const int n = buf.getNumSamples();
+        if (samplePosition < 0 || samplePosition >= n) return 0.0f;
+        float peak = 0.0f;
+        for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+            peak = std::max (peak, std::abs (buf.getSample (ch, samplePosition)));
+        return peak;
+    }
+
     // =========================================================================
     // Public subsystem members (accessed directly by UI)
     // =========================================================================
@@ -411,6 +428,38 @@ public:
         std::atomic<int>  playPosition  { -1 };   // -1 = idle; else current sample offset
         std::atomic<int>  playEnd       { -1 };
     } zonePreview2;
+
+    /** The SF2-PLAYER tab's own independent preview waveform buffer.
+     *  Mirrors sampleData2 exactly but for the SF2-PLAYER (FluidSynth)
+     *  engine -- purely visual, never touched by sfzPlayer's actual
+     *  playback. Rendered via SoundFontLoadTarget::SfPlayer, which reuses
+     *  the same sfizz-based LoadJob renderer as SfzPlayer2 (sfizz can
+     *  load .sf2 files directly), since building a true FluidSynth-based
+     *  offline renderer was out of scope -- this is a display-accuracy
+     *  tradeoff, not a live-playback one. Not persisted; ephemeral. */
+    SampleData       sampleData3;
+
+    /** Read-only "preview zones" overlay for the SF2-PLAYER tab's
+     *  waveform -- mirrors previewZones2 exactly but for sampleData3.
+     *  Published by processBlock from pendingPreviewZones3 whenever a
+     *  SoundFontLoadTarget::SfPlayer load completes. */
+    SfzPreviewZoneStore previewZones3;
+
+    /** Index into the current previewZones3 snapshot of the zone last
+     *  clicked in the SF2-PLAYER waveform view. -1 = no selection.
+     *  Mirrors selectedPreviewZone2. */
+    std::atomic<int> selectedPreviewZone3 { -1 };
+
+    /** One-shot click-to-audition voice for SF2-PLAYER preview zones.
+     *  Mirrors zonePreview2 exactly but plays from sampleData3 and mixes
+     *  in alongside sfzPlayer's (not sfzPlayer2's) output. */
+    struct ZonePreviewVoice3
+    {
+        std::atomic<int>  triggerStart  { -1 };
+        std::atomic<int>  triggerEnd    { -1 };
+        std::atomic<int>  playPosition  { -1 };
+        std::atomic<int>  playEnd       { -1 };
+    } zonePreview3;
 
     MidiLearnManager midiLearn;
 
@@ -698,6 +747,14 @@ public:
      *  overlay. processBlock takes ownership and folds it into
      *  previewZones2 alongside consuming completedLoadData2. */
     std::atomic<SfzPreviewZonePayload*> pendingPreviewZones2 { nullptr };
+
+    /** Third, independent load-result pipeline for the SF2-PLAYER's preview
+     *  buffer (sampleData3). Populated by loadSoundFontAsync(file,
+     *  SoundFontLoadTarget::SfPlayer) via SoundFontLoader; consumed in
+     *  processBlock and applied to sampleData3 only. Mirrors
+     *  completedLoadData2/pendingPreviewZones2 exactly. */
+    std::atomic<SampleData::DecodedSample*> completedLoadData3  { nullptr };
+    std::atomic<SfzPreviewZonePayload*>     pendingPreviewZones3 { nullptr };
 
 
     // =========================================================================

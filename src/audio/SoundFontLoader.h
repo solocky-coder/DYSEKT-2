@@ -57,8 +57,17 @@ class DysektProcessor;
 //                pendingPreviewZones2 into a SfzPreviewZoneStore, so the
 //                waveform can draw a read-only zone overlay — no slices
 //                are ever created in sliceManager for this target.
+//  SfPlayer   — posts to the processor's completedLoadData3 atomic for the
+//                visual-only preview buffer (sampleData3) used by the
+//                SF2-PLAYER tab. Mirrors SfzPlayer2 exactly, including the
+//                pendingPreviewZones3 zone overlay. Note this still renders
+//                via sfizz (which can load .sf2 files directly) rather than
+//                the real FluidSynth engine sfzPlayer uses for live playback
+//                — a deliberate display-accuracy tradeoff, not a live-audio
+//                one; the waveform shown may not be bit-identical to what
+//                FluidSynth actually plays.
 // =============================================================================
-enum class SoundFontLoadTarget { Slicer = 0, SfzPlayer2 = 1 };
+enum class SoundFontLoadTarget { Slicer = 0, SfzPlayer2 = 1, SfPlayer = 2 };
 
 // =============================================================================
 class SoundFontLoader

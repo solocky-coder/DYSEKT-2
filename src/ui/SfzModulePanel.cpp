@@ -781,6 +781,7 @@ void SfzModulePanel::filesDropped (const juce::StringArray& files, int, int)
         {
             juce::File file (f);
             processor.sfzPlayer.loadFile (file, processor.fileLoadPool);
+            processor.loadSoundFontAsync (file, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
             processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
             reloadZones (file);
             repaint();
@@ -806,6 +807,7 @@ void SfzModulePanel::openFileChooser()
             if (result.existsAsFile())
             {
                 processor.sfzPlayer.loadFile (result, processor.fileLoadPool);
+                processor.loadSoundFontAsync (result, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
                 processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
                 reloadZones (result);
                 repaint();
@@ -899,6 +901,7 @@ void SfzModulePanel::showAddZoneOverlay (const juce::File& sfzFile,
         }
 
         processor.sfzPlayer.loadFile (sfzFile, processor.fileLoadPool);
+        processor.loadSoundFontAsync (sfzFile, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
         processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (sfzFile);
         keysPanel.autoScrollToZones();
@@ -982,6 +985,7 @@ void SfzModulePanel::openSaveAsOverlay (bool thenOpenAddZone)
 
         // Switch sfzPlayer and zone matrix to the new file
         processor.sfzPlayer.loadFile (dest, processor.fileLoadPool);
+        processor.loadSoundFontAsync (dest, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
         processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
         reloadZones (dest);
         repaint();
@@ -1036,6 +1040,7 @@ void SfzModulePanel::initEmptySfz()
         sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
 
     processor.sfzPlayer.loadFile (sfz, processor.fileLoadPool);   // sfizz handles empty file gracefully (silence)
+    processor.loadSoundFontAsync (sfz, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
     processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed); // omni
     reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }

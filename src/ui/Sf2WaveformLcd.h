@@ -12,8 +12,9 @@ class DysektProcessor;
  *
  *   Mirrors SfzWaveformLcd exactly; only difference is it reads from
  *   processor.sfzPlayer (FluidSynth) instead of processor.sfzPlayer2 (sfizz),
- *   and uses processor.sampleData2 for the waveform backdrop (same concat
- *   buffer used by both SF engines).
+ *   and uses processor.sampleData3 for the waveform backdrop -- its own
+ *   independent render via SoundFontLoadTarget::SfPlayer, not shared with
+ *   SfzWaveformLcd's sampleData2.
  *
  *   Call repaintLcd() from the editor's timerCallback() at ~30 Hz.
  */

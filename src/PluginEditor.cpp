@@ -212,14 +212,20 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      {
          // SFZ-PLAYER: .sfz only, routed to sfzPlayer2 (ch2)
          if (ext == ".sfz")
+         {
              processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
+             processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);   // waveform preview -> sampleData2
+         }
          return;
      }
      if (uiMode == 2)
      {
         // SF2-PLAYER: SF2 files only, routed to sfzPlayer (FluidSynth)
          if (ext == ".sf2")
+         {
              processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
+             processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
+         }
      }
  };
  waveformView.onLoadRequest = [this] (const juce::File& f)

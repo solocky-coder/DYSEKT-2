@@ -12,34 +12,30 @@ void WaveformView::drawPlaybackCursors (juce::Graphics& g)
 
  if (isSfzPlayer2Mode())
  {
-     // SFZ-PLAYER tab: single preview playhead from the sfizz/FluidSynth
-     // engine's note-tracking, not the Slicer's VoicePool.
-     //
-     // previewPositionSample is elapsed-samples-SINCE-note-on, not an
-     // absolute position within the concatenated multi-region preview
-     // buffer (processor.sampleData2). To place the playhead correctly for
-     // any region other than the first, we have to look up which region the
-     // most recently triggered note belongs to (via previewZones2) and add
-     // that region's startSample offset before converting to a pixel.
-     const int pos = processor.sfzPlayer2.getPreviewPositionSample();
-     if (pos <= 0) return;
+     // SFZ-PLAYER tab: previewPositionSample is elapsed samples since the
+     // most recent note-on, not an absolute position in the concatenated
+     // sampleData2 buffer. Look up which region that note maps to via
+     // previewZones2 and add its startSample to get the real buffer
+     // position — otherwise every note appears to play from sample 0
+     // (i.e. always inside the first region).
+     const int elapsed = processor.sfzPlayer2.getPreviewPositionSample();
+     if (elapsed <= 0) return;
 
-     int absolutePos = pos;
-     auto zones = processor.previewZones2.get();
-     if (zones != nullptr)
+     const int note = processor.sfzPlayer2.getLastTriggeredNote();
+     int regionStart = 0, regionEnd = -1;
+     if (note >= 0)
      {
-         const int note = processor.sfzPlayer2.getLastTriggeredNote();
+         auto zones = processor.previewZones2.get();
          for (const auto& z : *zones)
          {
-             if (z.midiNote == note)
-             {
-                 absolutePos = z.startSample + pos;
-                 break;
-             }
+             if (z.midiNote == note) { regionStart = z.startSample; regionEnd = z.endSample; break; }
          }
      }
 
-     const int px = sampleToPixel (absolutePos);
+     const int pos = regionStart + elapsed;
+     if (regionEnd > regionStart && pos >= regionEnd) return;   // past this region's audio
+
+     const int px = sampleToPixel (pos);
      if (px < 0 || px >= w) return;
 
      g.setColour (juce::Colours::white.withAlpha (0.85f));

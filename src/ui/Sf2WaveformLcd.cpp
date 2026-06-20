@@ -219,7 +219,7 @@ void Sf2WaveformLcd::buildWaveformPeaks()
     peaks.clearQuick();
     peaks.insertMultiple (-1, 0.0f, kPeaks);
 
-    const auto snap = processor.sampleData2.getSnapshot();
+    const auto snap = processor.sampleData3.getSnapshot();
     if (snap == nullptr) return;
     const int totalFrames = snap->buffer.getNumSamples();
     if (totalFrames <= 0) return;
@@ -243,7 +243,7 @@ void Sf2WaveformLcd::buildWaveformPeaks()
     {
         const float t   = (float) i / (float) kPeaks;
         const int   pos = startF + (int) (t * (float) (endF - startF));
-        peaks.set (i, processor.getWaveformPeakAt (pos));
+        peaks.set (i, DysektProcessor::getWaveformPeakAtIn (processor.sampleData3, pos));
     }
 }
 
@@ -330,7 +330,7 @@ void Sf2WaveformLcd::drawLoopOverlay (juce::Graphics& g,
 void Sf2WaveformLcd::mouseWheelMove (const juce::MouseEvent& e,
                                       const juce::MouseWheelDetails& w)
 {
-    const auto snap = processor.sampleData2.getSnapshot();
+    const auto snap = processor.sampleData3.getSnapshot();
     if (snap == nullptr || snap->buffer.getNumSamples() <= 0)
         return;
 
@@ -552,9 +552,27 @@ void Sf2WaveformLcd::drawNoInstrument (juce::Graphics& g)
 
 void Sf2WaveformLcd::drawPlayhead (juce::Graphics& g, const juce::Rectangle<float>& area)
 {
-    // Mirrors WaveformView::drawPlaybackCursors: 0 = idle/not playing.
-    const int posSample = processor.sfzPlayer.getPreviewPositionSample();
-    if (posSample <= 0 || cachedTotalFrames <= 0) return;
+    // Mirrors WaveformView::drawPlaybackCursors: previewPositionSample is
+    // elapsed samples since the most recent note-on, not an absolute
+    // position in sampleData3. Look up the triggered note's region via
+    // previewZones3 and add its startSample, or every note appears to
+    // play from sample 0 (i.e. always inside the first region).
+    const int elapsed = processor.sfzPlayer.getPreviewPositionSample();
+    if (elapsed <= 0 || cachedTotalFrames <= 0) return;
+
+    const int note = processor.sfzPlayer.getLastTriggeredNote();
+    int regionStart = 0, regionEnd = -1;
+    if (note >= 0)
+    {
+        auto zones = processor.previewZones3.get();
+        for (const auto& z : *zones)
+        {
+            if (z.midiNote == note) { regionStart = z.startSample; regionEnd = z.endSample; break; }
+        }
+    }
+
+    const int posSample = regionStart + elapsed;
+    if (regionEnd > regionStart && posSample >= regionEnd) return;   // past this region's audio
 
     const float windowFrac = 1.0f / cachedZoom;
     const float maxScroll  = (float) cachedTotalFrames * (1.0f - windowFrac);

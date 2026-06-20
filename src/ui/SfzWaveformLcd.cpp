@@ -248,7 +248,7 @@ void SfzWaveformLcd::buildWaveformPeaks()
     {
         const float t   = (float) i / (float) kPeaks;
         const int   pos = startF + (int) (t * (float) (endF - startF));
-        peaks.set (i, processor.getWaveformPeakAt (pos));
+        peaks.set (i, DysektProcessor::getWaveformPeakAtIn (processor.sampleData2, pos));
     }
 }
 
@@ -578,31 +578,27 @@ void SfzWaveformLcd::drawNoInstrument (juce::Graphics& g)
 
 void SfzWaveformLcd::drawPlayhead (juce::Graphics& g, const juce::Rectangle<float>& area)
 {
-    // Mirrors WaveformView::drawPlaybackCursors: 0 = idle/not playing.
-    const int posSample = processor.sfzPlayer2.getPreviewPositionSample();
-    if (posSample <= 0 || cachedTotalFrames <= 0) return;
+    // Mirrors WaveformView::drawPlaybackCursors: previewPositionSample is
+    // elapsed samples since the most recent note-on, not an absolute
+    // position in sampleData2. Look up the triggered note's region via
+    // previewZones2 and add its startSample, or every note appears to
+    // play from sample 0 (i.e. always inside the first region).
+    const int elapsed = processor.sfzPlayer2.getPreviewPositionSample();
+    if (elapsed <= 0 || cachedTotalFrames <= 0) return;
 
-    // posSample is elapsed-samples-since-note-on, not an absolute position
-    // within the concatenated multi-region preview buffer
-    // (processor.sampleData2) — for any region other than the first the
-    // playhead would otherwise always render at the buffer start. Look up
-    // the most recently triggered note's region in previewZones2 and add
-    // its startSample offset before mapping to a pixel, same as
-    // WaveformView::drawPlaybackCursors.
-    int absoluteSample = posSample;
-    auto zones = processor.previewZones2.get();
-    if (zones != nullptr)
+    const int note = processor.sfzPlayer2.getLastTriggeredNote();
+    int regionStart = 0, regionEnd = -1;
+    if (note >= 0)
     {
-        const int note = processor.sfzPlayer2.getLastTriggeredNote();
+        auto zones = processor.previewZones2.get();
         for (const auto& z : *zones)
         {
-            if (z.midiNote == note)
-            {
-                absoluteSample = z.startSample + posSample;
-                break;
-            }
+            if (z.midiNote == note) { regionStart = z.startSample; regionEnd = z.endSample; break; }
         }
     }
+
+    const int posSample = regionStart + elapsed;
+    if (regionEnd > regionStart && posSample >= regionEnd) return;   // past this region's audio
 
     const float windowFrac = 1.0f / cachedZoom;
     const float maxScroll  = (float) cachedTotalFrames * (1.0f - windowFrac);
@@ -610,7 +606,7 @@ void SfzWaveformLcd::drawPlayhead (juce::Graphics& g, const juce::Rectangle<floa
     const float endF_f     = startF_f + windowFrac * (float) cachedTotalFrames;
     if (endF_f <= startF_f) return;
 
-    const float t = ((float) absoluteSample - startF_f) / (endF_f - startF_f);
+    const float t = ((float) posSample - startF_f) / (endF_f - startF_f);
     if (t < 0.0f || t > 1.0f) return;   // playhead outside the visible window
 
     const float px = area.getX() + t * area.getWidth();

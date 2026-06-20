@@ -436,6 +436,7 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
         return;   // SF2-PLAYER only accepts .sf2 — silently ignore anything else
 
     processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
+    processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
     processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed);
     closeBrowser();
     openProgramGrid();
@@ -1262,6 +1263,7 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
         if (file.getFileExtension().toLowerCase() == ".sf2")
         {
             processor.sfzPlayer.loadFile (file, processor.fileLoadPool);
+            processor.loadSoundFontAsync (file, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
             processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed);
             closeBrowser();
             openProgramGrid();

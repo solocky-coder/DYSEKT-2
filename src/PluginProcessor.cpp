@@ -217,6 +217,10 @@ DysektProcessor::~DysektProcessor()
     delete pending2;
     auto* pendingZones2 = pendingPreviewZones2.exchange (nullptr, std::memory_order_acq_rel);
     delete pendingZones2;
+    auto* pending3 = completedLoadData3.exchange (nullptr, std::memory_order_acq_rel);
+    delete pending3;
+    auto* pendingZones3 = pendingPreviewZones3.exchange (nullptr, std::memory_order_acq_rel);
+    delete pendingZones3;
 }
 
 bool DysektProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -404,9 +408,11 @@ void DysektProcessor::loadSoundFontAsync (const juce::File& file, SoundFontLoadT
     }
     else
     {
-        // SFZ-PLAYER preview is visual-only and has no failure UI of its own —
-        // just discard any stale preview payload and silently no-op.
+        // SFZ-PLAYER / SF2-PLAYER previews are visual-only and have no
+        // failure UI of their own — just discard any stale preview payload
+        // and silently no-op.
         delete completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
+        delete completedLoadData3.exchange (nullptr, std::memory_order_acq_rel);
     }
 #endif
 }
@@ -2568,6 +2574,30 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
+    // ── SF2-PLAYER preview pipeline (sampleData3) ────────────────────────────
+    // Mirrors the SFZ-PLAYER preview pipeline above exactly, but for the
+    // SF2-PLAYER tab's own independent buffer/zone overlay.
+    {
+        auto* rawDecoded3 = completedLoadData3.exchange (nullptr, std::memory_order_acq_rel);
+        if (rawDecoded3 != nullptr)
+        {
+            std::unique_ptr<SampleData::DecodedSample> decoded3 (rawDecoded3);
+            sampleData3.applyDecodedSample (std::move (decoded3));
+            uiSnapshotDirty.store (true, std::memory_order_release);
+        }
+
+        auto* rawZones3 = pendingPreviewZones3.exchange (nullptr, std::memory_order_acq_rel);
+        if (rawZones3 != nullptr)
+        {
+            std::unique_ptr<SfzPreviewZonePayload> zonesOwner3 (rawZones3);
+            auto zoneList = std::make_unique<SfzPreviewZoneStore::ZoneList> (
+                std::move (zonesOwner3->slices));
+            previewZones3.set (std::move (zoneList));
+            selectedPreviewZone3.store (-1, std::memory_order_relaxed);
+            uiSnapshotDirty.store (true, std::memory_order_release);
+        }
+    }
+
     if (loadStateChanged)
         updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
 
@@ -3160,6 +3190,54 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             for (int i = 0; i < numSamples; ++i)
                 busR[0][i] += sfzR[i];
 
+        // -- Zone-preview click-to-audition (SF2-PLAYER waveform clicks) --
+        // Mirrors the SFZ-PLAYER zonePreview2 block exactly, but plays from
+        // sampleData3 and is independent of sfzPlayer/FluidSynth.
+        {
+            const int newStart = zonePreview3.triggerStart.exchange (-1, std::memory_order_acq_rel);
+            if (newStart >= 0)
+            {
+                const int newEnd = zonePreview3.triggerEnd.load (std::memory_order_relaxed);
+                zonePreview3.playPosition.store (newStart, std::memory_order_relaxed);
+                zonePreview3.playEnd.store (newEnd, std::memory_order_relaxed);
+            }
+
+            int pos = zonePreview3.playPosition.load (std::memory_order_relaxed);
+            if (pos >= 0)
+            {
+                const int end = zonePreview3.playEnd.load (std::memory_order_relaxed);
+                auto snap = sampleData3.getSnapshot();
+                if (snap != nullptr && end > pos)
+                {
+                    const auto& src      = snap->buffer;
+                    const int   srcChans = src.getNumChannels();
+                    const int   srcLen   = src.getNumSamples();
+                    const int   playable = juce::jmin (end, srcLen) - pos;
+                    const int   n        = juce::jlimit (0, numSamples, playable);
+
+                    if (n > 0)
+                    {
+                        const float* srcL = src.getReadPointer (0, pos);
+                        const float* srcR = (srcChans > 1) ? src.getReadPointer (1, pos) : srcL;
+                        if (busL[0])
+                            for (int i = 0; i < n; ++i) busL[0][i] += srcL[i];
+                        if (busR[0])
+                            for (int i = 0; i < n; ++i) busR[0][i] += srcR[i];
+                    }
+
+                    pos += numSamples;
+                    if (pos >= juce::jmin (end, srcLen))
+                        zonePreview3.playPosition.store (-1, std::memory_order_relaxed);
+                    else
+                        zonePreview3.playPosition.store (pos, std::memory_order_relaxed);
+                }
+                else
+                {
+                    zonePreview3.playPosition.store (-1, std::memory_order_relaxed);
+                }
+            }
+        }
+
         // Also write to dedicated SF2 bus 16 if active in DAW
         constexpr int kSf2Bus = 16;
         if (kSf2Bus < numActiveBuses && busL[kSf2Bus] != nullptr)
@@ -3719,6 +3797,7 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             if (sfzFile.existsAsFile())
             {
                 sfzPlayer.loadFile (sfzFile, fileLoadPool);
+                loadSoundFontAsync (sfzFile, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
                 // Store the preset index so the audio thread can select it
                 // once the soundfont finishes loading and posts its preset list.
                 sfzPlayer.setPresetByIndex (sfzPresetIdx);
