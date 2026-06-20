@@ -201,9 +201,27 @@ DysektProcessor::DysektProcessor()
     sliceEndParam    = apvts.getRawParameterValue (ParamIds::sliceEnd);
     publishUiSliceSnapshot();
 
-    // SF2-Player defaults to MIDI channel 2, SFZ-Player to channel 3
+    // SF2-Player defaults to MIDI channel 3, SFZ-Player to channel 2
     sfzPlayer .setMidiChannel (3);   // SF2-PLAYER  → ch 3
     sfzPlayer2.setMidiChannel (2);   // SFZ-PLAYER  → ch 2
+    sfzPlayer2.setRestrictToSfzOnly (true);   // SFZ-PLAYER is .sfz-only — .sf2 loads are ignored
+    syncSfzPlayer2ChannelMaskFromEngine();    // keep the routing mask consistent with the above
+}
+
+void DysektProcessor::syncSfzPlayer2ChannelMaskFromEngine() noexcept
+{
+    // sfzPlayer2 is single-channel-only (or omni) — the routing mask used by
+    // processMidi()/processBlock() to carve sfz2's MIDI out of the slicer's
+    // buffer must always match whatever channel sfzPlayer2 itself is set to.
+    // Two independent atomics here is exactly how this used to drift out of
+    // sync (mask left pointing at one channel while the engine listened on
+    // another), silencing sfzPlayer2 entirely.
+    const int ch = sfzPlayer2.getMidiChannel();          // 0 = omni, 1-16 = specific
+    const uint32_t mask = (ch == 0)
+                              ? 0x1FFFEu                  // omni → all of ch 2-16
+                              : (1u << (unsigned) ch);
+    sfzPlayer2ChannelMask.store      (mask, std::memory_order_relaxed);
+    savedSfzPlayer2ChannelMask.store (mask, std::memory_order_relaxed);
 }
 
 DysektProcessor::~DysektProcessor()
@@ -1784,6 +1802,147 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
                         case FieldSfzTranspose: sfzPlayer.setTranspose (juce::roundToInt (normVal * 48.0f) - 24); break;
                         case FieldSfzPan:       sfzPlayer.setPan      (normVal * 2.0f - 1.0f);            break;
                         case FieldSfzFineTune:  sfzPlayer.setFineTune (normVal * 200.0f - 100.0f);        break;
+                        default: break;
+                    }
+                    uiSnapshotDirty.store (true, std::memory_order_release);
+                    continue;
+                }
+
+                // ── SFZ-PLAYER2 ADSR CC — global to sfzPlayer2, no slice context ──
+                if (outFieldId == FieldSfz2Attack || outFieldId == FieldSfz2Hold ||
+                    outFieldId == FieldSfz2Decay  || outFieldId == FieldSfz2Sustain ||
+                    outFieldId == FieldSfz2Release)
+                {
+                    auto getCurSfz2 = [&] (int fid) -> float
+                    {
+                        switch (fid)
+                        {
+                            case FieldSfz2Attack:  return sfzPlayer2.getSfzAttack();
+                            case FieldSfz2Hold:    return sfzPlayer2.getSfzHold();
+                            case FieldSfz2Decay:   return sfzPlayer2.getSfzDecay();
+                            case FieldSfz2Sustain: return sfzPlayer2.getSfzSustain();
+                            case FieldSfz2Release: return sfzPlayer2.getSfzRelease();
+                            default:               return 0.0f;
+                        }
+                    };
+
+                    float val;
+                    if (outIsRelative)
+                    {
+                        const float cur = getCurSfz2 (outFieldId);
+                        float sens;
+                        switch (outFieldId)
+                        {
+                            case FieldSfz2Attack:  sens = 0.02f; break;  // 20 ms/click
+                            case FieldSfz2Hold:    sens = 0.02f; break;  // 20 ms/click
+                            case FieldSfz2Decay:   sens = 0.02f; break;  // 20 ms/click
+                            case FieldSfz2Sustain: sens = 1.0f;  break;  //  1 %/click
+                            case FieldSfz2Release: sens = 0.02f; break;  // 20 ms/click
+                            default:               sens = 0.01f; break;
+                        }
+                        const float raw = cur + outNorm * sens;
+                        switch (outFieldId)
+                        {
+                            case FieldSfz2Attack:  val = juce::jlimit (0.0f,  30.0f, raw); break;
+                            case FieldSfz2Hold:    val = juce::jlimit (0.0f,   5.0f, raw); break;
+                            case FieldSfz2Decay:   val = juce::jlimit (0.0f,  30.0f, raw); break;
+                            case FieldSfz2Sustain: val = juce::jlimit (0.0f, 100.0f, raw); break;
+                            case FieldSfz2Release: val = juce::jlimit (0.0f,  60.0f, raw); break;
+                            default:               val = raw;                              break;
+                        }
+                    }
+                    else
+                    {
+                        switch (outFieldId)
+                        {
+                            case FieldSfz2Attack:  val = outNorm * 30.0f;  break;
+                            case FieldSfz2Hold:    val = outNorm * 5.0f;   break;
+                            case FieldSfz2Decay:   val = outNorm * 30.0f;  break;
+                            case FieldSfz2Sustain: val = outNorm * 100.0f; break;
+                            case FieldSfz2Release: val = outNorm * 60.0f;  break;
+                            default:               val = outNorm;           break;
+                        }
+                    }
+
+                    switch (outFieldId)
+                    {
+                        case FieldSfz2Attack:  sfzPlayer2.setSfzAttack  (val); break;
+                        case FieldSfz2Hold:    sfzPlayer2.setSfzHold    (val); break;
+                        case FieldSfz2Decay:   sfzPlayer2.setSfzDecay   (val); break;
+                        case FieldSfz2Sustain: sfzPlayer2.setSfzSustain (val); break;
+                        case FieldSfz2Release: sfzPlayer2.setSfzRelease (val); break;
+                        default: break;
+                    }
+                    uiSnapshotDirty.store (true, std::memory_order_release);
+                    continue;
+                }
+
+                // ── SFZ-PLAYER2 Reverb CC — Mix / Size only (this panel exposes
+                //    only these two; Damp/Width/Freeze are SF2-PLAYER-only) ──
+                if (outFieldId == FieldSfz2ReverbMix || outFieldId == FieldSfz2ReverbSize)
+                {
+                    float val;
+                    if (outIsRelative)
+                    {
+                        const float cur = (outFieldId == FieldSfz2ReverbMix)
+                                               ? sfzPlayer2.getReverbMix()
+                                               : sfzPlayer2.getReverbSize();
+                        val = juce::jlimit (0.0f, 100.0f, cur + outNorm * 2.0f);  // 2 %/click
+                    }
+                    else
+                    {
+                        val = outNorm * 100.0f;
+                    }
+
+                    if (outFieldId == FieldSfz2ReverbMix) sfzPlayer2.setReverbMix  (val);
+                    else                                  sfzPlayer2.setReverbSize (val);
+
+                    uiSnapshotDirty.store (true, std::memory_order_release);
+                    continue;
+                }
+
+                // ── SFZ-PLAYER2 master knobs CC — Vol / Transpose / Pan / FineTune ──
+                if (outFieldId == FieldSfz2Vol       || outFieldId == FieldSfz2Transpose ||
+                    outFieldId == FieldSfz2Pan       || outFieldId == FieldSfz2FineTune)
+                {
+                    auto getCurMaster2 = [&] (int fid) -> float
+                    {
+                        switch (fid)
+                        {
+                            case FieldSfz2Vol:       return sfzPlayer2.getVolume() / 2.0f;             // 0-1
+                            case FieldSfz2Transpose: return (sfzPlayer2.getTranspose() + 24) / 48.0f; // 0-1
+                            case FieldSfz2Pan:       return (sfzPlayer2.getPan() + 1.0f) / 2.0f;      // 0-1
+                            case FieldSfz2FineTune:  return (sfzPlayer2.getFineTune() + 100.0f) / 200.0f; // 0-1
+                            default:                 return 0.0f;
+                        }
+                    };
+
+                    float normVal;
+                    if (outIsRelative)
+                    {
+                        const float cur = getCurMaster2 (outFieldId);
+                        float sens;
+                        switch (outFieldId)
+                        {
+                            case FieldSfz2Vol:       sens = 0.01f;  break;
+                            case FieldSfz2Transpose: sens = 1.0f / 48.0f; break;
+                            case FieldSfz2Pan:       sens = 0.01f;  break;
+                            case FieldSfz2FineTune:  sens = 0.01f;  break;
+                            default:                 sens = 0.01f;  break;
+                        }
+                        normVal = juce::jlimit (0.0f, 1.0f, cur + outNorm * sens);
+                    }
+                    else
+                    {
+                        normVal = outNorm;
+                    }
+
+                    switch (outFieldId)
+                    {
+                        case FieldSfz2Vol:       sfzPlayer2.setVolume    (normVal * 2.0f);                          break;
+                        case FieldSfz2Transpose: sfzPlayer2.setTranspose (juce::roundToInt (normVal * 48.0f) - 24); break;
+                        case FieldSfz2Pan:       sfzPlayer2.setPan       (normVal * 2.0f - 1.0f);                   break;
+                        case FieldSfz2FineTune:  sfzPlayer2.setFineTune  (normVal * 200.0f - 100.0f);               break;
                         default: break;
                     }
                     uiSnapshotDirty.store (true, std::memory_order_release);
@@ -3576,18 +3735,13 @@ void DysektProcessor::getStateInformation (juce::MemoryBlock& destData)
         stream.writeInt (hi);
     }
 
-    // v26: SFZ-Player (sfzPlayer2) channel range
+    // v26: SFZ-Player (sfzPlayer2) channel — single channel, or 0 for omni.
+    // (Wire format kept as a pair of ints for backward compatibility with
+    // older saves that wrote a lo/hi range; ch2 is written into both.)
     {
-        const uint32_t mask2 = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-        int lo2 = 0, hi2 = 0;
-        if (mask2 != 0)
-        {
-            for (int c = 2; c <= 16; ++c)  if (mask2 & (1u << c)) { lo2 = c; break; }
-            for (int c = 16; c >= 2; --c)  if (mask2 & (1u << c)) { hi2 = c; break; }
-        }
-        if (lo2 == 0) { lo2 = 2; hi2 = 2; }   // default ch2
-        stream.writeInt (lo2);
-        stream.writeInt (hi2);
+        const int ch2 = sfzPlayer2.getMidiChannel();   // 0 = omni, 1-16 = specific
+        stream.writeInt (ch2);
+        stream.writeInt (ch2);
     }
 #if DYSEKT_STANDALONE
     sequencer.writeToStream (stream);
@@ -3778,18 +3932,19 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             }
         }
 
-        // v26: SFZ-Player channel range
+        // v26: SFZ-Player channel (legacy format stores a lo/hi range; sfzPlayer2
+        // is single-channel-only, so collapse to the range's starting channel —
+        // any saved multi-channel range pre-dates the .sfz-only restriction).
+        // lo2 == 0 means omni (preserved as of this fix); old saves never wrote
+        // 0 here, so this doesn't change how pre-existing presets are restored.
         if (! stream.isExhausted())
         {
             const int lo2 = stream.readInt();
             const int hi2 = stream.readInt();
-            uint32_t mask2 = 0u;
-            if (lo2 >= 2 && hi2 >= lo2)
-                for (int c = juce::jmax (lo2, 2); c <= juce::jmin (hi2, 16); ++c)
-                    mask2 |= (1u << c);
-            if (mask2 == 0u) mask2 = (1u << 2);   // default ch2
-            sfzPlayer2ChannelMask.store      (mask2, std::memory_order_relaxed);
-            savedSfzPlayer2ChannelMask.store (mask2, std::memory_order_relaxed);
+            juce::ignoreUnused (hi2);
+            const int ch2 = (lo2 == 0) ? 0 : ((lo2 >= 2 && lo2 <= 16) ? lo2 : 2);
+            sfzPlayer2.setMidiChannel (ch2);
+            syncSfzPlayer2ChannelMaskFromEngine();
         }
         if (sfzPath.isNotEmpty())
         {

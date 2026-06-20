@@ -326,7 +326,7 @@ bool SFZWaveformView::isInterestedInFileDrag (const juce::StringArray& files)
     for (const auto& f : files)
     {
         const auto ext = juce::File (f).getFileExtension().toLowerCase();
-        if (ext == ".sfz" || ext == ".sf2")
+        if (ext == ".sfz")   // SFZ-PLAYER is a .sfz-only engine — .sf2 is not accepted here
             return true;
     }
     return false;
@@ -356,7 +356,7 @@ void SFZWaveformView::filesDropped (const juce::StringArray& files, int, int)
 
     const juce::File f (files[0]);
     const auto ext = f.getFileExtension().toLowerCase();
-    if (ext == ".sfz" || ext == ".sf2")
+    if (ext == ".sfz")   // SFZ-PLAYER is a .sfz-only engine — .sf2 is ignored
     {
         processor.zoom.store   (1.0f);
         processor.scroll.store (0.0f);

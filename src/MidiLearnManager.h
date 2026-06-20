@@ -27,7 +27,11 @@
  *  armedSlot — std::atomic<int>. UI thread writes; audio thread reads.
  */
 
-static constexpr int kMidiLearnNumSlots = 36;  // slots 0-31 (existing) + 32-35 (SfzPlayer ADSR)
+static constexpr int kMidiLearnNumSlots = 61;  // slots 0-31 (existing) + 32-35 (SfzPlayer ADSR)
+                                                // + 36-44 (SfzPlayer Reverb/Master — previously
+                                                //   out of bounds here, silently non-functional)
+                                                // + 45-49 (per-slice EQ — same prior bug)
+                                                // + 50-60 (SfzPlayer2 dedicated fields)
 
 class MidiLearnManager
 {

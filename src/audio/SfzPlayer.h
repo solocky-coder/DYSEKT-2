@@ -63,6 +63,22 @@ public:
     void setTranspose   (int semitones);      ///< SF2 only — MIDI note shift; SFZ uses setPitchShift
     void setPitchShift  (float semitones);    ///< SFZ audio-rate pitch shift, -24..+24 semitones
     void setMidiChannel (int ch);             ///< 0 = omni, 1-16 = specific
+
+    /** When set true, loadFile()/applyPendingLoad() silently ignore anything
+     *  other than a .sfz file — used to make a given SfzPlayer instance a
+     *  dedicated, independent SFZ-only engine (the SFZ-PLAYER, sfzPlayer2),
+     *  as distinct from the SF2-PLAYER (sfzPlayer) which still accepts .sf2
+     *  via FluidSynth. Set once from the UI/message thread (e.g. alongside
+     *  setMidiChannel() in the processor constructor); read on the audio
+     *  thread inside applyPendingLoad(). */
+    void setRestrictToSfzOnly (bool shouldRestrict) noexcept
+    {
+        restrictToSfzOnly.store (shouldRestrict, std::memory_order_relaxed);
+    }
+    bool getRestrictToSfzOnly() const noexcept
+    {
+        return restrictToSfzOnly.load (std::memory_order_relaxed);
+    }
     void setPan         (float centred);      ///< -1.0 (L) .. 0.0 (C) .. +1.0 (R)
     void setFineTune    (float cents);        ///< -100 .. +100 cents
     void setReverb      (float level);        ///< 0..1 wet level
@@ -124,6 +140,7 @@ public:
     //  Values are stored as atomics and flushed to sfizz at the start of each
     //  processBlock() call when dirty.  Call from any thread; sfizz update is RT.
     void  setSfzAttack  (float sec)  noexcept;   ///< 0-30 s
+    void  setSfzHold    (float sec)  noexcept;   ///< 0-30 s — held at peak before decay (AHDSR)
     void  setSfzDecay   (float sec)  noexcept;   ///< 0-30 s
     void  setSfzSustain (float pct)  noexcept;   ///< 0-100 %
     void  setSfzRelease (float sec)  noexcept;   ///< 0-60 s
@@ -136,6 +153,7 @@ public:
     void setZoneTune   (int regionIndex, float cents)    noexcept;  ///< cents: -100..+100
 
     float getSfzAttack()  const noexcept { return sfzAttackSec .load (std::memory_order_relaxed); }
+    float getSfzHold()    const noexcept { return sfzHoldSec   .load (std::memory_order_relaxed); }
     float getSfzDecay()   const noexcept { return sfzDecaySec  .load (std::memory_order_relaxed); }
     float getSfzSustain() const noexcept { return sfzSustainPct.load (std::memory_order_relaxed); }
     float getSfzRelease() const noexcept { return sfzReleaseSec.load (std::memory_order_relaxed); }
@@ -290,6 +308,7 @@ private:
 #endif
 
     bool isSfzFile { false };   ///< true when the loaded file is .sfz
+    std::atomic<bool> restrictToSfzOnly { false };   ///< true = this instance is SFZ-only (see setRestrictToSfzOnly)
     double   currentSR    { 44100.0 };
     int      currentBlock { 256 };
     juce::File activeFile;
@@ -310,6 +329,7 @@ private:
 
     // ── SFZ ADSR atomics (written from any thread, read on audio thread) ──────
     std::atomic<float> sfzAttackSec   { 0.005f };  ///< seconds (SFZ default ~0)
+    std::atomic<float> sfzHoldSec     { 0.0f   };  ///< seconds — peak hold before decay (AHDSR)
     std::atomic<float> sfzDecaySec    { 0.1f   };  ///< seconds
     std::atomic<float> sfzSustainPct  { 100.0f };  ///< percent 0-100
     std::atomic<float> sfzReleaseSec  { 0.05f  };  ///< seconds (SFZ default ~0)

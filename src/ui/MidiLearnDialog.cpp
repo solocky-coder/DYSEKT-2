@@ -41,6 +41,31 @@ static const char* const gSlotParamNames[kMidiLearnNumSlots] = {
     "SF-Player Decay",       // 33
     "SF-Player Sustain",     // 34
     "SF-Player Release",     // 35
+    "SF-Player Reverb Size", // 36
+    "SF-Player Reverb Damp", // 37
+    "SF-Player Reverb Width",// 38
+    "SF-Player Reverb Mix",  // 39
+    "SF-Player Reverb Freeze", // 40
+    "SF-Player Volume",      // 41
+    "SF-Player Transpose",   // 42
+    "SF-Player Pan",         // 43
+    "SF-Player Fine Tune",   // 44
+    "EQ Low Gain",           // 45
+    "EQ Mid Gain",           // 46
+    "EQ Mid Freq",           // 47
+    "EQ Mid Q",              // 48
+    "EQ High Gain",          // 49
+    "SFZ-Player Attack",     // 50
+    "SFZ-Player Hold",       // 51
+    "SFZ-Player Decay",      // 52
+    "SFZ-Player Sustain",    // 53
+    "SFZ-Player Release",    // 54
+    "SFZ-Player Reverb Mix", // 55
+    "SFZ-Player Reverb Size",// 56
+    "SFZ-Player Volume",     // 57
+    "SFZ-Player Transpose",  // 58
+    "SFZ-Player Pan",        // 59
+    "SFZ-Player Fine Tune",  // 60
 };
 
 static juce::String getSlotParameterName (int fieldId)

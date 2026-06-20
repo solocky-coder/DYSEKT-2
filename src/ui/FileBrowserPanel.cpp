@@ -108,9 +108,20 @@ void FileBrowserPanel::ArchiveListModel::listBoxItemDoubleClicked (int row, cons
                     const bool sfzPlayer2Mode = (owner->processor.midiRouteMode.load (std::memory_order_relaxed)
                                                  == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
                     if (sfzPlayer2Mode)
-                        owner->processor.sfzPlayer2.loadFile (localFile, owner->processor.fileLoadPool);  // live MIDI engine
-                    owner->processor.loadSoundFontAsync (localFile,
-                        sfzPlayer2Mode ? SoundFontLoadTarget::SfzPlayer2 : SoundFontLoadTarget::Slicer);
+                    {
+                        // SFZ-PLAYER is a .sfz-only engine — ignore .sf2 here entirely
+                        // rather than loading it (live engine) or rendering a preview
+                        // that the live engine would then refuse to play.
+                        if (ext == ".sfz")
+                        {
+                            owner->processor.sfzPlayer2.loadFile (localFile, owner->processor.fileLoadPool);  // live MIDI engine
+                            owner->processor.loadSoundFontAsync (localFile, SoundFontLoadTarget::SfzPlayer2);
+                        }
+                    }
+                    else
+                    {
+                        owner->processor.loadSoundFontAsync (localFile, SoundFontLoadTarget::Slicer);
+                    }
                 }
                 else if (owner->onLoadRequest)
                     owner->onLoadRequest (localFile);
@@ -521,9 +532,20 @@ void FileBrowserPanel::fileDoubleClicked (const juce::File& f)
         const bool sfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
                                      == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
         if (sfzPlayer2Mode)
-            processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);  // live MIDI engine
-        processor.loadSoundFontAsync (f,
-            sfzPlayer2Mode ? SoundFontLoadTarget::SfzPlayer2 : SoundFontLoadTarget::Slicer);
+        {
+            // SFZ-PLAYER is a .sfz-only engine — ignore .sf2 here entirely rather
+            // than loading it (live engine) or rendering a preview that the live
+            // engine would then refuse to play.
+            if (ext == ".sfz")
+            {
+                processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);  // live MIDI engine
+                processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);
+            }
+        }
+        else
+        {
+            processor.loadSoundFontAsync (f, SoundFontLoadTarget::Slicer);
+        }
         if (onFileLoaded) onFileLoaded();
         return;
     }

@@ -174,6 +174,22 @@ public:
         FieldEqMidFreq    = 47,  // Hz  200..8000
         FieldEqMidQ       = 48,  // Q   0.5..4.0
         FieldEqHighGain   = 49,  // dB  -18..+18
+        // SfzPlayer2 (SFZ-PLAYER, ch2) — dedicated Field IDs, distinct from
+        // sfzPlayer's (FieldSfz*) above. Previously the SFZ-PLAYER panel's
+        // MIDI-learn menu registered the FieldSfz* IDs too, which meant
+        // learning a CC on an SFZ-PLAYER knob actually controlled the
+        // SF2-PLAYER (sfzPlayer) instead. These fix that.
+        FieldSfz2Attack     = 50,  // sfizz ampeg_attack  (seconds, 0-30)
+        FieldSfz2Hold       = 51,  // sfizz ampeg_hold    (seconds, 0-5)
+        FieldSfz2Decay      = 52,  // sfizz ampeg_decay   (seconds, 0-30)
+        FieldSfz2Sustain    = 53,  // sfizz ampeg_sustain (percent, 0-100)
+        FieldSfz2Release    = 54,  // sfizz ampeg_release (seconds, 0-60)
+        FieldSfz2ReverbMix  = 55,  // reverb wet/dry  (0-100 %)
+        FieldSfz2ReverbSize = 56,  // reverb room size (0-100 %)
+        FieldSfz2Vol        = 57,  // master volume (0..2 linear)
+        FieldSfz2Transpose  = 58,  // transpose (-24..+24 semitones)
+        FieldSfz2Pan        = 59,  // pan (-1..+1)
+        FieldSfz2FineTune   = 60,  // fine tune (-100..+100 cents)
     };
 
     // ── Command types ─────────────────────────────────────────────────────────
@@ -608,6 +624,13 @@ public:
     // SFZ-Player (sfzPlayer2) channel ownership — default ch2 (bit 2)
     std::atomic<uint32_t> sfzPlayer2ChannelMask      { 1u << 2 }; // ch 2 default
     std::atomic<uint32_t> savedSfzPlayer2ChannelMask { 1u << 2 };
+
+    /** Rebuilds sfzPlayer2ChannelMask (and its saved counterpart) from
+     *  sfzPlayer2's own current MIDI channel, so the two can never drift
+     *  apart. sfzPlayer2 is single-channel only (or omni) — call this any
+     *  time sfzPlayer2.setMidiChannel() is called, and after loading a file
+     *  into it. Message-thread only. */
+    void syncSfzPlayer2ChannelMaskFromEngine() noexcept;
 
     /** Rebuild chromaticSliceChannelMask from current slice data.
      *  Must be called on the audio thread (or before first audio callback). */

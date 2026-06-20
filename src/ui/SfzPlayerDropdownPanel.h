@@ -95,21 +95,14 @@ private:
                           meterZone;
 
     // ADSR knob zones (second row, below header strip)
-    juce::Rectangle<int> adsrAtkZone, adsrDecZone, adsrSusZone, adsrRelZone;
-
-    // Per-channel SF2 FX zones — overlap the ADSR slots when SF2 is loaded
-    juce::Rectangle<int> chComboZone;   ///< combo fits where TRN+FINE slots are
-    juce::Rectangle<int> chMixZone;     ///< reuse adsrAtkZone slot
-    juce::Rectangle<int> chSizeZone;    ///< reuse adsrDecZone slot
-    juce::Rectangle<int> chDampZone;    ///< reuse adsrSusZone slot
-    juce::Rectangle<int> chGainZone;    ///< reuse adsrRelZone slot
+    juce::Rectangle<int> adsrAtkZone, adsrHldZone, adsrDecZone, adsrSusZone, adsrRelZone;
 
     // Sub-zones inside nameZone
     juce::Rectangle<int> presetDecBtn, presetLabel, presetIncBtn, folderIconZone;
 
     // ── Drag state for knobs ──────────────────────────────────────────────────
     enum class ActiveKnob { None, Volume, Transpose, Pan, FineTune, ReverbMix, ReverbSize,
-                            AdsrAttack, AdsrDecay, AdsrSustain, AdsrRelease };
+                            AdsrAttack, AdsrHold, AdsrDecay, AdsrSustain, AdsrRelease };
     ActiveKnob activeKnob  { ActiveKnob::None };
     int        dragStartY  { 0 };
     float      dragStartVal{ 0.f };
@@ -131,15 +124,6 @@ private:
     // ── Inline file browser ───────────────────────────────────────────────────
     SfzFileBrowser fileBrowser;
     bool           browserOpen      { false };
-
-    // ── MIDI channel-range spinners (replaces sf2ChCombo) ────────────────
-    // Drawn as:  CH [◂ 1 ▸] – [◂ 16 ▸]  inside the SF2 strip.
-    // Hit-zones laid out in resized(); clicks handled in mouseDown().
-    juce::Rectangle<int> chLowDec,  chLowLabel,  chLowInc;
-    juce::Rectangle<int> chHighDec, chHighLabel, chHighInc;
-    juce::Rectangle<int> chRangeLabelZone;
-    int cachedChLow  { 1 };   ///< polled from processor each timer tick
-    int cachedChHigh { 16 };
 
 
     // State held between openAddZoneChooser() and onFileChosen() in kAddZone mode
