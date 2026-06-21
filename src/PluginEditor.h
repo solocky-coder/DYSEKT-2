@@ -103,6 +103,7 @@ private:
 
     /** Same for SFZ-Player (sfzPlayer2). */
     bool sfzPlayer2PanelRestored = false;
+    bool lastSfzPlayer2Loaded = false;   // edge-detect sfzPlayer2.isLoaded() to refresh layout on completion
 
     /// Which panel occupies the bottom slot (browser or mixer).
     /// Mutually exclusive.
