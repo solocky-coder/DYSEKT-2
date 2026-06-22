@@ -583,8 +583,6 @@ void SfzWaveformLcd::drawPlayhead (juce::Graphics& g, const juce::Rectangle<floa
     // WaveformView layer. Nothing to draw here.
     juce::ignoreUnused (g, area);
 }
-    g.fillPath (tri);
-}
 
 // ── Paint ─────────────────────────────────────────────────────────────────────
 
