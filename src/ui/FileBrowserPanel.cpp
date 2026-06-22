@@ -114,7 +114,6 @@ void FileBrowserPanel::ArchiveListModel::listBoxItemDoubleClicked (int row, cons
                         // that the live engine would then refuse to play.
                         if (ext == ".sfz")
                         {
-                            owner->processor.sfzPlayer2.loadFile (localFile, owner->processor.fileLoadPool);  // live MIDI engine
                             owner->processor.loadSoundFontAsync (localFile, SoundFontLoadTarget::SfzPlayer2);
                         }
                     }
@@ -538,7 +537,6 @@ void FileBrowserPanel::fileDoubleClicked (const juce::File& f)
             // engine would then refuse to play.
             if (ext == ".sfz")
             {
-                processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);  // live MIDI engine
                 processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);
             }
         }

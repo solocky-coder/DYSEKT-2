@@ -12,40 +12,30 @@ void WaveformView::drawPlaybackCursors (juce::Graphics& g)
 
  if (isSfzPlayer2Mode())
  {
-     // SFZ-PLAYER tab: previewPositionSample is elapsed samples since the
-     // most recent note-on, not an absolute position in the concatenated
-     // sampleData2 buffer. Look up which region that note maps to via
-     // previewZones2 and add its startSample to get the real buffer
-     // position — otherwise every note appears to play from sample 0
-     // (i.e. always inside the first region).
-     const int elapsed = processor.sfzPlayer2.getPreviewPositionSample();
-     if (elapsed <= 0) return;
-
-     const int note = processor.sfzPlayer2.getLastTriggeredNote();
-     int regionStart = 0, regionEnd = -1;
-     if (note >= 0)
+     // voicePool2 voice positions are already absolute sample offsets
+     // within sampleData2 (same as the Slicer's voicePool below) — no
+     // elapsed-since-noteOn translation needed now that sfzPlayer2's
+     // live sfizz engine has been replaced by real slice playback.
+     const int midiPreviewVoice2 = LazyChopEngine::getPreviewVoiceIndex();
+     for (int i = 0; i < VoicePool::kMaxVoices; ++i)
      {
-         auto zones = processor.previewZones2.get();
-         for (const auto& z : *zones)
-         {
-             if (z.midiNote == note) { regionStart = z.startSample; regionEnd = z.endSample; break; }
-         }
+         if (i == midiPreviewVoice2) continue;
+
+         float pos = processor.voicePool2.voicePositions[i].load (std::memory_order_relaxed);
+         if (pos <= 0.0f) continue;
+
+         int px = sampleToPixel ((int) pos);
+         if (px < 0 || px >= w) continue;
+
+         g.setColour (juce::Colours::white.withAlpha (0.85f));
+         g.drawVerticalLine (px, 0.0f, (float) h);
+
+         juce::Path tri;
+         tri.addTriangle ((float) px - 5.0f, 0.0f,
+                           (float) px + 5.0f, 0.0f,
+                           (float) px,        8.0f);
+         g.fillPath (tri);
      }
-
-     const int pos = regionStart + elapsed;
-     if (regionEnd > regionStart && pos >= regionEnd) return;   // past this region's audio
-
-     const int px = sampleToPixel (pos);
-     if (px < 0 || px >= w) return;
-
-     g.setColour (juce::Colours::white.withAlpha (0.85f));
-     g.drawVerticalLine (px, 0.0f, (float) h);
-
-     juce::Path tri;
-     tri.addTriangle ((float) px - 5.0f, 0.0f,
-                       (float) px + 5.0f, 0.0f,
-                       (float) px,        8.0f);
-     g.fillPath (tri);
      return;
  }
 
@@ -147,6 +137,16 @@ SampleData& WaveformView::activeSampleData() const noexcept
     return isSfzPlayer2Mode() ? processor.sampleData2 : processor.sampleData;
 }
 
+const DysektProcessor::UiSliceSnapshot& WaveformView::activeUiSnapshot() const noexcept
+{
+    return isSfzPlayer2Mode() ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
+}
+
+SliceManager& WaveformView::activeSliceManager() const noexcept
+{
+    return isSfzPlayer2Mode() ? processor.sliceManager2 : processor.sliceManager;
+}
+
 WaveformView::ViewState WaveformView::buildViewState (const SampleData::SnapshotPtr& sampleSnap) const
 {
  ViewState state;
@@ -225,10 +225,7 @@ void WaveformView::paint (juce::Graphics& g)
  paintViewStateActive = cachedPaintViewState.valid;
  rebuildCacheIfNeeded();
  drawWaveform (g);
- if (isSfzPlayer2Mode())
-     drawPreviewZones (g);
- else
-     drawSlices (g);
+ drawSlices (g);
  paintLazyChopOverlay (g);
  paintTransientMarkers (g);
  paintTrimOverlay (g);
@@ -744,6 +741,11 @@ void WaveformView::drawWaveform (juce::Graphics& g)
 void WaveformView::drawSlices (juce::Graphics& g)
 {
  // --- Consume pending optimistic marker commit from processor (for MIDI/knob moves) ---
+ // Slicer-only feature (driven by sliceControlBar knobs/MIDI on the real
+ // sliceManager) — skip entirely in SFZ-PLAYER mode so it can't cross-talk
+ // with sliceManager2's display.
+ if (! isSfzPlayer2Mode())
+ {
  int optIdx = processor.pendingUiOptimisticIdx.exchange(-1, std::memory_order_acq_rel);
  int optSample = -1;
  if (optIdx >= 0) {
@@ -775,8 +777,9 @@ void WaveformView::drawSlices (juce::Graphics& g)
  optimisticStartSample = -1;
  }
  }
+ }
 
- const auto& ui = processor.getUiSliceSnapshot();
+ const auto& ui = activeUiSnapshot();
  int sel = ui.selectedSlice;
  int num = ui.numSlices;
 
@@ -789,7 +792,7 @@ void WaveformView::drawSlices (juce::Graphics& g)
  if (i == optimisticSliceIdx && optimisticStartSample >= 0)
  drawStartSample = optimisticStartSample;
 
- int drawEndSample = processor.sliceManager.getEndForSlice(i, ui.sampleNumFrames);
+ int drawEndSample = activeSliceManager().getEndForSlice(i, ui.sampleNumFrames);
 
  // Live preview during drag: fill tracks dragPreviewStart/End for any dragged slice
  if (dragSliceIdx == i &&
@@ -890,63 +893,6 @@ void WaveformView::drawSlices (juce::Graphics& g)
  }
 }
 
-// ── Read-only "preview zones" overlay for the SFZ-PLAYER tab ──────────────────
-// Mirrors drawSlices()'s visual language (colored full-height bands, numbered
-// labels) but reads from processor.previewZones2 instead of the real
-// sliceManager snapshot — there is no selection, no dragging, no editing.
-// Colors are generated deterministically via golden-angle hue rotation so
-// each zone is visually distinct without needing a persisted Slice.colour.
-void WaveformView::drawPreviewZones (juce::Graphics& g)
-{
- auto zones = processor.previewZones2.get();
- const int num = (int) zones->size();
- if (num <= 0) return;
-
- const int kTopPad = 3;
- const int kBotPad = 3;
- const int markerH = getHeight() - kTopPad - kBotPad;
- constexpr float kGoldenAngle = 0.61803398875f; // golden-ratio hue step
-
- for (int i = 0; i < num; ++i)
- {
- const auto& z = (*zones)[(size_t) i];
-
- int x1 = std::max (0, sampleToPixel (z.startSample));
- int x2 = std::min (getWidth(), sampleToPixel (z.endSample));
- int sw = x2 - x1;
- if (sw <= 0) continue;
-
- const float hue = std::fmod ((float) i * kGoldenAngle, 1.0f);
- const juce::Colour zoneColour = juce::Colour::fromHSV (hue, 0.65f, 0.85f, 1.0f);
-
- const bool isSelected = (i == processor.selectedPreviewZone2.load (std::memory_order_relaxed));
- const float fillAlpha = isSelected ? 0.38f : 0.18f;
- const float lineAlpha = isSelected ? 1.0f  : 0.75f;
-
- g.setColour (zoneColour.withAlpha (fillAlpha));
- g.fillRect (x1, kTopPad, sw, markerH);
-
- g.setColour (zoneColour.withAlpha (lineAlpha));
- g.drawHorizontalLine (kTopPad, (float) x1, (float) x2);
- g.drawHorizontalLine (getHeight() - kBotPad, (float) x1, (float) x2);
-
- g.setColour (zoneColour.withAlpha (0.92f));
- g.drawVerticalLine (x1, (float) kTopPad, (float) (kTopPad + markerH));
-
- if (isSelected)
- {
-     g.setColour (juce::Colours::white.withAlpha (0.85f));
-     g.drawRect (x1, kTopPad, sw, markerH, 2);
- }
-
- // Sequential zone number, matching the Slicer's own label convention
- // (1-32) rather than note names — read-only preview, no per-zone LCD.
- g.setColour (juce::Colours::white);
- g.setFont (DysektLookAndFeel::makeFont (10.0f, true));
- g.drawText (juce::String (i + 1), x1 + 3, 3, 20, 12, juce::Justification::left);
- }
-}
-
 void WaveformView::resized()
 {
  prevCacheKey = {};
@@ -1038,30 +984,32 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
  return;
  }
 
- // ── SFZ-PLAYER mode: previewZones2 is a read-only display, not an
- // editable sliceManager — none of the slice context menu, edge-dragging,
- // or move/lock logic below applies, since those mutate the Slicer's real
- // slices using coordinates from a different buffer. Clicking a zone here
- // only selects it for highlight/info display and triggers a one-shot
- // audition of that exact sample range (see DysektProcessor::zonePreview2).
+ // ── SFZ-PLAYER mode: real slices in sliceManager2, but not user-editable
+ // here — no slice context menu, edge-dragging, or move/lock logic below
+ // applies (no manual slicing for SFZ-PLAYER; slices come exclusively from
+ // SFZ key-zones at load time). Clicking a slice selects it for
+ // highlight/info display and triggers a one-shot audition of that exact
+ // sample range (see DysektProcessor::zonePreview2).
  if (isSfzPlayer2Mode())
  {
-     auto zones = processor.previewZones2.get();
-     const int num = (int) zones->size();
+     const auto& ui2 = activeUiSnapshot();
      int hitIdx = -1;
-     for (int i = 0; i < num; ++i)
+     for (int i = 0; i < ui2.numSlices; ++i)
      {
-         const auto& z = (*zones)[(size_t) i];
-         if (samplePos >= z.startSample && samplePos < z.endSample) { hitIdx = i; break; }
+         const auto& s = ui2.slices[(size_t) i];
+         if (! s.active) continue;
+         const int sEnd = activeSliceManager().getEndForSlice (i, ui2.sampleNumFrames);
+         if (samplePos >= s.startSample && samplePos < sEnd) { hitIdx = i; break; }
      }
 
-     processor.selectedPreviewZone2.store (hitIdx, std::memory_order_relaxed);
+     processor.sliceManager2.selectedSlice.store (hitIdx, std::memory_order_relaxed);
 
      if (hitIdx >= 0 && ! e.mods.isRightButtonDown())
      {
-         const auto& z = (*zones)[(size_t) hitIdx];
-         processor.zonePreview2.triggerEnd.store (z.endSample, std::memory_order_relaxed);
-         processor.zonePreview2.triggerStart.store (z.startSample, std::memory_order_release);
+         const auto& s = ui2.slices[(size_t) hitIdx];
+         const int sEnd = activeSliceManager().getEndForSlice (hitIdx, ui2.sampleNumFrames);
+         processor.zonePreview2.triggerEnd.store (sEnd, std::memory_order_relaxed);
+         processor.zonePreview2.triggerStart.store (s.startSample, std::memory_order_release);
      }
 
      repaint();
@@ -1369,7 +1317,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
 void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
 {
  if (trimMode) return;
- if (isSfzPlayer2Mode()) return;   // no slice creation against previewZones2
+ if (isSfzPlayer2Mode()) return;   // no manual slice creation for SFZ-PLAYER
  auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap == nullptr) return;
  int rawPos = juce::jlimit (0, sampleSnap->buffer.getNumSamples(), pixelToSample (e.x));
@@ -1565,19 +1513,11 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
                       || (routeMode2 == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
  if (sfzMode)
  {
-        // SFZ-PLAYER: load live engine (sfzPlayer2) AND post waveform preview via SoundFontLoader
+        // SFZ-PLAYER: loadSoundFontAsync renders into sampleData2 and creates
+        // real slices in sliceManager2 — sfzPlayer2's live sfizz engine is no
+        // longer used for playback, so there's nothing else to load here.
         if (ext == ".sfz")
-        {
-            const bool isSfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
-                                          == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
-            if (isSfzPlayer2Mode)
-            {
-                processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);  // live MIDI engine
-                processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);  // waveform preview → sampleData2
-            }
-            else
-                processor.loadSoundFontAsync (f);
-        }
+            processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);
  }
  else if (ext == ".sf2" || ext == ".sfz")
      processor.loadSoundFontAsync (f);

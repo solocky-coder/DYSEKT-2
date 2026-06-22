@@ -25,8 +25,8 @@ static const juce::Colour kColRelease { 0xFFFF6B00 }; // Molten Orange
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
-SliceWaveformLcd::SliceWaveformLcd (DysektProcessor& p)
- : processor (p)
+SliceWaveformLcd::SliceWaveformLcd (DysektProcessor& p, bool useSecondInstance)
+ : processor (p), isSecondInstance (useSecondInstance)
 {
  setOpaque (false); // rounded corners — must not claim full opaque coverage
  setMouseCursor (juce::MouseCursor::NormalCursor);
@@ -55,8 +55,8 @@ void SliceWaveformLcd::repaintLcd()
    }
    else
    {
-       const int ver = processor.getUiSliceSnapshotVersion();
-       const int curSel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
+       const int ver = activeSnapshotVersion();
+       const int curSel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
 
        // Rebuild when snapshot version changes OR when the selected slice changes.
        // Selection changes do not increment the snapshot version, so without the
@@ -79,7 +79,7 @@ void SliceWaveformLcd::buildDisplayData()
 {
  data = {};
 
- const auto& snap = processor.getUiSliceSnapshot();
+ const auto& snap = activeSnapshot();
  data.hasSample = snap.sampleLoaded && ! snap.sampleMissing;
  data.numSlices = snap.numSlices;
  data.sampleName = snap.isDefaultSample ? juce::String() : juce::String (snap.sampleFileName);
@@ -128,7 +128,7 @@ float SliceWaveformLcd::getSliceDurMs() const
 {
  static constexpr float kDefaultMs = 1000.0f; // fallback if no slice loaded
 
- const auto& durSnap = processor.getUiSliceSnapshot();
+ const auto& durSnap = activeSnapshot();
  const int sel = durSnap.selectedSlice;
  if (sel < 0 || sel >= durSnap.numSlices)
  { processor.releaseUiSliceSnapshot(); return kDefaultMs; }
@@ -143,7 +143,7 @@ float SliceWaveformLcd::getSliceDurMs() const
  if (len <= 0)
  return kDefaultMs;
 
- const float sr = (float) processor.voicePool.getSampleRate();
+ const float sr = (float) activeVoicePool().getSampleRate();
  return (float) len / sr * 1000.0f;
 }
 
@@ -167,10 +167,10 @@ void SliceWaveformLcd::buildEnvelopeNodes()
      return p ? p->load() : 100.0f;
  };
 
- const int sel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
- if (sel >= 0 && sel < processor.sliceManager.getNumSlices())
+ const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
+ if (sel >= 0 && sel < activeSliceManager().getNumSlices())
  {
-     const auto& s = processor.sliceManager.getSlice (sel);
+     const auto& s = activeSliceManager().getSlice (sel);
      attackMs  = s.attackSec    * 1000.0f;
      decayMs   = s.decaySec     * 1000.0f;
      sustainPc = s.sustainLevel * 100.0f;
@@ -266,9 +266,9 @@ void SliceWaveformLcd::commitNodes()
     // slice's own storage (skipLock = 1, lockMask unchanged).
     uint32_t sliceLockMask = 0;
     {
-        const int sel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
-        if (sel >= 0 && sel < processor.sliceManager.getNumSlices())
-            sliceLockMask = processor.sliceManager.getSlice (sel).lockMask;
+        const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
+        if (sel >= 0 && sel < activeSliceManager().getNumSlices())
+            sliceLockMask = activeSliceManager().getSlice (sel).lockMask;
     }
 
     // Write dragged value to per-slice storage without modifying the lock bit.
@@ -281,6 +281,7 @@ void SliceWaveformLcd::commitNodes()
         cmd.intParam1   = fieldId;
         cmd.floatParam1 = nativeVal;
         cmd.intParam2   = 1; // skipLock
+        cmd.targetInstance2 = isSecondInstance;
         processor.pushCommand (cmd);
     };
 
@@ -395,10 +396,10 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
 
  if (bit != 0)
  {
- const int sel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
- if (sel >= 0 && sel < processor.sliceManager.getNumSlices())
+ const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
+ if (sel >= 0 && sel < activeSliceManager().getNumSlices())
  {
- const auto& s = processor.sliceManager.getSlice (sel);
+ const auto& s = activeSliceManager().getSlice (sel);
  const bool currentlyLocked = (s.lockMask & bit) != 0;
 
  if (currentlyLocked)
@@ -420,6 +421,7 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
      cmd.type      = DysektProcessor::CmdToggleLock;
      cmd.intParam1 = sel;
      cmd.intParam2 = (int) bit;
+     cmd.targetInstance2 = isSecondInstance;
      processor.pushCommand (cmd);
  }
  else
@@ -442,6 +444,7 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
          c.intParam1   = (int) field;
          c.floatParam1 = snapVal;
          c.intParam2   = 1; // skipLock
+         c.targetInstance2 = isSecondInstance;
          processor.pushCommand (c);
      }
      // Now toggle the lock bit on
@@ -450,6 +453,7 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
          cmd.type      = DysektProcessor::CmdToggleLock;
          cmd.intParam1 = sel;
          cmd.intParam2 = (int) bit;
+         cmd.targetInstance2 = isSecondInstance;
          processor.pushCommand (cmd);
      }
  }
@@ -512,10 +516,10 @@ void SliceWaveformLcd::mouseDrag (const juce::MouseEvent& e)
  // BUG FIX: Block dragging locked ADSR nodes — check slice's lockMask
  // ═══════════════════════════════════════════════════════════════════════════
  {
-     const int sel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
-     if (sel >= 0 && sel < processor.sliceManager.getNumSlices())
+     const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
+     if (sel >= 0 && sel < activeSliceManager().getNumSlices())
      {
-         const auto& s = processor.sliceManager.getSlice (sel);
+         const auto& s = activeSliceManager().getSlice (sel);
          uint32_t bit = 0;
          if      (dragRole == NodeRole::Attack)  bit = kLockAttack;
          else if (dragRole == NodeRole::Decay)   bit = kLockDecay;
@@ -677,9 +681,9 @@ void SliceWaveformLcd::drawWaveform (juce::Graphics& g, const juce::Rectangle<fl
  // Use selected slice colour for waveform rendering
  juce::Colour sliceCol = lcd2Phosphor(); // default = theme accent
  {
- const int sel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
- if (sel >= 0 && sel < processor.sliceManager.getNumSlices())
- sliceCol = processor.sliceManager.getSlice (sel).colour;
+ const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
+ if (sel >= 0 && sel < activeSliceManager().getNumSlices())
+ sliceCol = activeSliceManager().getSlice (sel).colour;
  }
 
  g.setColour (sliceCol.withAlpha (0.12f));
@@ -785,9 +789,9 @@ void SliceWaveformLcd::drawNodes (juce::Graphics& g, const juce::Rectangle<float
 
  // Read lock state for selected slice
  uint32_t lockMask = 0;
- const int sel = processor.sliceManager.selectedSlice.load (std::memory_order_relaxed);
- if (sel >= 0 && sel < processor.sliceManager.getNumSlices())
- lockMask = processor.sliceManager.getSlice (sel).lockMask;
+ const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
+ if (sel >= 0 && sel < activeSliceManager().getNumSlices())
+ lockMask = activeSliceManager().getSlice (sel).lockMask;
 
  for (const auto& node : envNodes)
  {
@@ -931,7 +935,7 @@ void SliceWaveformLcd::drawPlayhead (juce::Graphics& g, const juce::Rectangle<fl
  const int totalRange = data.endSample - data.startSample;
  if (totalRange <= 0) return;
 
- auto& vp = processor.voicePool;
+ auto& vp = activeVoicePool();
 
  for (int i = 0; i < VoicePool::kMaxVoices; ++i)
  {

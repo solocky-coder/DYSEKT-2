@@ -20,8 +20,6 @@
 #include "TrimSession.h"
 #include "ui/SliceLcdDisplay.h"
 #include "ui/SliceWaveformLcd.h"
-#include "ui/SfzLcdDisplay.h"
-#include "ui/SfzWaveformLcd.h"
 #include "ui/Sf2LcdDisplay.h"
 #include "ui/Sf2WaveformLcd.h"
 #include "ui/WaveformOverview.h"
@@ -134,8 +132,11 @@ private:
 
     SliceLcdDisplay  sliceLcd;
     SliceWaveformLcd sliceWaveformLcd;
-    SfzLcdDisplay    sfzLcd;
-    SfzWaveformLcd   sfzWaveformLcd;
+    // SFZ-PLAYER's own LCDs — same components as the Slicer's, pointed at
+    // sliceManager2/sampleData2/voicePool2 via the second-instance ctor flag.
+    // Replaces the old sfizz-backed SfzLcdDisplay/SfzWaveformLcd entirely.
+    SliceLcdDisplay  sfzLcd;
+    SliceWaveformLcd sfzWaveformLcd;
     Sf2LcdDisplay    sf2Lcd;
     Sf2WaveformLcd   sf2WaveformLcd;
 

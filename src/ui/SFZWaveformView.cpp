@@ -361,7 +361,6 @@ void SFZWaveformView::filesDropped (const juce::StringArray& files, int, int)
         processor.zoom.store   (1.0f);
         processor.scroll.store (0.0f);
         prevCacheKey = {};
-        processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);          // live MIDI engine
         processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);  // waveform preview → sampleData2
     }
 }

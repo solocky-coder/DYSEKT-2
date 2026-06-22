@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "../PluginProcessor.h"
 
 class DysektProcessor;
 
@@ -21,7 +22,7 @@ class DysektProcessor;
 class SliceWaveformLcd : public juce::Component
 {
 public:
-    explicit SliceWaveformLcd (DysektProcessor& p);
+    explicit SliceWaveformLcd (DysektProcessor& p, bool useSecondInstance = false);
 
     void paint   (juce::Graphics& g) override;
     void resized () override;
@@ -98,6 +99,26 @@ private:
 
     DysektProcessor& processor;
     DisplayData      data;
+
+    // True when showing the SFZ-PLAYER's own engine instance (sliceManager2/
+    // sampleData2/voicePool2) instead of the Slicer's.
+    bool isSecondInstance = false;
+    SliceManager& activeSliceManager() const noexcept
+    {
+        return isSecondInstance ? processor.sliceManager2 : processor.sliceManager;
+    }
+    VoicePool& activeVoicePool() const noexcept
+    {
+        return isSecondInstance ? processor.voicePool2 : processor.voicePool;
+    }
+    const DysektProcessor::UiSliceSnapshot& activeSnapshot() const noexcept
+    {
+        return isSecondInstance ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
+    }
+    int activeSnapshotVersion() const noexcept
+    {
+        return isSecondInstance ? processor.getUiSliceSnapshotVersion2() : processor.getUiSliceSnapshotVersion();
+    }
 
     // ── Envelope state ────────────────────────────────────────────────────────
     // Five control points (normalised).

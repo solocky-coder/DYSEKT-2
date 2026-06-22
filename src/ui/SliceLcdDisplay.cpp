@@ -75,8 +75,8 @@ juce::String SliceLcdDisplay::formatPan (float pan)
 
 // ── Constructor ────────────────────────────────────────────────────────────────
 
-SliceLcdDisplay::SliceLcdDisplay (DysektProcessor& p)
-    : processor (p)
+SliceLcdDisplay::SliceLcdDisplay (DysektProcessor& p, bool useSecondInstance)
+    : processor (p), isSecondInstance (useSecondInstance)
 {
     setOpaque (true);
 }
@@ -87,7 +87,7 @@ void SliceLcdDisplay::buildDisplayData()
 {
     data = {};
 
-    const auto& snap = processor.getUiSliceSnapshot();
+    const auto& snap = activeSnapshot();
     data.hasSample    = snap.sampleLoaded && ! snap.sampleMissing;
     data.numSlices    = snap.numSlices;
     data.rootNote     = snap.rootNote;
@@ -474,6 +474,7 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
             cmd.type        = DysektProcessor::CmdSetSliceName;
             cmd.intParam1   = sliceIdx;
             cmd.stringParam = newName;
+            cmd.targetInstance2 = isSecondInstance;
             processor.pushCommand (cmd);
             repaint();
         };
@@ -495,6 +496,7 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
         DysektProcessor::Command cmd;
         cmd.type      = F::CmdSetSliceParam;
         cmd.intParam1 = hit.fieldId;
+        cmd.targetInstance2 = isSecondInstance;
 
         switch (hit.fieldId)
         {
@@ -514,6 +516,7 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
                     clr.type       = F::CmdSetSliceParam;
                     clr.intParam1  = F::FieldOneShot;
                     clr.floatParam1 = 0.0f;
+                    clr.targetInstance2 = isSecondInstance;
                     processor.pushCommand (clr);
                 }
                 repaint();
@@ -531,6 +534,7 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
                     clr.type       = F::CmdSetSliceParam;
                     clr.intParam1  = F::FieldLoop;
                     clr.floatParam1 = 0.0f;
+                    clr.targetInstance2 = isSecondInstance;
                     processor.pushCommand (clr);
                 }
                 repaint();

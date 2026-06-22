@@ -250,6 +250,14 @@ public:
         std::array<int, kMaxPositions> positions {};
         int numPositions { 0 };
         bool isCommit { false };    // CmdSetSliceBounds: true = mouseUp final commit, triggers crush inheritance
+        // When true, slice-mutating commands (CmdSetSliceParam, CmdSetSliceName,
+        // CmdToggleLock, CmdSetSliceLockAll) apply to sliceManager2 (SFZ-PLAYER's
+        // own Slicer-engine instance) instead of the Slicer's sliceManager.
+        // Set by SliceLcdDisplay/SliceWaveformLcd when constructed in
+        // second-instance mode. Ignored by command types that don't touch
+        // per-slice state (those never apply to SFZ-PLAYER, which has no
+        // manual slicing/chromatic UI).
+        bool targetInstance2 { false };
     };
 
     // ── UI snapshot (double-buffered, written on audio thread) ───────────────
@@ -359,6 +367,28 @@ public:
 
     void publishUiSliceSnapshot();
 
+    /** Mirrors getUiSliceSnapshot()/releaseUiSliceSnapshot()/publishUiSliceSnapshot(),
+     *  but for sliceManager2/sampleData2 (the SFZ-PLAYER's own real Slicer-engine
+     *  instance). WaveformView/SliceLcdDisplay/SliceWaveformLcd read this snapshot
+     *  instead of the Slicer's when showing the SFZ-PLAYER tab (uiMode==1). */
+    const UiSliceSnapshot& getUiSliceSnapshot2() const noexcept
+    {
+        uiReadingSnapshot2.store (true, std::memory_order_seq_cst);
+        return uiSliceSnapshots2[(size_t) uiSliceSnapshotIndex2.load (std::memory_order_acquire)];
+    }
+
+    void releaseUiSliceSnapshot2() const noexcept
+    {
+        uiReadingSnapshot2.store (false, std::memory_order_release);
+    }
+
+    int getUiSliceSnapshotVersion2() const noexcept
+    {
+        return (int) uiSnapshotVersion2.load (std::memory_order_acquire);
+    }
+
+    void publishUiSliceSnapshot2();
+
     /** Returns the peak amplitude (0..1) at a given sample position in the
      *  loaded audio buffer.  Used by SliceWaveformLcd to render the mini waveform.
      *  Safe to call from the UI (message) thread. */
@@ -398,6 +428,15 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     SliceManager     sliceManager;
     VoicePool        voicePool;
+
+    /** SFZ-PLAYER's own independent Slicer-engine instance. Same engine as
+     *  the Slicer tab (sliceManager/voicePool) — slices created from .sfz
+     *  key-zone renders rather than user chops, triggered on MIDI channel 2,
+     *  chromatic mode hard-disabled. Pairs with sampleData2 below (already
+     *  the SFZ-PLAYER's render target) and replaces the old sfizz-backed
+     *  sfzPlayer2 live-synthesis path entirely. */
+    SliceManager     sliceManager2;
+    VoicePool        voicePool2;
 #if DYSEKT_STANDALONE
     SequencerEngine  sequencer;
     AbletonLink      abletonLink;
@@ -413,22 +452,6 @@ public:
      *  in session state — it's an ephemeral preview, lost on reload, same as
      *  the Slicer's own pre-fix preview behaviour was for this case. */
     SampleData       sampleData2;
-
-    /** Read-only "preview zones" overlay for the SFZ-PLAYER tab's
-     *  waveform -- one colored band per rendered note in sampleData2,
-     *  mirroring the Slicer's real slice overlay but purely for display.
-     *  Published by processBlock from pendingPreviewZones2 whenever a
-     *  SoundFontLoadTarget::SfzPlayer2 load completes; never touched by
-     *  sliceManager or any audio engine. */
-    SfzPreviewZoneStore previewZones2;
-
-    /** Index into the current previewZones2 snapshot of the zone last clicked
-     *  in the SFZ-PLAYER waveform view. -1 = no selection. Written by
-     *  WaveformView::mouseDown (UI thread), read by WaveformView::
-     *  drawPreviewZones (highlight) and SfzLcdDisplay (info row). Not
-     *  persisted -- like previewZones2 itself, this is ephemeral display
-     *  state, cleared on reload. */
-    std::atomic<int> selectedPreviewZone2 { -1 };
 
     /** One-shot click-to-audition voice for SFZ-PLAYER preview zones.
      *  Plays back [start, end) directly out of sampleData2's rendered
@@ -737,6 +760,13 @@ private:
     // publishUiSliceSnapshot() skips a flip if this is set, preventing a
     // data race on the juce::String (now char[]) fields.
     mutable std::atomic<bool>     uiReadingSnapshot    { false };
+
+    // Mirrors the above, for sliceManager2/sampleData2 (SFZ-PLAYER tab).
+    std::array<UiSliceSnapshot, 2> uiSliceSnapshots2;
+    std::atomic<int>      uiSliceSnapshotIndex2 { 0 };
+    std::atomic<uint32_t> uiSnapshotVersion2    { 0 };
+    std::atomic<bool>     uiSnapshotDirty2      { false };
+    mutable std::atomic<bool>     uiReadingSnapshot2   { false };
 
     // =========================================================================
     // Undo / redo

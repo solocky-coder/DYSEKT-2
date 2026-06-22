@@ -52,7 +52,8 @@ struct VoiceStartParams
 class VoicePool
 {
 public:
-    static constexpr int kMaxVoices = 32;
+    static constexpr int kMaxVoices = 256;   // bumped from 32 in lockstep with
+                                              // SliceManager::kMaxSlices
     static constexpr int kPreviewVoiceIndex = kMaxVoices - 1;
 
     VoicePool();

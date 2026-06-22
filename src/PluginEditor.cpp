@@ -19,8 +19,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar (p),
  sliceLcd (p),
  sliceWaveformLcd (p),
- sfzLcd (p),
- sfzWaveformLcd (p),
+ sfzLcd (p, true),
+ sfzWaveformLcd (p, true),
  sf2Lcd (p),
  sf2WaveformLcd (p),
  sliceLane (p),
@@ -215,7 +215,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
          // SFZ-PLAYER: .sfz only, routed to sfzPlayer2 (ch2)
          if (ext == ".sfz")
          {
-             processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
              processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);   // waveform preview -> sampleData2
          }
          return;
@@ -992,7 +991,7 @@ void DysektEditor::resized()
  // the default Empty.wav placeholder does not count.
  auto sampleSnap = processor.sampleData.getSnapshot();
  const bool hasRealSample = (uiMode == 1)
-    ? processor.sfzPlayer2.isLoaded()
+    ? (processor.sliceManager2.getNumSlices() > 0)  // SFZ-PLAYER: slices exist once load complete
     : (hasSampleLoaded
        && sampleSnap != nullptr
        && ! sampleSnap->filePath.containsIgnoreCase ("DYSEKT_default.wav"));
@@ -1320,13 +1319,12 @@ void DysektEditor::timerCallback()
  if (snapshotVersion != lastUiSnapshotVersion) { lastUiSnapshotVersion = snapshotVersion; uiChanged = true; }
 
  {
- // sfzPlayer2.loadFile() only queues a pending load; the actual load happens
- // later on the audio thread (applyPendingLoad(), top of process()). The SCB
- // (sliceControlBar) and zoom-bar visibility for uiMode==1 are gated on
- // sfzPlayer2.isLoaded() (see resized()), but nothing else re-runs layout
- // when that flips — so without this, the SCB stays on stale (zero) bounds
- // until something unrelated happens to call resized() next.
- const bool sfzPlayer2LoadedNow = processor.sfzPlayer2.isLoaded();
+ // sliceManager2 is populated on the audio thread (load completion handler
+ // in processBlock). The SCB/overview for uiMode==1 are gated on
+ // sliceManager2.getNumSlices() > 0 (see resized()), but nothing else
+ // re-runs layout when that flips — so without this edge-detect the SCB
+ // stays on stale (zero) bounds until something unrelated calls resized().
+ const bool sfzPlayer2LoadedNow = (processor.sliceManager2.getNumSlices() > 0);
  if (sfzPlayer2LoadedNow != lastSfzPlayer2Loaded)
  {
      lastSfzPlayer2Loaded = sfzPlayer2LoadedNow;
@@ -1398,7 +1396,9 @@ void DysektEditor::timerCallback()
  const bool playbackActive = std::any_of (processor.voicePool.voicePositions.begin(),
  processor.voicePool.voicePositions.end(),
  [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; })
- || (processor.sfzPlayer2.getPreviewPositionSample() > 0)
+ || std::any_of (processor.voicePool2.voicePositions.begin(),
+                 processor.voicePool2.voicePositions.end(),
+                 [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; })
  || (processor.zonePreview2.playPosition.load (std::memory_order_relaxed) >= 0);
 
  const bool slicingActive    = (uiMode == 0);

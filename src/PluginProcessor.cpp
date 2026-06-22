@@ -200,6 +200,7 @@ DysektProcessor::DysektProcessor()
     sliceStartParam  = apvts.getRawParameterValue (ParamIds::sliceStart);
     sliceEndParam    = apvts.getRawParameterValue (ParamIds::sliceEnd);
     publishUiSliceSnapshot();
+    publishUiSliceSnapshot2();
 
     // SF2-Player defaults to MIDI channel 3, SFZ-Player to channel 2
     sfzPlayer .setMidiChannel (3);   // SF2-PLAYER  → ch 3
@@ -547,6 +548,51 @@ void DysektProcessor::publishUiSliceSnapshot()
             paramsSyncedForSlice.store (sel, std::memory_order_relaxed);
         }
     }
+}
+
+void DysektProcessor::publishUiSliceSnapshot2()
+{
+    // Mirrors publishUiSliceSnapshot() above but for sliceManager2/sampleData2
+    // (SFZ-PLAYER). No sliceStart/sliceEnd APVTS sync here — those Quick
+    // Control params are Slicer-specific and have no SFZ-PLAYER equivalent.
+    const int writeIndex = 1 - uiSliceSnapshotIndex2.load (std::memory_order_relaxed);
+    auto& snap = uiSliceSnapshots2[(size_t) writeIndex];
+    auto sampleSnap = sampleData2.getSnapshot();
+    snap.numSlices = sliceManager2.getNumSlices();
+    snap.selectedSlice = sliceManager2.selectedSlice.load (std::memory_order_relaxed);
+    snap.rootNote = sliceManager2.rootNote.load (std::memory_order_relaxed);
+    snap.sampleLoaded = (sampleSnap != nullptr);
+    snap.sampleMissing = false;
+    snap.sampleNumFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
+    if (sampleSnap != nullptr)
+    {
+        juce::String fn = sampleSnap->fileName;
+        fn.copyToUTF8 (snap.sampleFileName, sizeof (snap.sampleFileName));
+        snap.isDefaultSample = fn.isEmpty();
+    }
+    else
+    {
+        snap.sampleFileName[0] = '\0';
+        snap.isDefaultSample = true;
+    }
+
+    for (int i = 0; i < SliceManager::kMaxSlices; ++i)
+    {
+        if (i < snap.numSlices)
+        {
+            snap.slices[(size_t) i] = sliceManager2.getSlice (i);
+            snap.sliceEndSamples[i] = sliceManager2.getEndForSlice (i, snap.sampleNumFrames);
+        }
+        else
+        {
+            snap.slices[(size_t) i].active = false;
+            snap.sliceEndSamples[i] = 0;
+        }
+    }
+
+    uiSliceSnapshotIndex2.store (writeIndex, std::memory_order_release);
+    uiSnapshotVersion2.fetch_add (1, std::memory_order_release);
+    uiSnapshotDirty2.store (false, std::memory_order_release);
 }
 
 void DysektProcessor::rebuildChromaticChannelMask()
@@ -996,10 +1042,11 @@ void DysektProcessor::handleCommand (const Command& cmd)
             // locked for that field, otherwise the global APVTS default) so the locked
             // value always matches exactly what was displayed — regardless of which UI
             // surface triggered the toggle.
-            int sel = (cmd.intParam1 >= 0) ? cmd.intParam1 : (int) sliceManager.selectedSlice;
-            if (sel >= 0 && sel < sliceManager.getNumSlices())
+            SliceManager& sm = cmd.targetInstance2 ? sliceManager2 : sliceManager;
+            int sel = (cmd.intParam1 >= 0) ? cmd.intParam1 : (int) sm.selectedSlice;
+            if (sel >= 0 && sel < sm.getNumSlices())
             {
-                auto& s = sliceManager.getSlice (sel);
+                auto& s = sm.getSlice (sel);
                 uint32_t bit = (uint32_t) cmd.intParam2;
                 bool turningOn = !(s.lockMask & bit);
 
@@ -1071,7 +1118,7 @@ void DysektProcessor::handleCommand (const Command& cmd)
 
                 s.lockMask ^= bit;
             }
-            uiSnapshotDirty.store (true, std::memory_order_release);
+            (cmd.targetInstance2 ? uiSnapshotDirty2 : uiSnapshotDirty).store (true, std::memory_order_release);
             break;
         }
 
@@ -1118,10 +1165,11 @@ void DysektProcessor::handleCommand (const Command& cmd)
 
         case CmdSetSliceParam:
         {
-            int sel = sliceManager.selectedSlice;
-            if (sel >= 0 && sel < sliceManager.getNumSlices())
+            SliceManager& sm = cmd.targetInstance2 ? sliceManager2 : sliceManager;
+            int sel = sm.selectedSlice;
+            if (sel >= 0 && sel < sm.getNumSlices())
             {
-                auto& s = sliceManager.getSlice (sel);
+                auto& s = sm.getSlice (sel);
                 int field = cmd.intParam1;
                 float val = cmd.floatParam1;
                 // intParam2 == 1: update value only, do NOT set lock bit.
@@ -1166,16 +1214,16 @@ void DysektProcessor::handleCommand (const Command& cmd)
                     case FieldEqMidFreq:       s.eqMidFreq       = val;       if (!skipLock) s.lockMask |= kLockEqMid;       break;
                     case FieldEqMidQ:          s.eqMidQ          = val;       if (!skipLock) s.lockMask |= kLockEqMid;       break;
                     case FieldEqHighGain:      s.eqHighGain      = val;       if (!skipLock) s.lockMask |= kLockEqHigh;      break;
-                    case FieldChromaticChannel: s.chromaticChannel = juce::jlimit (0, 16, (int) val); rebuildChromaticChannelMask(); break;
+                    case FieldChromaticChannel: s.chromaticChannel = juce::jlimit (0, 16, (int) val); if (!cmd.targetInstance2) rebuildChromaticChannelMask(); break;
                     case FieldChromaticLegato:  s.chromaticLegato  = (val > 0.5f); break;
                     case FieldMidiNote:
                         s.midiNote = juce::jlimit (0, 127, (int) val);
-                        sliceManager.rebuildMidiMap();
+                        sm.rebuildMidiMap();
                         break;
 
                 }
             }
-            uiSnapshotDirty.store (true, std::memory_order_release);
+            (cmd.targetInstance2 ? uiSnapshotDirty2 : uiSnapshotDirty).store (true, std::memory_order_release);
             break;
         }
 
@@ -1476,9 +1524,11 @@ void DysektProcessor::handleCommand (const Command& cmd)
 
         case CmdSetSliceName:
         {
+            SliceManager& sm = cmd.targetInstance2 ? sliceManager2 : sliceManager;
             int idx = cmd.intParam1;
-            if (idx >= 0 && idx < sliceManager.getNumSlices())
-                sliceManager.getSlice (idx).name = cmd.stringParam.toUpperCase();
+            if (idx >= 0 && idx < sm.getNumSlices())
+                sm.getSlice (idx).name = cmd.stringParam.toUpperCase();
+            (cmd.targetInstance2 ? uiSnapshotDirty2 : uiSnapshotDirty).store (true, std::memory_order_release);
             break;
         }
 
@@ -1808,145 +1858,20 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
                     continue;
                 }
 
-                // ── SFZ-PLAYER2 ADSR CC — global to sfzPlayer2, no slice context ──
-                if (outFieldId == FieldSfz2Attack || outFieldId == FieldSfz2Hold ||
-                    outFieldId == FieldSfz2Decay  || outFieldId == FieldSfz2Sustain ||
-                    outFieldId == FieldSfz2Release)
+                // ── SFZ-PLAYER2 ADSR/Reverb/master-knob CC mappings ──────────────
+                // These drove the old sfizz live engine which has been removed.
+                // The FieldSfz2* field IDs are kept in the enum so saved MIDI
+                // learn mappings don't lose their stored field numbers, but the
+                // setters are no-opped — per-slice ADSR/vol/pan is now edited via
+                // SliceControlBar/SliceWaveformLcd the same way as the Slicer tab.
+                if (outFieldId == FieldSfz2Attack  || outFieldId == FieldSfz2Hold      ||
+                    outFieldId == FieldSfz2Decay   || outFieldId == FieldSfz2Sustain   ||
+                    outFieldId == FieldSfz2Release  || outFieldId == FieldSfz2ReverbMix ||
+                    outFieldId == FieldSfz2ReverbSize || outFieldId == FieldSfz2Vol     ||
+                    outFieldId == FieldSfz2Transpose || outFieldId == FieldSfz2Pan      ||
+                    outFieldId == FieldSfz2FineTune)
                 {
-                    auto getCurSfz2 = [&] (int fid) -> float
-                    {
-                        switch (fid)
-                        {
-                            case FieldSfz2Attack:  return sfzPlayer2.getSfzAttack();
-                            case FieldSfz2Hold:    return sfzPlayer2.getSfzHold();
-                            case FieldSfz2Decay:   return sfzPlayer2.getSfzDecay();
-                            case FieldSfz2Sustain: return sfzPlayer2.getSfzSustain();
-                            case FieldSfz2Release: return sfzPlayer2.getSfzRelease();
-                            default:               return 0.0f;
-                        }
-                    };
-
-                    float val;
-                    if (outIsRelative)
-                    {
-                        const float cur = getCurSfz2 (outFieldId);
-                        float sens;
-                        switch (outFieldId)
-                        {
-                            case FieldSfz2Attack:  sens = 0.02f; break;  // 20 ms/click
-                            case FieldSfz2Hold:    sens = 0.02f; break;  // 20 ms/click
-                            case FieldSfz2Decay:   sens = 0.02f; break;  // 20 ms/click
-                            case FieldSfz2Sustain: sens = 1.0f;  break;  //  1 %/click
-                            case FieldSfz2Release: sens = 0.02f; break;  // 20 ms/click
-                            default:               sens = 0.01f; break;
-                        }
-                        const float raw = cur + outNorm * sens;
-                        switch (outFieldId)
-                        {
-                            case FieldSfz2Attack:  val = juce::jlimit (0.0f,  30.0f, raw); break;
-                            case FieldSfz2Hold:    val = juce::jlimit (0.0f,   5.0f, raw); break;
-                            case FieldSfz2Decay:   val = juce::jlimit (0.0f,  30.0f, raw); break;
-                            case FieldSfz2Sustain: val = juce::jlimit (0.0f, 100.0f, raw); break;
-                            case FieldSfz2Release: val = juce::jlimit (0.0f,  60.0f, raw); break;
-                            default:               val = raw;                              break;
-                        }
-                    }
-                    else
-                    {
-                        switch (outFieldId)
-                        {
-                            case FieldSfz2Attack:  val = outNorm * 30.0f;  break;
-                            case FieldSfz2Hold:    val = outNorm * 5.0f;   break;
-                            case FieldSfz2Decay:   val = outNorm * 30.0f;  break;
-                            case FieldSfz2Sustain: val = outNorm * 100.0f; break;
-                            case FieldSfz2Release: val = outNorm * 60.0f;  break;
-                            default:               val = outNorm;           break;
-                        }
-                    }
-
-                    switch (outFieldId)
-                    {
-                        case FieldSfz2Attack:  sfzPlayer2.setSfzAttack  (val); break;
-                        case FieldSfz2Hold:    sfzPlayer2.setSfzHold    (val); break;
-                        case FieldSfz2Decay:   sfzPlayer2.setSfzDecay   (val); break;
-                        case FieldSfz2Sustain: sfzPlayer2.setSfzSustain (val); break;
-                        case FieldSfz2Release: sfzPlayer2.setSfzRelease (val); break;
-                        default: break;
-                    }
-                    uiSnapshotDirty.store (true, std::memory_order_release);
-                    continue;
-                }
-
-                // ── SFZ-PLAYER2 Reverb CC — Mix / Size only (this panel exposes
-                //    only these two; Damp/Width/Freeze are SF2-PLAYER-only) ──
-                if (outFieldId == FieldSfz2ReverbMix || outFieldId == FieldSfz2ReverbSize)
-                {
-                    float val;
-                    if (outIsRelative)
-                    {
-                        const float cur = (outFieldId == FieldSfz2ReverbMix)
-                                               ? sfzPlayer2.getReverbMix()
-                                               : sfzPlayer2.getReverbSize();
-                        val = juce::jlimit (0.0f, 100.0f, cur + outNorm * 2.0f);  // 2 %/click
-                    }
-                    else
-                    {
-                        val = outNorm * 100.0f;
-                    }
-
-                    if (outFieldId == FieldSfz2ReverbMix) sfzPlayer2.setReverbMix  (val);
-                    else                                  sfzPlayer2.setReverbSize (val);
-
-                    uiSnapshotDirty.store (true, std::memory_order_release);
-                    continue;
-                }
-
-                // ── SFZ-PLAYER2 master knobs CC — Vol / Transpose / Pan / FineTune ──
-                if (outFieldId == FieldSfz2Vol       || outFieldId == FieldSfz2Transpose ||
-                    outFieldId == FieldSfz2Pan       || outFieldId == FieldSfz2FineTune)
-                {
-                    auto getCurMaster2 = [&] (int fid) -> float
-                    {
-                        switch (fid)
-                        {
-                            case FieldSfz2Vol:       return sfzPlayer2.getVolume() / 2.0f;             // 0-1
-                            case FieldSfz2Transpose: return (sfzPlayer2.getTranspose() + 24) / 48.0f; // 0-1
-                            case FieldSfz2Pan:       return (sfzPlayer2.getPan() + 1.0f) / 2.0f;      // 0-1
-                            case FieldSfz2FineTune:  return (sfzPlayer2.getFineTune() + 100.0f) / 200.0f; // 0-1
-                            default:                 return 0.0f;
-                        }
-                    };
-
-                    float normVal;
-                    if (outIsRelative)
-                    {
-                        const float cur = getCurMaster2 (outFieldId);
-                        float sens;
-                        switch (outFieldId)
-                        {
-                            case FieldSfz2Vol:       sens = 0.01f;  break;
-                            case FieldSfz2Transpose: sens = 1.0f / 48.0f; break;
-                            case FieldSfz2Pan:       sens = 0.01f;  break;
-                            case FieldSfz2FineTune:  sens = 0.01f;  break;
-                            default:                 sens = 0.01f;  break;
-                        }
-                        normVal = juce::jlimit (0.0f, 1.0f, cur + outNorm * sens);
-                    }
-                    else
-                    {
-                        normVal = outNorm;
-                    }
-
-                    switch (outFieldId)
-                    {
-                        case FieldSfz2Vol:       sfzPlayer2.setVolume    (normVal * 2.0f);                          break;
-                        case FieldSfz2Transpose: sfzPlayer2.setTranspose (juce::roundToInt (normVal * 48.0f) - 24); break;
-                        case FieldSfz2Pan:       sfzPlayer2.setPan       (normVal * 2.0f - 1.0f);                   break;
-                        case FieldSfz2FineTune:  sfzPlayer2.setFineTune  (normVal * 200.0f - 100.0f);               break;
-                        default: break;
-                    }
-                    uiSnapshotDirty.store (true, std::memory_order_release);
-                    continue;
+                    continue;  // silently ignore — field ID preserved in save data
                 }
 
                 // A note-on and a CC can land in the same MidiBuffer.  If the
@@ -2704,32 +2629,38 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    // ── SFZ-PLAYER preview pipeline (sampleData2) ────────────────────────────
-    // Completely independent of the Slicer's sampleData/sliceManager above —
-    // this is the SFZ-PLAYER tab's own visual-only preview buffer, so there is
-    // no voice-swap safety, slice creation, or availability-state bookkeeping
-    // to do here; just publish the decoded buffer for the UI to display.
+    // ── SFZ-PLAYER load pipeline (sampleData2 / sliceManager2) ──────────────
+    // pendingPreviewZones2 carries the per-note zone descriptors published by
+    // SoundFontLoader. We consume them here to populate sliceManager2 (one
+    // real slice per rendered key-zone, pinned to its MIDI note). The old
+    // read-only previewZones2 WaveformView overlay has been removed — the
+    // waveform now reads from sliceManager2 via activeSliceManager() directly.
     {
         auto* rawDecoded2 = completedLoadData2.exchange (nullptr, std::memory_order_acq_rel);
         if (rawDecoded2 != nullptr)
         {
             std::unique_ptr<SampleData::DecodedSample> decoded2 (rawDecoded2);
             sampleData2.applyDecodedSample (std::move (decoded2));
-            uiSnapshotDirty.store (true, std::memory_order_release);
+            sliceManager2.clearAll();
+            uiSnapshotDirty2.store (true, std::memory_order_release);
         }
 
-        // Same load event also carries the read-only "preview zones" overlay
-        // (one band per rendered note) — published into previewZones2 so the
-        // waveform can draw it instead of real slices while in SfzPlayer2 mode.
         auto* rawZones2 = pendingPreviewZones2.exchange (nullptr, std::memory_order_acq_rel);
         if (rawZones2 != nullptr)
         {
             std::unique_ptr<SfzPreviewZonePayload> zonesOwner2 (rawZones2);
-            auto zoneList = std::make_unique<SfzPreviewZoneStore::ZoneList> (
-                std::move (zonesOwner2->slices));
-            previewZones2.set (std::move (zoneList));
-            selectedPreviewZone2.store (-1, std::memory_order_relaxed);
-            uiSnapshotDirty.store (true, std::memory_order_release);
+            for (auto& desc : zonesOwner2->slices)
+            {
+                int idx = sliceManager2.createSlice (desc.startSample, desc.endSample);
+                if (idx >= 0)
+                {
+                    auto& s = sliceManager2.getSlice (idx);
+                    s.midiNote         = juce::jlimit (0, 127, desc.midiNote);
+                    s.chromaticChannel = 0;  // chromatic hard-disabled for SFZ-PLAYER
+                }
+            }
+            sliceManager2.rebuildMidiMap();
+            uiSnapshotDirty2.store (true, std::memory_order_release);
         }
     }
 
@@ -3125,6 +3056,9 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (uiSnapshotDirty.exchange (false, std::memory_order_acq_rel))
         publishUiSliceSnapshot();
 
+    if (uiSnapshotDirty2.exchange (false, std::memory_order_acq_rel))
+        publishUiSliceSnapshot2();
+
     if (! sampleData.isLoaded())
     {
         if (! sampleMissing.load (std::memory_order_relaxed))
@@ -3421,17 +3355,23 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                         std::memory_order_relaxed);
     }
 
-    // ── SFZ-Player (sfzPlayer2, ch3 default) ─────────────────────────────────
+    // ── SFZ-PLAYER (sliceManager2/voicePool2, ch2 default) ───────────────────
+    // sfizz/SfzPlayer2 has been dropped for this tab — SFZ-PLAYER now plays
+    // back exactly like the Slicer: pre-rendered sample slices (one per SFZ
+    // key-zone, created at load time into sliceManager2) triggered by
+    // voicePool2. No chromatic mode, no per-slice chromatic-channel routing,
+    // no slicing UI — a note simply maps straight to its pinned slice via
+    // sliceManager2.midiNoteToSlice().
     {
         const uint32_t sfz2MaskBuild = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
 
-        // UI note injection for sfzPlayer2
+        // UI note injection for SFZ-PLAYER
         {
             const int noteOn  = sfz2UiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
             const int noteOff = sfz2UiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
             if (sfz2MaskBuild != 0)
             {
-                int injectCh = 3;
+                int injectCh = 2;
                 for (int c = 1; c <= 16; ++c)
                     if (sfz2MaskBuild & (1u << c)) { injectCh = c; break; }
                 if (noteOn  >= 0 && noteOn  <= 127)
@@ -3440,7 +3380,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     const int w = noteOn  < 64 ? 0 : 1;
                     const int b = noteOn  < 64 ? noteOn  : noteOn  - 64;
                     sfz2ActiveNotes[w].fetch_or  ((uint64_t)1 << b, std::memory_order_relaxed);
-                    sfzPlayer2.juceAdsrNoteOn (noteOn);
                 }
                 if (noteOff >= 0 && noteOff <= 127)
                 {
@@ -3454,7 +3393,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                         const int b = noteOff < 64 ? noteOff : noteOff - 64;
                         sfz2ActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
                     }
-                    sfzPlayer2.juceAdsrNoteOff();
                 }
             }
         }
@@ -3485,11 +3423,48 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float* sfz2L = sfz2Buf.getWritePointer (0);
         float* sfz2R = sfz2Buf.getWritePointer (1);
 
+        // VoiceStartParams for SFZ-PLAYER: slices are pre-rendered whole
+        // notes (attack + sustain-loop tail where applicable), so the
+        // global ADSR/pitch/etc. knobs stay at their silent-passthrough
+        // defaults — only oneShot/loop behaviour (stamped per-slice at
+        // creation time) matters here.
+        VoiceStartParams p2;
+
+        auto triggerSfz2NoteOn = [&] (int note, float velocity)
+        {
+            const int sliceIdx = sliceManager2.midiNoteToSlice (note);
+            if (sliceIdx < 0) return;
+            int voiceIdx = voicePool2.allocate();
+            const auto& s = sliceManager2.getSlice (sliceIdx);
+            voicePool2.muteGroup (s.muteGroup, voiceIdx);
+            p2.sliceIdx = sliceIdx;
+            p2.note     = note;
+            p2.velocity = velocity;
+            p2.globalMuteGroup = s.muteGroup;
+            voicePool2.startVoice (voiceIdx, p2, sliceManager2, sampleData2);
+        };
+
+        int sampleCursor = 0;
         for (const auto meta : sfz2MidiBuf)
         {
             const auto& msg = meta.getMessage();
+            const int evtSample = juce::jlimit (0, numSamples, meta.samplePosition);
+
+            // Render up to this event's sample position before handling it,
+            // so note triggers/releases land sample-accurately.
+            for (; sampleCursor < evtSample; ++sampleCursor)
+            {
+                float sL = 0.0f, sR = 0.0f;
+                voicePool2.processSample (sampleData2, currentSampleRate, sL, sR);
+                sfz2L[sampleCursor] = sL;
+                sfz2R[sampleCursor] = sR;
+            }
+
             if (msg.isNoteOn (true))
+            {
                 sfz2MidiActivity.fetch_add (1, std::memory_order_relaxed);
+                triggerSfz2NoteOn (msg.getNoteNumber(), (float) msg.getVelocity());
+            }
             else if (msg.isNoteOff (true))
             {
                 int prev = sfz2MidiActivity.load (std::memory_order_relaxed);
@@ -3497,15 +3472,27 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                        !sfz2MidiActivity.compare_exchange_weak (prev, prev - 1,
                            std::memory_order_relaxed, std::memory_order_relaxed))
                 {}
+                voicePool2.releaseNote (msg.getNoteNumber());
+            }
+            else if (msg.isAllNotesOff())
+            {
+                for (int n = 0; n < 128; ++n)
+                    voicePool2.releaseNoteForced (n);
             }
         }
-
-        sfzPlayer2.process (sfz2MidiBuf, sfz2L, sfz2R, numSamples);
+        // Render the remainder of the block after the last event.
+        for (; sampleCursor < numSamples; ++sampleCursor)
+        {
+            float sL = 0.0f, sR = 0.0f;
+            voicePool2.processSample (sampleData2, currentSampleRate, sL, sR);
+            sfz2L[sampleCursor] = sL;
+            sfz2R[sampleCursor] = sR;
+        }
 
         if (busL[0])
-            for (int i = 0; i < numSamples; ++i) busL[0][i] += sfz2L[i];
+            for (int i = 0; i < numSamples; ++i) busL[0][i] += sanitiseSample (sfz2L[i]);
         if (busR[0])
-            for (int i = 0; i < numSamples; ++i) busR[0][i] += sfz2R[i];
+            for (int i = 0; i < numSamples; ++i) busR[0][i] += sanitiseSample (sfz2R[i]);
 
         // -- Zone-preview click-to-audition (SFZ-PLAYER waveform clicks) --
         // Plays back the clicked previewZones2 region directly out of

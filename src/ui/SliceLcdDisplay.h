@@ -1,12 +1,13 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "../PluginProcessor.h"
 
 class DysektProcessor;
 
 class SliceLcdDisplay : public juce::Component
 {
 public:
- explicit SliceLcdDisplay (DysektProcessor& p);
+ explicit SliceLcdDisplay (DysektProcessor& p, bool useSecondInstance = false);
 
  // Height the component requests — used by PluginEditor for layout
  // 11 rows × 28px + bezel padding
@@ -95,6 +96,14 @@ private:
  static juce::String formatPan (float pan);
 
  DysektProcessor& processor;
+
+ // True when this LCD is showing the SFZ-PLAYER's own engine instance
+ // (sliceManager2/sampleData2) instead of the Slicer's.
+ bool isSecondInstance = false;
+ const DysektProcessor::UiSliceSnapshot& activeSnapshot() const noexcept
+ {
+     return isSecondInstance ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
+ }
 
  // ── Flag hit rects (updated each paint, used by mouseDown) ───────────────
  struct FlagHitRect
