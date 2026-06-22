@@ -114,22 +114,8 @@ void SfzLcdDisplay::buildDisplayData()
     data.reverbWidth = processor.sfzPlayer2.getReverbWidth();
     data.reverbMix   = processor.sfzPlayer2.getReverbMix();
 
-    // Selected previewZones2 zone, if any — for the STATUS row override.
-    {
-        const int idx = processor.selectedPreviewZone2.load (std::memory_order_relaxed);
-        if (idx >= 0)
-        {
-            auto zones = processor.previewZones2.get();
-            if (idx < (int) zones->size())
-            {
-                const auto& z = (*zones)[(size_t) idx];
-                data.selectedZoneIdx   = idx;
-                data.selectedZoneNote  = z.midiNote;
-                data.selectedZoneStart = z.startSample;
-                data.selectedZoneEnd   = z.endSample;
-            }
-        }
-    }
+    // previewZones2/selectedPreviewZone2 removed — SFZ-PLAYER now uses
+    // sliceManager2 directly; zone selection is tracked via selectedSlice.
 
     // Pre-compute upper-case string so paint() never allocates heap memory.
     data.fileNameUpperShort = data.fileName.toUpperCase().substring (0, 18);
