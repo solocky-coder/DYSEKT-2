@@ -6,9 +6,7 @@
 class SliceManager
 {
 public:
-    static constexpr int kMaxSlices = 256;   // bumped from 32 to accommodate SFZ-PLAYER
-                                              // instances loading real .sfz files with
-                                              // 100+ key zones (affects the Slicer too)
+    static constexpr int kMaxSlices = 256;
 
     /// Samples within which a placed marker snaps to an existing boundary.
     static constexpr int kSnapTolerance = 10;

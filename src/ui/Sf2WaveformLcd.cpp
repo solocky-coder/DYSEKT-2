@@ -7,7 +7,7 @@ static juce::Colour sf2Lcd2Bg()       { return getTheme().darkBar.darker (0.55f)
 static juce::Colour sf2Lcd2Phosphor() { return getTheme().accent; }
 static juce::Colour sf2Lcd2Dim()      { return getTheme().accent.withAlpha (0.15f).overlaidWith (sf2Lcd2Bg()); }
 
-// Toxic-Candy node colours — same as SfzWaveformLcd for visual consistency.
+// Toxic-Candy node colours — same palette used across all envelope LCD widgets.
 static const juce::Colour kSf2ColAttack  { 0xFF00FF87 };
 static const juce::Colour kSf2ColDecay   { 0xFFFFE800 };
 static const juce::Colour kSf2ColSustain { 0xFF00C8FF };

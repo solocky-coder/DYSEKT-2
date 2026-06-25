@@ -25,8 +25,8 @@ static const juce::Colour kColRelease { 0xFFFF6B00 }; // Molten Orange
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
-SliceWaveformLcd::SliceWaveformLcd (DysektProcessor& p, bool useSecondInstance)
- : processor (p), isSecondInstance (useSecondInstance)
+SliceWaveformLcd::SliceWaveformLcd (DysektProcessor& p)
+ : processor (p)
 {
  setOpaque (false); // rounded corners — must not claim full opaque coverage
  setMouseCursor (juce::MouseCursor::NormalCursor);
@@ -49,14 +49,18 @@ void SliceWaveformLcd::repaintLcd()
   {
    if (isSfPlayerMode())
    {
-       // SF-PLAYER mode: rebuild envelope from sfzPlayer ADSR atomics.
+       // SF2-PLAYER mode: rebuild envelope from sfzPlayer ADSR atomics.
        // We rebuild on every timer tick (cheap) so knob changes are instant.
        buildSfEnvelopeNodes();
    }
    else
    {
-       const int ver = activeSnapshotVersion();
-       const int curSel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
+       // Slicer AND SFZ-PLAYER modes both use the real per-slice ADSR path —
+       // buildEnvelopeNodes() is mode-aware internally (see isSfzPlayer2Mode).
+       const int ver = isSfzPlayer2Mode() ? processor.getUiSliceSnapshotVersion2()
+                                           : processor.getUiSliceSnapshotVersion();
+       const int curSel = (isSfzPlayer2Mode() ? processor.sliceManager2 : processor.sliceManager)
+                              .selectedSlice.load (std::memory_order_relaxed);
 
        // Rebuild when snapshot version changes OR when the selected slice changes.
        // Selection changes do not increment the snapshot version, so without the
@@ -79,7 +83,8 @@ void SliceWaveformLcd::buildDisplayData()
 {
  data = {};
 
- const auto& snap = activeSnapshot();
+ const bool sfzMode = isSfzPlayer2Mode();
+ const auto& snap = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
  data.hasSample = snap.sampleLoaded && ! snap.sampleMissing;
  data.numSlices = snap.numSlices;
  data.sampleName = snap.isDefaultSample ? juce::String() : juce::String (snap.sampleFileName);
@@ -89,7 +94,7 @@ void SliceWaveformLcd::buildDisplayData()
  ? processor.getSampleRate() : 44100.0;
 
  if (! data.hasSample || snap.selectedSlice < 0 || snap.selectedSlice >= snap.numSlices)
- { processor.releaseUiSliceSnapshot(); return; }
+ { if (! sfzMode) processor.releaseUiSliceSnapshot(); else processor.releaseUiSliceSnapshot2(); return; }
 
  data.hasSlice = true;
  data.sliceIndex = snap.selectedSlice;
@@ -107,15 +112,16 @@ void SliceWaveformLcd::buildDisplayData()
  data.peaks.insertMultiple (-1, 0.0f, kPeaks);
 
  const int sliceLen = data.endSample - data.startSample;
- if (sliceLen <= 0) { processor.releaseUiSliceSnapshot(); return; }
+ if (sliceLen <= 0) { if (! sfzMode) processor.releaseUiSliceSnapshot(); else processor.releaseUiSliceSnapshot2(); return; }
 
+ const SampleData& activeSample = sfzMode ? processor.sampleData2 : processor.sampleData;
  for (int i = 0; i < kPeaks; i++)
  {
  const float t = (float) i / (float) kPeaks;
  const int pos = data.startSample + (int) (t * (float) sliceLen);
- data.peaks.set (i, processor.getWaveformPeakAt (pos));
+ data.peaks.set (i, DysektProcessor::getWaveformPeakAtIn (activeSample, pos));
  }
- processor.releaseUiSliceSnapshot();
+ if (! sfzMode) processor.releaseUiSliceSnapshot(); else processor.releaseUiSliceSnapshot2();
 }
 
 // ── Envelope: read params → normalised nodes ──────────────────────────────────
@@ -128,22 +134,23 @@ float SliceWaveformLcd::getSliceDurMs() const
 {
  static constexpr float kDefaultMs = 1000.0f; // fallback if no slice loaded
 
- const auto& durSnap = activeSnapshot();
+ const bool sfzMode = isSfzPlayer2Mode();
+ const auto& durSnap = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
  const int sel = durSnap.selectedSlice;
  if (sel < 0 || sel >= durSnap.numSlices)
- { processor.releaseUiSliceSnapshot(); return kDefaultMs; }
+ { if (! sfzMode) processor.releaseUiSliceSnapshot(); else processor.releaseUiSliceSnapshot2(); return kDefaultMs; }
 
  const int total = durSnap.sampleNumFrames;
  if (total <= 0)
- { processor.releaseUiSliceSnapshot(); return kDefaultMs; }
+ { if (! sfzMode) processor.releaseUiSliceSnapshot(); else processor.releaseUiSliceSnapshot2(); return kDefaultMs; }
 
  const int sliceEnd = durSnap.sliceEndSamples[sel];
  const int len = sliceEnd - durSnap.slices[(size_t) sel].startSample;
- processor.releaseUiSliceSnapshot();
+ if (! sfzMode) processor.releaseUiSliceSnapshot(); else processor.releaseUiSliceSnapshot2();
  if (len <= 0)
  return kDefaultMs;
 
- const float sr = (float) activeVoicePool().getSampleRate();
+ const float sr = (float) (sfzMode ? processor.voicePool2.getSampleRate() : processor.voicePool.getSampleRate());
  return (float) len / sr * 1000.0f;
 }
 
@@ -167,10 +174,12 @@ void SliceWaveformLcd::buildEnvelopeNodes()
      return p ? p->load() : 100.0f;
  };
 
- const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
- if (sel >= 0 && sel < activeSliceManager().getNumSlices())
+ const bool sfzMode = isSfzPlayer2Mode();
+ auto& sm = sfzMode ? processor.sliceManager2 : processor.sliceManager;
+ const int sel = sm.selectedSlice.load (std::memory_order_relaxed);
+ if (sel >= 0 && sel < sm.getNumSlices())
  {
-     const auto& s = activeSliceManager().getSlice (sel);
+     const auto& s = sm.getSlice (sel);
      attackMs  = s.attackSec    * 1000.0f;
      decayMs   = s.decaySec     * 1000.0f;
      sustainPc = s.sustainLevel * 100.0f;
@@ -266,22 +275,26 @@ void SliceWaveformLcd::commitNodes()
     // slice's own storage (skipLock = 1, lockMask unchanged).
     uint32_t sliceLockMask = 0;
     {
-        const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
-        if (sel >= 0 && sel < activeSliceManager().getNumSlices())
-            sliceLockMask = activeSliceManager().getSlice (sel).lockMask;
+        auto& sm = isSfzPlayer2Mode() ? processor.sliceManager2 : processor.sliceManager;
+        const int sel = sm.selectedSlice.load (std::memory_order_relaxed);
+        if (sel >= 0 && sel < sm.getNumSlices())
+            sliceLockMask = sm.getSlice (sel).lockMask;
     }
 
     // Write dragged value to per-slice storage without modifying the lock bit.
     // intParam2 = 1 means skipLock — value stored in s.attackSec etc.,
-    // lockMask is NOT modified.
+    // lockMask is NOT modified. targetEngine2 routes to sliceManager2/
+    // voicePool2 when editing an SFZ-PLAYER slice's ADSR instead of the
+    // Slicer's.
+    const bool sfzMode = isSfzPlayer2Mode();
     auto writePerSlice = [&] (int fieldId, float nativeVal)
     {
         DysektProcessor::Command cmd;
-        cmd.type        = DysektProcessor::CmdSetSliceParam;
-        cmd.intParam1   = fieldId;
-        cmd.floatParam1 = nativeVal;
-        cmd.intParam2   = 1; // skipLock
-        cmd.targetInstance2 = isSecondInstance;
+        cmd.type         = DysektProcessor::CmdSetSliceParam;
+        cmd.intParam1    = fieldId;
+        cmd.floatParam1  = nativeVal;
+        cmd.intParam2    = 1; // skipLock
+        cmd.targetEngine2 = sfzMode;
         processor.pushCommand (cmd);
     };
 
@@ -396,10 +409,12 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
 
  if (bit != 0)
  {
- const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
- if (sel >= 0 && sel < activeSliceManager().getNumSlices())
+ const bool sfzMode2 = isSfzPlayer2Mode();
+ auto& sm2 = sfzMode2 ? processor.sliceManager2 : processor.sliceManager;
+ const int sel = sm2.selectedSlice.load (std::memory_order_relaxed);
+ if (sel >= 0 && sel < sm2.getNumSlices())
  {
- const auto& s = activeSliceManager().getSlice (sel);
+ const auto& s = sm2.getSlice (sel);
  const bool currentlyLocked = (s.lockMask & bit) != 0;
 
  if (currentlyLocked)
@@ -407,21 +422,27 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
      // ── UNLOCK: write slice's locked value back to APVTS first ───────────
      // buildEnvelopeNodes() reads from the slice directly, so the node
      // won't jump — but sync APVTS knob so SCB shows the right value.
-     auto writeApvts = [&] (const juce::String& paramId, float nativeVal)
+     // Skipped entirely for SFZ-PLAYER: that engine has no global-knob
+     // concept (no SliceControlBar surface exists for it), so there is
+     // nothing to sync.
+     if (! sfzMode2)
      {
-         if (auto* p = processor.apvts.getParameter (paramId))
-             p->setValueNotifyingHost (p->convertTo0to1 (nativeVal));
-     };
-     if      (bit == kLockAttack)  writeApvts (ParamIds::defaultAttack,  s.attackSec    * 1000.0f);
-     else if (bit == kLockDecay)   writeApvts (ParamIds::defaultDecay,   s.decaySec     * 1000.0f);
-     else if (bit == kLockSustain) writeApvts (ParamIds::defaultSustain, s.sustainLevel * 100.0f);
-     else if (bit == kLockRelease) writeApvts (ParamIds::defaultRelease, s.releaseSec   * 1000.0f);
+         auto writeApvts = [&] (const juce::String& paramId, float nativeVal)
+         {
+             if (auto* p = processor.apvts.getParameter (paramId))
+                 p->setValueNotifyingHost (p->convertTo0to1 (nativeVal));
+         };
+         if      (bit == kLockAttack)  writeApvts (ParamIds::defaultAttack,  s.attackSec    * 1000.0f);
+         else if (bit == kLockDecay)   writeApvts (ParamIds::defaultDecay,   s.decaySec     * 1000.0f);
+         else if (bit == kLockSustain) writeApvts (ParamIds::defaultSustain, s.sustainLevel * 100.0f);
+         else if (bit == kLockRelease) writeApvts (ParamIds::defaultRelease, s.releaseSec   * 1000.0f);
+     }
 
      DysektProcessor::Command cmd;
      cmd.type      = DysektProcessor::CmdToggleLock;
      cmd.intParam1 = sel;
      cmd.intParam2 = (int) bit;
-     cmd.targetInstance2 = isSecondInstance;
+     cmd.targetEngine2 = sfzMode2;
      processor.pushCommand (cmd);
  }
  else
@@ -444,7 +465,7 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
          c.intParam1   = (int) field;
          c.floatParam1 = snapVal;
          c.intParam2   = 1; // skipLock
-         c.targetInstance2 = isSecondInstance;
+         c.targetEngine2 = sfzMode2;
          processor.pushCommand (c);
      }
      // Now toggle the lock bit on
@@ -453,7 +474,7 @@ void SliceWaveformLcd::mouseDown (const juce::MouseEvent& e)
          cmd.type      = DysektProcessor::CmdToggleLock;
          cmd.intParam1 = sel;
          cmd.intParam2 = (int) bit;
-         cmd.targetInstance2 = isSecondInstance;
+         cmd.targetEngine2 = sfzMode2;
          processor.pushCommand (cmd);
      }
  }
@@ -516,10 +537,11 @@ void SliceWaveformLcd::mouseDrag (const juce::MouseEvent& e)
  // BUG FIX: Block dragging locked ADSR nodes — check slice's lockMask
  // ═══════════════════════════════════════════════════════════════════════════
  {
-     const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
-     if (sel >= 0 && sel < activeSliceManager().getNumSlices())
+     auto& sm3 = isSfzPlayer2Mode() ? processor.sliceManager2 : processor.sliceManager;
+     const int sel = sm3.selectedSlice.load (std::memory_order_relaxed);
+     if (sel >= 0 && sel < sm3.getNumSlices())
      {
-         const auto& s = activeSliceManager().getSlice (sel);
+         const auto& s = sm3.getSlice (sel);
          uint32_t bit = 0;
          if      (dragRole == NodeRole::Attack)  bit = kLockAttack;
          else if (dragRole == NodeRole::Decay)   bit = kLockDecay;
@@ -681,9 +703,10 @@ void SliceWaveformLcd::drawWaveform (juce::Graphics& g, const juce::Rectangle<fl
  // Use selected slice colour for waveform rendering
  juce::Colour sliceCol = lcd2Phosphor(); // default = theme accent
  {
- const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
- if (sel >= 0 && sel < activeSliceManager().getNumSlices())
- sliceCol = activeSliceManager().getSlice (sel).colour;
+ auto& sm4 = isSfzPlayer2Mode() ? processor.sliceManager2 : processor.sliceManager;
+ const int sel = sm4.selectedSlice.load (std::memory_order_relaxed);
+ if (sel >= 0 && sel < sm4.getNumSlices())
+ sliceCol = sm4.getSlice (sel).colour;
  }
 
  g.setColour (sliceCol.withAlpha (0.12f));
@@ -789,9 +812,10 @@ void SliceWaveformLcd::drawNodes (juce::Graphics& g, const juce::Rectangle<float
 
  // Read lock state for selected slice
  uint32_t lockMask = 0;
- const int sel = activeSliceManager().selectedSlice.load (std::memory_order_relaxed);
- if (sel >= 0 && sel < activeSliceManager().getNumSlices())
- lockMask = activeSliceManager().getSlice (sel).lockMask;
+ auto& sm5 = isSfzPlayer2Mode() ? processor.sliceManager2 : processor.sliceManager;
+ const int sel = sm5.selectedSlice.load (std::memory_order_relaxed);
+ if (sel >= 0 && sel < sm5.getNumSlices())
+ lockMask = sm5.getSlice (sel).lockMask;
 
  for (const auto& node : envNodes)
  {
@@ -935,7 +959,7 @@ void SliceWaveformLcd::drawPlayhead (juce::Graphics& g, const juce::Rectangle<fl
  const int totalRange = data.endSample - data.startSample;
  if (totalRange <= 0) return;
 
- auto& vp = activeVoicePool();
+ auto& vp = isSfzPlayer2Mode() ? processor.voicePool2 : processor.voicePool;
 
  for (int i = 0; i < VoicePool::kMaxVoices; ++i)
  {
@@ -1029,8 +1053,13 @@ void SliceWaveformLcd::paint (juce::Graphics& g)
 
 bool SliceWaveformLcd::isSfPlayerMode() const
 {
-    // midiRouteMode: 0=Slicer, 1=SfPlayer, 2=Sequencer  (matches MidiRouteMode enum)
+    // midiRouteMode: 0=Slicer, 1=SfPlayer, 2=SfzPlayer2, 3=Sequencer
     return processor.midiRouteMode.load (std::memory_order_relaxed) == 1;
+}
+
+bool SliceWaveformLcd::isSfzPlayer2Mode() const
+{
+    return processor.midiRouteMode.load (std::memory_order_relaxed) == 2;
 }
 
 // Build envNodes from sfzPlayer's live ADSR atomics.

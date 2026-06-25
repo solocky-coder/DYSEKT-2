@@ -174,22 +174,6 @@ public:
         FieldEqMidFreq    = 47,  // Hz  200..8000
         FieldEqMidQ       = 48,  // Q   0.5..4.0
         FieldEqHighGain   = 49,  // dB  -18..+18
-        // SfzPlayer2 (SFZ-PLAYER, ch2) — dedicated Field IDs, distinct from
-        // sfzPlayer's (FieldSfz*) above. Previously the SFZ-PLAYER panel's
-        // MIDI-learn menu registered the FieldSfz* IDs too, which meant
-        // learning a CC on an SFZ-PLAYER knob actually controlled the
-        // SF2-PLAYER (sfzPlayer) instead. These fix that.
-        FieldSfz2Attack     = 50,  // sfizz ampeg_attack  (seconds, 0-30)
-        FieldSfz2Hold       = 51,  // sfizz ampeg_hold    (seconds, 0-5)
-        FieldSfz2Decay      = 52,  // sfizz ampeg_decay   (seconds, 0-30)
-        FieldSfz2Sustain    = 53,  // sfizz ampeg_sustain (percent, 0-100)
-        FieldSfz2Release    = 54,  // sfizz ampeg_release (seconds, 0-60)
-        FieldSfz2ReverbMix  = 55,  // reverb wet/dry  (0-100 %)
-        FieldSfz2ReverbSize = 56,  // reverb room size (0-100 %)
-        FieldSfz2Vol        = 57,  // master volume (0..2 linear)
-        FieldSfz2Transpose  = 58,  // transpose (-24..+24 semitones)
-        FieldSfz2Pan        = 59,  // pan (-1..+1)
-        FieldSfz2FineTune   = 60,  // fine tune (-100..+100 cents)
     };
 
     // ── Command types ─────────────────────────────────────────────────────────
@@ -250,14 +234,14 @@ public:
         std::array<int, kMaxPositions> positions {};
         int numPositions { 0 };
         bool isCommit { false };    // CmdSetSliceBounds: true = mouseUp final commit, triggers crush inheritance
-        // When true, slice-mutating commands (CmdSetSliceParam, CmdSetSliceName,
-        // CmdToggleLock, CmdSetSliceLockAll) apply to sliceManager2 (SFZ-PLAYER's
-        // own Slicer-engine instance) instead of the Slicer's sliceManager.
-        // Set by SliceLcdDisplay/SliceWaveformLcd when constructed in
-        // second-instance mode. Ignored by command types that don't touch
-        // per-slice state (those never apply to SFZ-PLAYER, which has no
-        // manual slicing/chromatic UI).
-        bool targetInstance2 { false };
+        /** When true, CmdSetSliceParam/CmdSelectSlice/CmdSetSliceLock target
+         *  sliceManager2/voicePool2 (SFZ-PLAYER) instead of sliceManager/
+         *  voicePool (the Slicer). Defaults to false so every pre-existing
+         *  call site (which never sets this) is completely unaffected.
+         *  Only ADSR-related fields are meaningfully supported for engine 2
+         *  -- SFZ-PLAYER has no manual slicing, so slice-bounds/creation/
+         *  deletion commands are never sent with this flag set. */
+        bool targetEngine2 { false };
     };
 
     // ── UI snapshot (double-buffered, written on audio thread) ───────────────
@@ -365,12 +349,8 @@ public:
         return (int) uiSnapshotVersion.load (std::memory_order_acquire);
     }
 
-    void publishUiSliceSnapshot();
-
-    /** Mirrors getUiSliceSnapshot()/releaseUiSliceSnapshot()/publishUiSliceSnapshot(),
-     *  but for sliceManager2/sampleData2 (the SFZ-PLAYER's own real Slicer-engine
-     *  instance). WaveformView/SliceLcdDisplay/SliceWaveformLcd read this snapshot
-     *  instead of the Slicer's when showing the SFZ-PLAYER tab (uiMode==1). */
+    /** SFZ-PLAYER engine equivalents of the three accessors above — read
+     *  sliceManager2's published snapshot instead of sliceManager's. */
     const UiSliceSnapshot& getUiSliceSnapshot2() const noexcept
     {
         uiReadingSnapshot2.store (true, std::memory_order_seq_cst);
@@ -387,6 +367,7 @@ public:
         return (int) uiSnapshotVersion2.load (std::memory_order_acquire);
     }
 
+    void publishUiSliceSnapshot();
     void publishUiSliceSnapshot2();
 
     /** Returns the peak amplitude (0..1) at a given sample position in the
@@ -407,8 +388,9 @@ public:
 
     /** Same as getWaveformPeakAt, but reads from an arbitrary SampleData
      *  instance instead of always reading the Slicer's sampleData. Used by
-     *  SfzWaveformLcd/Sf2WaveformLcd, which need peaks from sampleData2/
-     *  sampleData3 respectively, not the Slicer's buffer. */
+     *  SliceWaveformLcd (in SFZ-PLAYER mode, against sampleData2) and
+     *  Sf2WaveformLcd (against sampleData3) — neither should read the
+     *  Slicer's own buffer. */
     static float getWaveformPeakAtIn (const SampleData& source, int samplePosition) noexcept
     {
         auto snap = source.getSnapshot();
@@ -428,21 +410,25 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     SliceManager     sliceManager;
     VoicePool        voicePool;
-
-    /** SFZ-PLAYER's own independent Slicer-engine instance. Same engine as
-     *  the Slicer tab (sliceManager/voicePool) — slices created from .sfz
-     *  key-zone renders rather than user chops, triggered on MIDI channel 2,
-     *  chromatic mode hard-disabled. Pairs with sampleData2 below (already
-     *  the SFZ-PLAYER's render target) and replaces the old sfizz-backed
-     *  sfzPlayer2 live-synthesis path entirely. */
-    SliceManager     sliceManager2;
-    VoicePool        voicePool2;
 #if DYSEKT_STANDALONE
     SequencerEngine  sequencer;
     AbletonLink      abletonLink;
 #endif
     LazyChopEngine   lazyChop;
     SampleData       sampleData;
+
+    /** SFZ-PLAYER's own independent slice engine -- a second, complete
+     *  Slicer instance. Loads .sfz files only; each SFZ key zone/region
+     *  becomes a real slice pinned to its MIDI note via pinSliceMidiNote,
+     *  exactly like the Slicer's chromatic-slice MIDI mapping. No manual
+     *  slicing (Lazy Chop, marker editing) and no chromatic mode apply
+     *  here -- the slice layout is entirely determined by the loaded SFZ
+     *  file, never user-edited. Receives MIDI on channel 2 (see
+     *  sfzPlayer2ChannelMask in setMidiRouteMode). Completely independent
+     *  of sliceManager/voicePool/sampleData -- loading a file into one
+     *  engine never touches the other. */
+    SliceManager     sliceManager2;
+    VoicePool        voicePool2;
 
     /** The SFZ-PLAYER tab's own independent preview waveform buffer.
      *  Purely visual — never touched by any audio engine (sfzPlayer2 has its
@@ -452,21 +438,6 @@ public:
      *  in session state — it's an ephemeral preview, lost on reload, same as
      *  the Slicer's own pre-fix preview behaviour was for this case. */
     SampleData       sampleData2;
-
-    /** One-shot click-to-audition voice for SFZ-PLAYER preview zones.
-     *  Plays back [start, end) directly out of sampleData2's rendered
-     *  buffer -- bypasses sfizz entirely, since sfizz's internal region
-     *  key-mapping isn't something the public C API exposes for ad-hoc
-     *  range playback. Triggered by WaveformView::mouseDown on a zone
-     *  click; consumed once per trigger by processBlock, which then owns
-     *  the running position until it reaches end or is re-triggered. */
-    struct ZonePreviewVoice
-    {
-        std::atomic<int>  triggerStart  { -1 };   // new-trigger request; -1 = none pending
-        std::atomic<int>  triggerEnd    { -1 };
-        std::atomic<int>  playPosition  { -1 };   // -1 = idle; else current sample offset
-        std::atomic<int>  playEnd       { -1 };
-    } zonePreview2;
 
     /** The SF2-PLAYER tab's own independent preview waveform buffer.
      *  Mirrors sampleData2 exactly but for the SF2-PLAYER (FluidSynth)
@@ -479,19 +450,21 @@ public:
     SampleData       sampleData3;
 
     /** Read-only "preview zones" overlay for the SF2-PLAYER tab's
-     *  waveform -- mirrors previewZones2 exactly but for sampleData3.
+     *  waveform -- one colored band per rendered note in sampleData3.
      *  Published by processBlock from pendingPreviewZones3 whenever a
-     *  SoundFontLoadTarget::SfPlayer load completes. */
+     *  SoundFontLoadTarget::SfPlayer load completes. (The SFZ-PLAYER tab
+     *  no longer has an equivalent overlay -- it became a full second
+     *  Slicer instance, see sliceManager2/voicePool2, with real slices
+     *  instead of a read-only zone display.) */
     SfzPreviewZoneStore previewZones3;
 
     /** Index into the current previewZones3 snapshot of the zone last
-     *  clicked in the SF2-PLAYER waveform view. -1 = no selection.
-     *  Mirrors selectedPreviewZone2. */
+     *  clicked in the SF2-PLAYER waveform view. -1 = no selection. */
     std::atomic<int> selectedPreviewZone3 { -1 };
 
     /** One-shot click-to-audition voice for SF2-PLAYER preview zones.
-     *  Mirrors zonePreview2 exactly but plays from sampleData3 and mixes
-     *  in alongside sfzPlayer's (not sfzPlayer2's) output. */
+     *  Plays back [start, end) directly out of sampleData3's rendered
+     *  buffer and mixes in alongside sfzPlayer's output. */
     struct ZonePreviewVoice3
     {
         std::atomic<int>  triggerStart  { -1 };
@@ -648,13 +621,6 @@ public:
     std::atomic<uint32_t> sfzPlayer2ChannelMask      { 1u << 2 }; // ch 2 default
     std::atomic<uint32_t> savedSfzPlayer2ChannelMask { 1u << 2 };
 
-    /** Rebuilds sfzPlayer2ChannelMask (and its saved counterpart) from
-     *  sfzPlayer2's own current MIDI channel, so the two can never drift
-     *  apart. sfzPlayer2 is single-channel only (or omni) — call this any
-     *  time sfzPlayer2.setMidiChannel() is called, and after loading a file
-     *  into it. Message-thread only. */
-    void syncSfzPlayer2ChannelMaskFromEngine() noexcept;
-
     /** Rebuild chromaticSliceChannelMask from current slice data.
      *  Must be called on the audio thread (or before first audio callback). */
     void rebuildChromaticChannelMask();
@@ -702,6 +668,7 @@ private:
     // =========================================================================
     void requestSampleLoad (const juce::File& file, LoadKind kind);
     void clearVoicesBeforeSampleSwap();
+    void clearVoicesBeforeSampleSwap2();
     void clampSlicesToSampleBounds();
     void handleCommand (const Command& cmd);
     void drainCommands();
@@ -710,6 +677,15 @@ private:
     bool enqueueOverflowCommand (Command cmd);
     bool enqueueCoalescedCommand (const Command& cmd);
     void processMidi (const juce::MidiBuffer& midi);
+
+    /** SFZ-PLAYER's MIDI handler -- a minimal counterpart to processMidi().
+     *  Unlike the Slicer, SFZ-PLAYER has no manual slicing (Lazy Chop, marker
+     *  editing), no chromatic-channel routing, no MIDI Learn CC dispatch, and
+     *  no trim-mode chromatic fallback -- its slice layout comes entirely
+     *  from the loaded SFZ file's key zones. This handler only does:
+     *  note-on -> sliceManager2.midiNoteToSlice -> voicePool2.startVoice,
+     *  note-off, all-notes-off, all-sound-off. */
+    void processMidi2 (const juce::MidiBuffer& midi);
 
     UndoManager::Snapshot makeSnapshot();
     void captureSnapshot();
@@ -761,11 +737,15 @@ private:
     // data race on the juce::String (now char[]) fields.
     mutable std::atomic<bool>     uiReadingSnapshot    { false };
 
-    // Mirrors the above, for sliceManager2/sampleData2 (SFZ-PLAYER tab).
+    /** Second, independent double-buffer for the SFZ-PLAYER engine
+     *  (sliceManager2/sampleData2) -- mirrors the block above exactly.
+     *  A SEPARATE uiReadingSnapshot2 guard is required: sharing the
+     *  original flag between two unrelated engines' read/publish races
+     *  would let one engine's read block the other's publish, or worse,
+     *  let a stale guard value incorrectly skip a real publish. */
     std::array<UiSliceSnapshot, 2> uiSliceSnapshots2;
     std::atomic<int>      uiSliceSnapshotIndex2 { 0 };
     std::atomic<uint32_t> uiSnapshotVersion2    { 0 };
-    std::atomic<bool>     uiSnapshotDirty2      { false };
     mutable std::atomic<bool>     uiReadingSnapshot2   { false };
 
     // =========================================================================
@@ -796,9 +776,10 @@ public:
 
     /** Heap-allocated zone payload posted by SoundFontLoader for a
      *  SoundFontLoadTarget::SfzPlayer2 load -- the same per-note
-     *  descriptors as pendingSfzSlices, but for the read-only preview
-     *  overlay. processBlock takes ownership and folds it into
-     *  previewZones2 alongside consuming completedLoadData2. */
+     *  descriptors as pendingSfzSlices, but consumed differently:
+     *  processBlock turns each descriptor into a REAL slice in
+     *  sliceManager2 (see Slice::nextSliceIdx for the loop-region
+     *  two-slice split), not a read-only display overlay. */
     std::atomic<SfzPreviewZonePayload*> pendingPreviewZones2 { nullptr };
 
     /** Third, independent load-result pipeline for the SF2-PLAYER's preview
@@ -843,6 +824,7 @@ public:
     // =========================================================================
     double currentSampleRate { 44100.0 };
     bool   heldNotes[128]    {};
+    bool   heldNotes2[128]   {};   // SFZ-PLAYER's own note tracking — independent of the Slicer's
 
     // ── Global post-mix EQ (juce::dsp, runs after voice mix, before master volume) ──
     juce::dsp::ProcessorChain<

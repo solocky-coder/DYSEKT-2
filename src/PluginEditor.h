@@ -101,7 +101,6 @@ private:
 
     /** Same for SFZ-Player (sfzPlayer2). */
     bool sfzPlayer2PanelRestored = false;
-    bool lastSfzPlayer2Loaded = false;   // edge-detect sfzPlayer2.isLoaded() to refresh layout on completion
 
     /// Which panel occupies the bottom slot (browser or mixer).
     /// Mutually exclusive.
@@ -132,11 +131,6 @@ private:
 
     SliceLcdDisplay  sliceLcd;
     SliceWaveformLcd sliceWaveformLcd;
-    // SFZ-PLAYER's own LCDs — same components as the Slicer's, pointed at
-    // sliceManager2/sampleData2/voicePool2 via the second-instance ctor flag.
-    // Replaces the old sfizz-backed SfzLcdDisplay/SfzWaveformLcd entirely.
-    SliceLcdDisplay  sfzLcd;
-    SliceWaveformLcd sfzWaveformLcd;
     Sf2LcdDisplay    sf2Lcd;
     Sf2WaveformLcd   sf2WaveformLcd;
 

@@ -10,11 +10,12 @@ class DysektProcessor;
  *   No APVTS writes — sfzPlayer ADSR params are atomic, not registered
  *   parameters.
  *
- *   Mirrors SfzWaveformLcd exactly; only difference is it reads from
- *   processor.sfzPlayer (FluidSynth) instead of processor.sfzPlayer2 (sfizz),
- *   and uses processor.sampleData3 for the waveform backdrop -- its own
- *   independent render via SoundFontLoadTarget::SfPlayer, not shared with
- *   SfzWaveformLcd's sampleData2.
+ *   Uses processor.sampleData3 for the waveform backdrop — its own
+ *   independent render via SoundFontLoadTarget::SfPlayer, decoupled from
+ *   the Slicer's sampleData and from the SFZ-PLAYER tab's sampleData2
+ *   (the SFZ-PLAYER tab is now a full second Slicer instance — see
+ *   sliceManager2/voicePool2 — and uses SliceLcdDisplay/SliceWaveformLcd
+ *   in mode-aware fashion instead of a dedicated class like this one).
  *
  *   Call repaintLcd() from the editor's timerCallback() at ~30 Hz.
  */

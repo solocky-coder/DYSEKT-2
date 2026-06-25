@@ -52,8 +52,7 @@ struct VoiceStartParams
 class VoicePool
 {
 public:
-    static constexpr int kMaxVoices = 256;   // bumped from 32 in lockstep with
-                                              // SliceManager::kMaxSlices
+    static constexpr int kMaxVoices = 256;
     static constexpr int kPreviewVoiceIndex = kMaxVoices - 1;
 
     VoicePool();
@@ -77,8 +76,15 @@ public:
     void killAll();                    // CC 120 — 5ms hard kill on all active voices
     void muteGroup (int group, int exceptVoice);
 
+    /** @param chainSource  Optional. When non-null, a one-shot voice that
+     *  naturally reaches its end and whose slice has a valid nextSliceIdx
+     *  will immediately retrigger that slice (same note/velocity) instead
+     *  of simply deactivating -- used by the SFZ-PLAYER engine to chain a
+     *  one-shot attack-head slice into a looped sustain-tail slice. The
+     *  Slicer never passes this (defaults to nullptr; behaviour unchanged). */
     void processSample (const SampleData& sample, double sampleRate,
-                        float& outL, float& outR);
+                        float& outL, float& outR,
+                        SliceManager* chainSource = nullptr);
 
     void setSampleRate (double sr) { sampleRate = sr; }
     double getSampleRate() const   { return sampleRate; }
@@ -127,9 +133,14 @@ public:
     std::atomic<float> legatoGlideMs { 15.0f };
 
     void processVoiceSample (int i, const SampleData& sample, double sampleRate,
-                             float& outL, float& outR);
+                             float& outL, float& outR,
+                             SliceManager* chainSource = nullptr);
 
 private:
+    void retriggerChainedSlice (int voiceIdx, SliceManager* chainSource,
+                                int targetSliceIdx, int note, float velocity,
+                                const SampleData& sample);
+
     std::array<Voice, kMaxVoices> voices;
     int maxActive = 16; // playable voices, excluding preview voice
     double sampleRate = 44100.0;

@@ -160,9 +160,12 @@ private:
 #endif
 };
 
-// Heap-allocated payload posted via pendingPreviewZones2 atomic.
-// processBlock takes ownership and folds it into previewZones2, then
-// the unique_ptr is destroyed — no manual delete needed, unlike
+// Heap-allocated payload posted via pendingPreviewZones2/pendingPreviewZones3
+// atomics. processBlock takes ownership: for pendingPreviewZones2 (SFZ-PLAYER),
+// each descriptor becomes a real slice in sliceManager2 (see Slice::nextSliceIdx
+// for the loop-region two-slice split); for pendingPreviewZones3 (SF2-PLAYER),
+// it's folded into the previewZones3 read-only display overlay. Either way the
+// unique_ptr is destroyed once consumed — no manual delete needed, unlike
 // SfzSlicePayload (which predates this and still uses raw new/delete).
 struct SfzPreviewZonePayload
 {

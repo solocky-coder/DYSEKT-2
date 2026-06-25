@@ -1,7 +1,8 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "WaveformCache.h"
-#include "../PluginProcessor.h"
+#include "../audio/SliceManager.h"
+#include "../audio/VoicePool.h"
 
 class DysektProcessor;
 
@@ -96,28 +97,19 @@ private:
      *  directly — otherwise the two modes' loaded files bleed into each
      *  other. */
     SampleData& activeSampleData() const noexcept;
-
-    /** Mirrors activeSampleData(): the UI-thread-safe slice snapshot for
-     *  whichever engine instance is currently showing — the Slicer's
-     *  (processor.getUiSliceSnapshot()) normally, or SFZ-PLAYER's own real
-     *  sliceManager2 snapshot (processor.getUiSliceSnapshot2()) when the
-     *  current MIDI route mode is SfzPlayer2. Both tabs now show real,
-     *  engine-backed slices — SFZ-PLAYER's are just auto-created from SFZ
-     *  key-zones at load time rather than user-drawn, and aren't editable
-     *  here (see isSfzPlayer2Mode() callers in mouseDown/mouseMove). */
-    const DysektProcessor::UiSliceSnapshot& activeUiSnapshot() const noexcept;
-
-    /** Mirrors activeUiSnapshot(): the live SliceManager backing whichever
-     *  snapshot is active — needed for getEndForSlice()/selectedSlice
-     *  writes, which aren't carried in the snapshot itself. */
     SliceManager& activeSliceManager() const noexcept;
+    VoicePool& activeVoicePool() const noexcept;
 
     /** True when the current MIDI route mode is SfzPlayer2 — i.e. the
-     *  SFZ-PLAYER tab is driving this shared component, showing sampleData2
-     *  and sliceManager2's real slices rather than the Slicer's sliceManager.
-     *  Mouse handlers use this to disable manual slice creation/dragging and
-     *  the context menu: those mutate the Slicer's sliceManager and have no
-     *  meaning for SFZ-PLAYER whose slices come from load-time SFZ rendering. */
+     *  SFZ-PLAYER tab is driving this shared component. SFZ-PLAYER has its
+     *  own complete second Slicer instance (sliceManager2/voicePool2/
+     *  sampleData2 via activeSliceManager()/activeVoicePool()/
+     *  activeSampleData()), so drawSlices()/mouseDown() etc. work normally
+     *  against it. The only things disabled in this mode are manual slice
+     *  creation, edge-dragging, and the context menu — SFZ-PLAYER's slice
+     *  layout always comes from the loaded SFZ file, never user-edited.
+     *  Per-slice ADSR editing and the REV/LOOP/1SH/POLY/STR/TAIL flags
+     *  (see SliceLcdDisplay/SliceWaveformLcd) are NOT disabled. */
     bool isSfzPlayer2Mode() const noexcept;
 
     void drawWaveform (juce::Graphics& g);

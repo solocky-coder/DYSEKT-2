@@ -73,6 +73,110 @@ static std::pair<int,int> parseSfzLoopPoints (const juce::File& sfzFile)
     return { loopStart, loopEnd };
 }
 
+// =============================================================================
+//  Per-region SFZ loop-point parser (SfzPlayer2/SfPlayer targets only)
+//
+//  Real multi-zone .sfz files define loop points per <region>, not once
+//  globally — parseSfzLoopPoints() above only finds the FIRST occurrence in
+//  the whole file, which is wrong for instruments with more than one
+//  region. This walks every <region> block, reads which MIDI key(s) it
+//  covers (key= / lokey=+hikey= / pitch_keycenter=) and its own
+//  loop_start=/loop_end= opcodes (if any), and returns one entry per region
+//  that actually defines a valid loop. SoundFontLoader matches these back
+//  to rendered notes by exact MIDI key.
+// =============================================================================
+struct SfzRegionLoop
+{
+    int loKey = -1, hiKey = -1;   // inclusive MIDI key range this region covers
+    int loopStart = -1, loopEnd = -1;   // raw sample-frame offsets, this region's own sample
+};
+
+static std::vector<SfzRegionLoop> parseSfzPerRegionLoopPoints (const juce::File& sfzFile)
+{
+    std::vector<SfzRegionLoop> result;
+    if (sfzFile.getFileExtension().toLowerCase() != ".sfz")
+        return result;
+
+    const juce::String text = sfzFile.loadFileAsString();
+    if (text.isEmpty())
+        return result;
+
+    // Split on <region> markers (case-insensitive). Each chunk from one
+    // <region> to the next (or EOF) is that region's full opcode list,
+    // including any whitespace/newlines SFZ allows between opcodes.
+    juce::StringArray regionTags;
+    regionTags.add ("<region>");
+    juce::Array<int> regionStarts;
+    {
+        int searchFrom = 0;
+        for (;;)
+        {
+            const int pos = text.indexOfIgnoreCase (searchFrom, "<region>");
+            if (pos < 0) break;
+            regionStarts.add (pos);
+            searchFrom = pos + 1;
+        }
+    }
+    if (regionStarts.isEmpty())
+        return result;
+
+    auto scanIntOpcode = [] (const juce::String& chunk, const char* name) -> int
+    {
+        juce::String key (name);
+        // Match "name=" but not as a suffix of a longer opcode name
+        // (e.g. "key=" must not match inside "lokey=" or "hikey=").
+        int searchFrom = 0;
+        for (;;)
+        {
+            int pos = chunk.indexOfIgnoreCase (searchFrom, key + "=");
+            if (pos < 0) return -1;
+            // Reject if preceded by a letter (would mean we matched a
+            // suffix, e.g. found "key=" inside "lokey=").
+            if (pos > 0 && juce::CharacterFunctions::isLetter (chunk[pos - 1]))
+            {
+                searchFrom = pos + 1;
+                continue;
+            }
+            int valStart = pos + key.length() + 1;
+            int valEnd   = valStart;
+            while (valEnd < chunk.length()
+                   && (juce::CharacterFunctions::isDigit (chunk[valEnd]) || chunk[valEnd] == '-'))
+                ++valEnd;
+            if (valEnd == valStart) return -1;
+            return chunk.substring (valStart, valEnd).getIntValue();
+        }
+    };
+
+    for (int i = 0; i < regionStarts.size(); ++i)
+    {
+        const int chunkStart = regionStarts[i];
+        const int chunkEnd   = (i + 1 < regionStarts.size()) ? regionStarts[i + 1] : text.length();
+        const juce::String chunk = text.substring (chunkStart, chunkEnd);
+
+        SfzRegionLoop rl;
+
+        const int key    = scanIntOpcode (chunk, "key");
+        const int lokey   = scanIntOpcode (chunk, "lokey");
+        const int hikey   = scanIntOpcode (chunk, "hikey");
+        const int pkc     = scanIntOpcode (chunk, "pitch_keycenter");
+
+        if (key >= 0)                       { rl.loKey = key;   rl.hiKey = key; }
+        else if (lokey >= 0 || hikey >= 0)  { rl.loKey = lokey >= 0 ? lokey : 0;
+                                               rl.hiKey = hikey >= 0 ? hikey : 127; }
+        else if (pkc >= 0)                   { rl.loKey = pkc;   rl.hiKey = pkc; }
+        else continue;   // no key info — can't match this region to a rendered note
+
+        rl.loopStart = scanIntOpcode (chunk, "loop_start");
+        rl.loopEnd   = scanIntOpcode (chunk, "loop_end");
+        if (rl.loopStart < 0 || rl.loopEnd <= rl.loopStart)
+            continue;   // this region has no (valid) loop — skip, leave as one-shot
+
+        result.push_back (rl);
+    }
+
+    return result;
+}
+
 
 // =============================================================================
 //  SF2 binary SHDR parser  (SF2 files only)
@@ -297,7 +401,20 @@ public:
         }
 
         // ── Step 3: concatenate into one stereo AudioBuffer ───────────────────
-        const int gapSamples = std::max (1, (int) (sampleRate * SfzConst::kGapSec));
+        // SfzPlayer2/SfPlayer targets use NO gap between notes: SliceManager's
+        // marker model derives each slice's end as "the next slice's
+        // startSample" (there is no endSample field at all — see Slice.h).
+        // A gap there would silently become trailing dead air appended to
+        // the END of the PRECEDING slice rather than a true silence between
+        // notes, since nothing marks the gap itself as its own region.
+        // silenceTrim() above has already removed each note's natural
+        // trailing silence/release-tail overhang before concatenation, so
+        // notes can sit directly back-to-back with no audible bleed.
+        // The Slicer target keeps its original small gap unchanged.
+        const bool isSliceTarget = (target == SoundFontLoadTarget::Slicer);
+        const int  gapSamples    = isSliceTarget
+                                  ? std::max (1, (int) (sampleRate * SfzConst::kGapSec))
+                                  : 0;
         int totalFrames = gapSamples;
         for (auto& r : renders) totalFrames += (int) r.L.size() + gapSamples;
 
@@ -420,6 +537,45 @@ public:
             {
                 processor.sfzPlayer.setLoopPoints (-1, -1);
                 processor.sfzPlayer2.setLoopPoints (-1, -1);
+            }
+        }
+
+        // ── Step 3c: per-region loop points for SfzPlayer2/SfPlayer targets ────
+        // The Step 3b logic above only resolves ONE global loop region (and
+        // only applies it to slices[0]) — fine for the Slicer's own
+        // setLoopPoints UI feature, but wrong for SfzPlayer2/SfPlayer, which
+        // need every rendered note's OWN region's loop points so the
+        // two-slice attack/sustain split (done by the caller after this
+        // payload is posted) is accurate per note. SF2 files are skipped
+        // here — parseSf2LoopPoints only resolves one global region from the
+        // binary SHDR chunk, with no per-region key-range data to match
+        // against; SF2 instruments fall back to one-shot slices until a
+        // proper multi-region SF2 parser exists.
+        if ((target == SoundFontLoadTarget::SfzPlayer2 || target == SoundFontLoadTarget::SfPlayer)
+            && file.getFileExtension().toLowerCase() == ".sfz")
+        {
+            const auto regionLoops = parseSfzPerRegionLoopPoints (file);
+            for (auto& desc : payload->slices)
+            {
+                for (const auto& rl : regionLoops)
+                {
+                    if (desc.midiNote < rl.loKey || desc.midiNote > rl.hiKey)
+                        continue;
+
+                    // rl.loopStart/loopEnd are raw offsets within this
+                    // region's own source sample, not the concat buffer —
+                    // map them the same way Step 3b does for the SFZ case.
+                    const int sliceOffset = desc.startSample;
+                    const int bufStart    = sliceOffset + rl.loopStart;
+                    const int bufEnd      = sliceOffset + rl.loopEnd;
+
+                    if (bufEnd < desc.endSample)
+                    {
+                        desc.loopStart = bufStart;
+                        desc.loopEnd   = bufEnd;
+                    }
+                    break;   // first matching region wins
+                }
             }
         }
 

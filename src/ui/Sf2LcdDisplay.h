@@ -15,7 +15,7 @@ class DysektProcessor;
  *     6  pair    —  RV SZ: xx%         RV DMP: xx%
  *     7  status  —  "LOADED" / "-- NO INSTRUMENT --"
  *
- *  Dimensions and aesthetic match SfzLcdDisplay exactly.
+ *  Dimensions and aesthetic match SliceLcdDisplay's LCD styling.
  *  Call repaintLcd() from the editor's timerCallback() at ~30 Hz.
  */
 class Sf2LcdDisplay : public juce::Component

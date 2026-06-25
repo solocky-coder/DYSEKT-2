@@ -19,8 +19,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  headerBar (p),
  sliceLcd (p),
  sliceWaveformLcd (p),
- sfzLcd (p, true),
- sfzWaveformLcd (p, true),
  sf2Lcd (p),
  sf2WaveformLcd (p),
  sliceLane (p),
@@ -43,10 +41,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
 
  addAndMakeVisible (sliceLcd);
  addAndMakeVisible (sliceWaveformLcd);
- addAndMakeVisible (sfzLcd);
- addAndMakeVisible (sfzWaveformLcd);
- sfzLcd.setVisible (false);
- sfzWaveformLcd.setVisible (false);
  addAndMakeVisible (sf2Lcd);
  addAndMakeVisible (sf2WaveformLcd);
  sf2Lcd.setVisible (false);
@@ -73,8 +67,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  sfzPlayerDropdown.onFileLoaded = [this] (const juce::File&)
  {
      sfzPlayer2PanelRestored = false;
-     resized();
-     repaint();
  };
 
  addChildComponent (padGridView);
@@ -215,6 +207,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
          // SFZ-PLAYER: .sfz only, routed to sfzPlayer2 (ch2)
          if (ext == ".sfz")
          {
+             processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
              processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);   // waveform preview -> sampleData2
          }
          return;
@@ -429,26 +422,23 @@ void DysektEditor::setUiMode (int mode)
  // Show waveform overview for slicer and sfz-player mode
  waveformOverview.setVisible (uiMode == 0 && !showPadGrid);
 
- // Show/hide sfzDropdown and sfzPlayerDropdown based on mode.
+ // Show/hide sfzDropdown based on mode. sfzPlayerDropdown is no longer
+ // shown for any mode: SFZ-PLAYER is now a full second Slicer instance
+ // (sliceManager2/voicePool2 — see WaveformView::activeSliceManager and
+ // SliceLcdDisplay/SliceWaveformLcd's mode-aware paths), which fully
+ // supersedes this panel's knobs/ADSR/file-loading UI built around the
+ // now-disconnected sfzPlayer2 live engine.
  // Real tab order (see DualLcdControlFrame::drawTab): 0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER.
- // sfzPlayerDropdown drives sfzPlayer2ChannelMask (sfizz / SFZ-PLAYER).
- // sfzDropdown       drives sfPlayerChannelMask   (FluidSynth / SF2-PLAYER), despite its name.
- if (uiMode == 1)
+ // sfzDropdown drives sfPlayerChannelMask (FluidSynth / SF2-PLAYER), despite its name.
+ sfzPlayerDropdown.setVisible (false);
+ if (uiMode == 2)
  {
-     // SFZ-PLAYER: show sfzPlayerDropdown; sfzDropdown hidden
-     sfzDropdown.setVisible (false);
-     sfzPlayerDropdown.setVisible (true);
- }
- else if (uiMode == 2)
- {
-     // SF2-PLAYER: show sfzDropdown (SF2 program grid); sfzPlayerDropdown hidden
+     // SF2-PLAYER: show sfzDropdown (SF2 program grid)
      sfzDropdown.setVisible (true);
-     sfzPlayerDropdown.setVisible (false);
  }
  else
  {
      sfzDropdown.setVisible (false);
-     sfzPlayerDropdown.setVisible (false);
  }
 
  // Persist the new mode
@@ -851,17 +841,16 @@ void DysektEditor::resized()
  const int sideW = (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2;
  // Show/hide LCD panels per mode.
  // Real tab order: 0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER.
- const bool sfzMode = (uiMode == 1);
+ // sliceLcd/sliceWaveformLcd are mode-aware (see WaveformView's
+ // activeSliceManager/activeVoicePool pattern) and cover BOTH the Slicer
+ // and SFZ-PLAYER tabs. SF2-PLAYER still uses its own dedicated panels.
  const bool sf2Mode = (uiMode == 2);
- sliceLcd.setVisible (! sfzMode && ! sf2Mode);
- sliceWaveformLcd.setVisible (! sfzMode && ! sf2Mode);
- sfzLcd.setVisible (sfzMode);
- sfzWaveformLcd.setVisible (sfzMode);
+ sliceLcd.setVisible (! sf2Mode);
+ sliceWaveformLcd.setVisible (! sf2Mode);
  sf2Lcd.setVisible (sf2Mode);
  sf2WaveformLcd.setVisible (sf2Mode);
 
  sliceLcd.setBounds (topRow.removeFromLeft (sideW));
- sfzLcd.setBounds (sliceLcd.getBounds());
  sf2Lcd.setBounds (sliceLcd.getBounds());
  topRow.removeFromLeft (si (kMargin));
 
@@ -887,7 +876,6 @@ void DysektEditor::resized()
 
  topRow.removeFromLeft (si (kMargin));
  sliceWaveformLcd.setBounds (topRow);
- sfzWaveformLcd.setBounds (topRow);
  sf2WaveformLcd.setBounds (topRow);
 
  auto actionArea = area.removeFromTop (si (kActionH));
@@ -991,7 +979,7 @@ void DysektEditor::resized()
  // the default Empty.wav placeholder does not count.
  auto sampleSnap = processor.sampleData.getSnapshot();
  const bool hasRealSample = (uiMode == 1)
-    ? (processor.sliceManager2.getNumSlices() > 0)  // SFZ-PLAYER: slices exist once load complete
+    ? processor.sfzPlayer2.isLoaded()
     : (hasSampleLoaded
        && sampleSnap != nullptr
        && ! sampleSnap->filePath.containsIgnoreCase ("DYSEKT_default.wav"));
@@ -1319,21 +1307,6 @@ void DysektEditor::timerCallback()
  if (snapshotVersion != lastUiSnapshotVersion) { lastUiSnapshotVersion = snapshotVersion; uiChanged = true; }
 
  {
- // sliceManager2 is populated on the audio thread (load completion handler
- // in processBlock). The SCB/overview for uiMode==1 are gated on
- // sliceManager2.getNumSlices() > 0 (see resized()), but nothing else
- // re-runs layout when that flips — so without this edge-detect the SCB
- // stays on stale (zero) bounds until something unrelated calls resized().
- const bool sfzPlayer2LoadedNow = (processor.sliceManager2.getNumSlices() > 0);
- if (sfzPlayer2LoadedNow != lastSfzPlayer2Loaded)
- {
-     lastSfzPlayer2Loaded = sfzPlayer2LoadedNow;
-     resized();
-     repaint();
- }
- }
-
- {
  const bool procState = processor.midiSelectsSlice.load (std::memory_order_relaxed);
  headerBar.setMidiFollowActive (procState);
  }
@@ -1397,9 +1370,8 @@ void DysektEditor::timerCallback()
  processor.voicePool.voicePositions.end(),
  [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; })
  || std::any_of (processor.voicePool2.voicePositions.begin(),
-                 processor.voicePool2.voicePositions.end(),
-                 [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; })
- || (processor.zonePreview2.playPosition.load (std::memory_order_relaxed) >= 0);
+ processor.voicePool2.voicePositions.end(),
+ [] (const std::atomic<float>& pos) { return pos.load (std::memory_order_relaxed) > 0.0f; });
 
  const bool slicingActive    = (uiMode == 0);
  const bool waveformAnimating = waveformInteracting || previewActive
@@ -1464,8 +1436,6 @@ void DysektEditor::timerCallback()
 
  sliceLcd.repaintLcd();
  sliceWaveformLcd.repaintLcd();
- sfzLcd.repaintLcd();
- sfzWaveformLcd.repaintLcd();
  sf2Lcd.repaintLcd();
  sf2WaveformLcd.repaintLcd();
  {

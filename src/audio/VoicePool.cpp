@@ -587,9 +587,51 @@ static void fillStretchBlock (Voice& v, const SampleData& sample)
     v.stretchOutAvail   = outputSamples;
 }
 
-void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr*/,
-                                     float& outL, float& outR)
+// ── SFZ-PLAYER one-shot -> loop chaining helpers ─────────────────────────────
+// Used exclusively when a non-null SliceManager* is supplied to
+// processSample/processVoiceSample (the Slicer never passes one). See
+// Slice::nextSliceIdx's doc comment for the full rationale.
+
+namespace
 {
+    /** Returns the chain target slice index for sliceIdx, or -1 if none/invalid. */
+    int sliceChainTargetOf (SliceManager* mgr, int sliceIdx)
+    {
+        if (mgr == nullptr || sliceIdx < 0 || sliceIdx >= mgr->getNumSlices())
+            return -1;
+        const int target = mgr->getSlice (sliceIdx).nextSliceIdx;
+        if (target < 0 || target >= mgr->getNumSlices() || target == sliceIdx)
+            return -1;   // no chain, or a self-loop guard against infinite recursion
+        return target;
+    }
+}
+
+void VoicePool::retriggerChainedSlice (int voiceIdx, SliceManager* chainSource,
+                                        int targetSliceIdx, int note, float velocity,
+                                        const SampleData& sample)
+{
+    if (chainSource == nullptr || targetSliceIdx < 0
+        || targetSliceIdx >= chainSource->getNumSlices())
+        return;
+
+    // Reuse the same voice slot the attack-head voice just vacated — the
+    // chained sustain-tail slice takes over immediately, sample-accurately,
+    // with no extra allocate() call needed since slot voiceIdx is already free.
+    VoiceStartParams p;          // defaults: SFZ-PLAYER has no global knobs (see processMidi2)
+    p.sliceIdx = targetSliceIdx;
+    p.note     = note;
+    p.velocity = velocity;
+
+    const auto& targetSlice = chainSource->getSlice (targetSliceIdx);
+    p.globalMuteGroup = (int) chainSource->resolveParam (targetSliceIdx, kLockMuteGroup,
+                                                          (float) targetSlice.muteGroup,
+                                                          (float) p.globalMuteGroup);
+    muteGroup (p.globalMuteGroup, voiceIdx);
+
+    startVoice (voiceIdx, p, *chainSource, sample);
+}
+
+
     auto& v = voices[i];
     outL = 0.0f;
     outR = 0.0f;
@@ -659,8 +701,13 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr
                     if (v.oneShot)
                     {
                         // One-shot: sample played to end — deactivate immediately.
+                        const int chainTo  = chainSource ? sliceChainTargetOf (chainSource, v.sliceIdx) : -1;
+                        const int origNote = v.midiNote;
+                        const float origVel = v.velocity;
                         v.active = false;
                         voicePositions[i].store (0.0f, std::memory_order_relaxed);
+                        if (chainTo >= 0)
+                            retriggerChainedSlice (i, chainSource, chainTo, origNote, origVel, sample);
                         return;
                     }
                     // Gate voices: forceRelease so the voice doesn't play silence forever
@@ -759,10 +806,15 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr
                     {
                         // One-shot: sample played to end — deactivate immediately.
                         // The ADSR is irrelevant here; position reaching endSample IS the termination.
+                        const int chainTo  = chainSource ? sliceChainTargetOf (chainSource, v.sliceIdx) : -1;
+                        const int origNote = v.midiNote;
+                        const float origVel = v.velocity;
                         v.active = false;
                         voicePositions[i].store (0.0f, std::memory_order_relaxed);
                         outL = voiceL * v.panL;
                         outR = voiceR * v.panR;
+                        if (chainTo >= 0)
+                            retriggerChainedSlice (i, chainSource, chainTo, origNote, origVel, sample);
                         return;
                     }
                     // Gate voices: forceRelease so the voice doesn't play silence forever
@@ -813,7 +865,8 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr
 }
 
 void VoicePool::processSample (const SampleData& sample, double sr,
-                                float& outL, float& outR)
+                                float& outL, float& outR,
+                                SliceManager* chainSource)
 {
     outL = 0.0f;
     outR = 0.0f;
@@ -821,7 +874,7 @@ void VoicePool::processSample (const SampleData& sample, double sr,
     for (int i = 0; i < maxActive; ++i)
     {
         float vL = 0.0f, vR = 0.0f;
-        processVoiceSample (i, sample, sr, vL, vR);
+        processVoiceSample (i, sample, sr, vL, vR, chainSource);
         outL += vL;
         outR += vR;
     }
@@ -832,7 +885,7 @@ void VoicePool::processSample (const SampleData& sample, double sr,
     if (previewIdx >= maxActive && voices[previewIdx].active)
     {
         float vL = 0.0f, vR = 0.0f;
-        processVoiceSample (previewIdx, sample, sr, vL, vR);
+        processVoiceSample (previewIdx, sample, sr, vL, vR, chainSource);
         outL += vL;
         outR += vR;
     }

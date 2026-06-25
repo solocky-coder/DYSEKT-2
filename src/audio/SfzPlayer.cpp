@@ -81,11 +81,6 @@ void SfzPlayer::setSfzAttack  (float s) noexcept
     sfzAttackSec .store (juce::jlimit (0.0f,  30.0f, s), std::memory_order_relaxed);
     sfzAdsrDirty .store (true, std::memory_order_release);
 }
-void SfzPlayer::setSfzHold    (float s) noexcept
-{
-    sfzHoldSec   .store (juce::jlimit (0.0f,  30.0f, s), std::memory_order_relaxed);
-    sfzAdsrDirty .store (true, std::memory_order_release);
-}
 void SfzPlayer::setSfzDecay   (float s) noexcept
 {
     sfzDecaySec  .store (juce::jlimit (0.0f,  30.0f, s), std::memory_order_relaxed);
@@ -176,7 +171,6 @@ void SfzPlayer::sendAdsrToSfizz()
     if (numRegions <= 0) return;
 
     const float attack  = sfzAttackSec .load (std::memory_order_relaxed);
-    const float hold    = sfzHoldSec   .load (std::memory_order_relaxed);
     const float decay   = sfzDecaySec  .load (std::memory_order_relaxed);
     const float sustain = sfzSustainPct.load (std::memory_order_relaxed);
     const float release = sfzReleaseSec.load (std::memory_order_relaxed);
@@ -193,7 +187,6 @@ void SfzPlayer::sendAdsrToSfizz()
     for (int i = 0; i < numRegions; ++i)
     {
         sendFloat (i, "ampeg_attack",  attack);
-        sendFloat (i, "ampeg_hold",    hold);
         sendFloat (i, "ampeg_decay",   decay);
         sendFloat (i, "ampeg_sustain", sustain);
         sendFloat (i, "ampeg_release", release);
@@ -1072,13 +1065,6 @@ void SfzPlayer::applyPendingLoad()
 
     const auto ext = owner->file.getFileExtension().toLowerCase();
 
-    // ── SFZ-only engine guard ────────────────────────────────────────────────
-    // This instance (e.g. sfzPlayer2 / SFZ-PLAYER) is restricted to .sfz —
-    // tear-down above already happened, so just leave it unloaded (silence),
-    // same as any other failed/rejected load.
-    if (restrictToSfzOnly.load (std::memory_order_relaxed) && ext != ".sfz")
-        return;
-
     // ── SFZ path (sfizz) ─────────────────────────────────────────────────────
 #if DYSEKT_HAS_SFIZZ
     if (ext == ".sfz")
@@ -1151,7 +1137,7 @@ void SfzPlayer::applyPendingLoad()
     // ── SF2 loop points are extracted by SoundFontLoader via SHDR binary parse ──
     // (see SoundFontLoader.cpp: parseSf2LoopPoints)
     // SfzPlayer::setLoopPoints() is called from there after the render job
-    // completes so SfzWaveformLcd can display the loop overlay.
+    // completes so Sf2WaveformLcd can display the loop overlay.
     // Reset them here so a reload of a non-looping SF2 clears old markers.
     sfzLoopStartSample.store (-1, std::memory_order_relaxed);
     sfzLoopEndSample  .store (-1, std::memory_order_relaxed);

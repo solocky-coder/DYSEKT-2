@@ -81,6 +81,16 @@ struct Slice
     bool     chromaticLegato  = false; // when true: pitch-only (no speed change), monophonic voice steal
     int      rrCounter      = 0;        // round-robin playback counter (not saved)
 
+    /** -1 = no chain. Otherwise, the index of a slice to retrigger (looping)
+     *  the instant this one-shot slice's voice naturally reaches its end.
+     *  Used exclusively by the SFZ-PLAYER engine to approximate SFZ
+     *  loop_start/loop_end opcodes: an SFZ region with a sustain loop is
+     *  split into two slices (one-shot attack head + looped sustain tail),
+     *  with the head's nextSliceIdx pointing at the tail. The Slicer never
+     *  sets this field. See VoicePool::processVoiceSample's chain-retrigger
+     *  path, only taken when a non-null SliceManager pointer is supplied. */
+    int      nextSliceIdx   = -1;
+
     juce::String name;              // user-defined label; empty = show slice number
     uint32_t lockMask       = 0;
     juce::Colour colour     { []() -> juce::Colour {

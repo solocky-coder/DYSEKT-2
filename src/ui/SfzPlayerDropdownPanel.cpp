@@ -441,9 +441,25 @@ void SfzPlayerDropdownPanel::resized()
     strip.removeFromRight (kKnobGap);
     adsrDecZone = strip.removeFromRight (kKnobW);
     strip.removeFromRight (kKnobGap);
-    adsrHldZone = strip.removeFromRight (kKnobW);
-    strip.removeFromRight (kKnobGap);
     adsrAtkZone = strip.removeFromRight (kKnobW);
+
+    // Ch-FX knobs reuse the same pixel zones as ADSR (shown only when SF2 loaded)
+    chMixZone  = adsrAtkZone;
+    chSizeZone = adsrDecZone;
+    chDampZone = adsrSusZone;
+    chGainZone = adsrRelZone;
+
+    // SF2 channel-range spinner zone: all the knob slots that are hidden when
+    // SF2 is loaded (ADSR + TRN + FINE) become available real-estate.  Use the
+    // combined bounding box of those six zones for a wide, readable spinner.
+    // When SFZ is loaded these knobs show normally; the spinner is invisible.
+    chComboZone = adsrAtkZone
+                      .getUnion (adsrDecZone)
+                      .getUnion (adsrSusZone)
+                      .getUnion (adsrRelZone)
+                      .getUnion (transZone)
+                      .getUnion (fineZone)
+                      .expanded (kKnobGap / 2, 0);
 
     // Sub-divide nameZone:
     //   [< arrow] [folder icon] [label] [> arrow]
@@ -476,6 +492,33 @@ void SfzPlayerDropdownPanel::resized()
         fileBrowser.setBounds ({});
     }
 
+    // ── Channel-range spinner hit-zones (unused, retained for layout calc) ────
+    {
+        // Spinner centred inside the full chComboZone width (~336 px).
+        // Large hit targets for easy clicking.
+        const int btnW   = 28;   // ◂ / ▸ arrow
+        const int numW   = 38;   // two-digit channel number + padding
+        const int gap    = 10;
+        const int sepW   = 28;   // " – " separator
+        const int labelW = 30;   // "CH" prefix
+        const int widgetW = labelW + gap + btnW + numW + btnW + gap + sepW + gap + btnW + numW + btnW;
+        auto z = chComboZone.withSizeKeepingCentre (widgetW, chComboZone.getHeight());
+
+        chRangeLabelZone = z.removeFromLeft (labelW);
+        z.removeFromLeft (gap);
+
+        chLowDec   = z.removeFromLeft (btnW);
+        chLowLabel = z.removeFromLeft (numW);
+        chLowInc   = z.removeFromLeft (btnW);
+        z.removeFromLeft (gap);
+
+        z.removeFromLeft (sepW);
+        z.removeFromLeft (gap);
+
+        chHighDec   = z.removeFromLeft (btnW);
+        chHighLabel = z.removeFromLeft (numW);
+        chHighInc   = z.removeFromLeft (btnW);
+    }
 }
 
 // =============================================================================
@@ -487,7 +530,7 @@ void SfzPlayerDropdownPanel::openBrowser()
     if (browserOpen) return;
     browserOpen = true;
 
-    if ((processor.sliceManager2.getNumSlices() > 0))
+    if (processor.sfzPlayer2.isLoaded())
     {
         // Navigate to the directory of the currently loaded file
         fileBrowser.setRootDirectory (
@@ -548,7 +591,8 @@ void SfzPlayerDropdownPanel::onFileChosen (const juce::File& f)
         return;
     }
 
-    processor.syncSfzPlayer2ChannelMaskFromEngine();
+    processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
+    processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
     reloadZones (f);
     closeBrowser();
     repaint();
@@ -600,11 +644,29 @@ void SfzPlayerDropdownPanel::paint (juce::Graphics& g)
 
 void SfzPlayerDropdownPanel::drawAdsrStrip (juce::Graphics& g) const
 {
-    // SFZ-PLAYER now uses the Slicer engine (sliceManager2/voicePool2) —
-    // the old sfizz global ADSR/reverb knobs have been removed.
-    // Per-slice ADSR is edited via SliceWaveformLcd (the new sfzWaveformLcd
-    // in the main editor), same as the Slicer tab.
-    juce::ignoreUnused (g);
+    // Attack: 0-30 s, normalised
+    drawKnob (g, adsrAtkZone,
+              juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzAttack()  / 30.0f),
+              "ATK",
+              juce::String (processor.sfzPlayer2.getSfzAttack(), 2) + "s");
+
+    // Decay: 0-30 s
+    drawKnob (g, adsrDecZone,
+              juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzDecay()   / 30.0f),
+              "DEC",
+              juce::String (processor.sfzPlayer2.getSfzDecay(), 2) + "s");
+
+    // Sustain: 0-100 %
+    drawKnob (g, adsrSusZone,
+              juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzSustain() / 100.0f),
+              "SUS",
+              juce::String (juce::roundToInt (processor.sfzPlayer2.getSfzSustain())) + "%");
+
+    // Release: 0-60 s
+    drawKnob (g, adsrRelZone,
+              juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzRelease() / 60.0f),
+              "REL",
+              juce::String (processor.sfzPlayer2.getSfzRelease(), 2) + "s");
 }
 
 void SfzPlayerDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
@@ -612,10 +674,45 @@ void SfzPlayerDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
     const auto& theme = getTheme();
     drawPresetPicker (g);
 
-    // TRN, FINE, MIX, SIZE, PAN, VOL knobs removed — they drove the old
-    // sfizz live engine which has been replaced by sliceManager2/voicePool2.
-    // Per-slice pitch/pan/volume are now edited via SliceControlBar/
-    // SliceWaveformLcd exactly as on the Slicer tab.
+    {
+        drawKnob (g, transZone, transToNorm (processor.sfzPlayer2.getTranspose()),
+                  "TRN",
+                  [&]() -> juce::String {
+                      const int s = processor.sfzPlayer2.getTranspose();
+                      return s == 0 ? "0st" : (s > 0 ? "+" : "") + juce::String (s) + "st";
+                  }());
+
+        drawKnob (g, fineZone, fineToNorm (processor.sfzPlayer2.getFineTune()),
+                  "FINE",
+                  [&]() -> juce::String {
+                      const float c = processor.sfzPlayer2.getFineTune();
+                      return (c >= 0 ? "+" : "") + juce::String (c, 0) + "c";
+                  }());
+    }
+
+    drawKnob (g, rvMixZone, processor.sfzPlayer2.getReverbMix() / 100.0f,
+              "MIX",
+              juce::String (juce::roundToInt (processor.sfzPlayer2.getReverbMix())) + "%");
+
+    drawKnob (g, rvSizeZone, processor.sfzPlayer2.getReverbSize() / 100.0f,
+              "SIZE",
+              juce::String (juce::roundToInt (processor.sfzPlayer2.getReverbSize())) + "%");
+
+    drawKnob (g, panZone, panToNorm (processor.sfzPlayer2.getPan()),
+              "PAN",
+              [&]() -> juce::String {
+                  const float p = processor.sfzPlayer2.getPan();
+                  if (std::abs (p) < 0.01f) return "C";
+                  const int pct = juce::roundToInt (std::abs (p) * 100);
+                  return (p < 0 ? "L" : "R") + juce::String (pct);
+              }());
+
+    drawKnob (g, volZone, volToNorm (processor.sfzPlayer2.getVolume()),
+              "VOL",
+              [&]() -> juce::String {
+                  const float db = juce::Decibels::gainToDecibels (processor.sfzPlayer2.getVolume());
+                  return db <= -95.f ? "-inf" : juce::String (db, 1) + "dB";
+              }());
 
     drawMeter (g);
 
@@ -648,7 +745,7 @@ void SfzPlayerDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
 void SfzPlayerDropdownPanel::drawPresetPicker (juce::Graphics& g) const
 {
     const auto& theme    = getTheme();
-    const bool  isLoaded = (processor.sliceManager2.getNumSlices() > 0);
+    const bool  isLoaded = processor.sfzPlayer2.isLoaded();
 
     // Background
     {
@@ -856,6 +953,20 @@ void SfzPlayerDropdownPanel::timerCallback()
 
     presetList = processor.sfzPlayer2.getPresetList();
 
+    // Poll sfzPlayer2ChannelMask from processor for paint (avoids atomic reads in paint).
+    // Derive lo/hi as the lowest and highest set channel bits for spinner display.
+    // Channel 1 is hardwired to the slicer and never appears in sfzPlayer2ChannelMask.
+    {
+        const uint32_t mask = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+        cachedChLow  = 0;
+        cachedChHigh = 0;
+        if (mask != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (mask & (1u << c)) { cachedChLow  = c; break; }
+            for (int c = 16; c >= 2; --c)  if (mask & (1u << c)) { cachedChHigh = c; break; }
+        }
+    }
+
     repaint();
 }
 
@@ -874,7 +985,7 @@ void SfzPlayerDropdownPanel::selectPreset (int delta)
     {
         processor.sfzPlayer2.setPresetByIndex (next);
 
-        if ((processor.sliceManager2.getNumSlices() > 0))
+        if (processor.sfzPlayer2.isLoaded())
             reloadZones (processor.sfzPlayer2.getLoadedFile());
 
         repaint();
@@ -922,6 +1033,72 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
 {
     const auto pos = e.getPosition();
 
+    // ── Channel-range spinners (visible in SF2 strip) ─────────────────────
+    auto adjustChannel = [&](bool isLow, int delta)
+    {
+        // Derive current lo/hi from sfzPlayer2ChannelMask for spinner display.
+        const uint32_t curMask = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+        int lo = 0, hi = 0;
+        if (curMask != 0)
+        {
+            for (int c = 2; c <= 16; ++c)  if (curMask & (1u << c)) { lo = c; break; }
+            for (int c = 16; c >= 2; --c)  if (curMask & (1u << c)) { hi = c; break; }
+        }
+        if (lo == 0) lo = 2;   // channel 1 is hardwired to the slicer; SF player starts at 2
+        if (hi == 0) hi = lo;
+
+        // Channels owned by chromatic slices are not available to the SF player.
+        const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
+        // Channel 1 is also never available to the SF player.
+        const uint32_t sf2Mask = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+        const uint32_t sfPlayerMask = processor.sfPlayerChannelMask.load (std::memory_order_relaxed);
+        auto isFree = [&](int ch) -> bool
+        {
+            if (ch < 2 || ch > 16) return false;
+            return ! ((chromaMask | sfPlayerMask) & (1u << ch));
+        };
+
+        if (isLow)
+        {
+            int newLo = juce::jlimit (2, hi, lo + delta);
+            while (newLo >= 2 && newLo <= hi && ! isFree (newLo))
+                newLo += delta > 0 ? 1 : -1;
+            newLo = juce::jlimit (2, hi, newLo);
+            if (isFree (newLo))
+            {
+                // Build mask for [newLo, hi] but skip chromatic-owned holes so they
+                // are never included even when they fall inside the lo–hi range.
+                uint32_t mask = 0u;
+                for (int c = newLo; c <= hi; ++c)
+                    if (isFree (c)) mask |= (1u << c);
+                processor.sfzPlayer2ChannelMask.store      (mask, std::memory_order_relaxed);
+                processor.savedSfzPlayer2ChannelMask.store (mask, std::memory_order_relaxed);
+            }
+        }
+        else
+        {
+            int newHi = juce::jlimit (lo, 16, hi + delta);
+            while (newHi >= lo && newHi <= 16 && ! isFree (newHi))
+                newHi += delta > 0 ? 1 : -1;
+            newHi = juce::jlimit (lo, 16, newHi);
+            if (isFree (newHi))
+            {
+                // Build mask for [lo, newHi] but skip chromatic-owned holes.
+                uint32_t mask = 0u;
+                for (int c = lo; c <= newHi; ++c)
+                    if (isFree (c)) mask |= (1u << c);
+                processor.sfzPlayer2ChannelMask.store      (mask, std::memory_order_relaxed);
+                processor.savedSfzPlayer2ChannelMask.store (mask, std::memory_order_relaxed);
+            }
+        }
+        repaint();
+    };
+
+    if (chLowDec .contains (pos)) { adjustChannel (true,  -1); return; }
+    if (chLowInc .contains (pos)) { adjustChannel (true,  +1); return; }
+    if (chHighDec.contains (pos)) { adjustChannel (false, -1); return; }
+    if (chHighInc.contains (pos)) { adjustChannel (false, +1); return; }
+
     // ── Folder icon — toggle browser ─────────────────────────────────────────
     if (folderIconZone.contains (pos))
     {
@@ -932,7 +1109,7 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
 
     // ── Clicking the label area when browser is closed and no file loaded ─────
     if (presetLabel.contains (pos) && ! browserOpen
-        && ! (processor.sliceManager2.getNumSlices() > 0))
+        && ! processor.sfzPlayer2.isLoaded())
     {
         openBrowser();
         return;
@@ -950,7 +1127,7 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
     {
         if (nameZone.contains (pos) || folderIconZone.contains (pos))
         {
-            if ((processor.sliceManager2.getNumSlices() > 0))
+            if (processor.sfzPlayer2.isLoaded())
             {
                 const auto ext = processor.sfzPlayer2.getLoadedFile()
                                      .getFileExtension().toLowerCase();
@@ -981,13 +1158,11 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
                             if (result == 200)
                             {
                                 processor.sfzPlayer2.setMidiChannel (0);
-                                processor.syncSfzPlayer2ChannelMaskFromEngine();
                             }
                             else if (result > 200 && result <= 216)
                             {
                                 const int ch = result - 200;
                                 processor.sfzPlayer2.setMidiChannel (ch);
-                                processor.syncSfzPlayer2ChannelMaskFromEngine();
                             }
                             else if (result == 300)
                             {
@@ -1005,17 +1180,16 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
         using F = DysektProcessor::SliceParamField;
         struct { juce::Rectangle<int>& zone; int fieldId; } knobFields[] =
         {
-            { volZone,     F::FieldSfz2Vol         },
-            { transZone,   F::FieldSfz2Transpose   },
-            { panZone,     F::FieldSfz2Pan          },
-            { fineZone,    F::FieldSfz2FineTune     },
-            { rvMixZone,   F::FieldSfz2ReverbMix    },
-            { rvSizeZone,  F::FieldSfz2ReverbSize   },
-            { adsrAtkZone, F::FieldSfz2Attack        },
-            { adsrHldZone, F::FieldSfz2Hold          },
-            { adsrDecZone, F::FieldSfz2Decay         },
-            { adsrSusZone, F::FieldSfz2Sustain       },
-            { adsrRelZone, F::FieldSfz2Release       },
+            { volZone,     F::FieldSfzVol        },
+            { transZone,   F::FieldSfzTranspose   },
+            { panZone,     F::FieldSfzPan          },
+            { fineZone,    F::FieldSfzFineTune     },
+            { rvMixZone,   F::FieldSfzReverbMix    },
+            { rvSizeZone,  F::FieldSfzReverbSize   },
+            { adsrAtkZone, F::FieldSfzAttack        },
+            { adsrDecZone, F::FieldSfzDecay         },
+            { adsrSusZone, F::FieldSfzSustain       },
+            { adsrRelZone, F::FieldSfzRelease       },
         };
         for (auto& kf : knobFields)
         {
@@ -1036,17 +1210,20 @@ void SfzPlayerDropdownPanel::mouseDown (const juce::MouseEvent& e)
     }
 
     // ── Knob drag start ───────────────────────────────────────────────────────
-    // All knobs that previously drove the sfizz engine (Volume, Transpose,
-    // Pan, FineTune, Reverb, ADSR) have been removed. Per-slice equivalents
-    // live in SliceControlBar/SliceWaveformLcd. This table is now empty;
-    // the block is kept so the hit-test loop still compiles cleanly.
     {
         struct { juce::Rectangle<int>& zone; ActiveKnob id; float val; } knobs[] =
         {
-            // (table intentionally empty — dead sfizz knobs removed)
-            { volZone, ActiveKnob::None, 0.f }, // sentinel to keep array non-empty
+            { volZone,     ActiveKnob::Volume,      volToNorm   (processor.sfzPlayer2.getVolume()) },
+            { transZone,   ActiveKnob::Transpose,   transToNorm (processor.sfzPlayer2.getTranspose()) },
+            { panZone,     ActiveKnob::Pan,         panToNorm   (processor.sfzPlayer2.getPan()) },
+            { fineZone,    ActiveKnob::FineTune,    fineToNorm  (processor.sfzPlayer2.getFineTune()) },
+            { rvMixZone,   ActiveKnob::ReverbMix,   processor.sfzPlayer2.getReverbMix()  / 100.0f },
+            { rvSizeZone,  ActiveKnob::ReverbSize,  processor.sfzPlayer2.getReverbSize() / 100.0f },
+            { adsrAtkZone, ActiveKnob::AdsrAttack,  juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzAttack()  / 30.0f) },
+            { adsrDecZone, ActiveKnob::AdsrDecay,   juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzDecay()   / 30.0f) },
+            { adsrSusZone, ActiveKnob::AdsrSustain, juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzSustain() / 100.0f) },
+            { adsrRelZone, ActiveKnob::AdsrRelease, juce::jlimit (0.f, 1.f, processor.sfzPlayer2.getSfzRelease() / 60.0f) },
         };
-        (void) knobs;
 
         for (auto& k : knobs)
         {
@@ -1069,9 +1246,16 @@ void SfzPlayerDropdownPanel::mouseDrag (const juce::MouseEvent& e)
 
     switch (activeKnob)
     {
-        // All sfizz-engine knobs (Volume, Transpose, Pan, FineTune, Reverb,
-        // ADSR) have been removed — their zones are no longer in the hit-test
-        // table above, so this switch will only ever hit the default branch.
+        case ActiveKnob::Volume:      processor.sfzPlayer2.setVolume    (normToVol   (newNorm)); break;
+        case ActiveKnob::Transpose:   processor.sfzPlayer2.setTranspose (normToTrans (newNorm)); break;
+        case ActiveKnob::Pan:         processor.sfzPlayer2.setPan       (normToPan   (newNorm)); break;
+        case ActiveKnob::FineTune:    processor.sfzPlayer2.setFineTune  (normToFine  (newNorm)); break;
+        case ActiveKnob::ReverbMix:   processor.sfzPlayer2.setReverbMix  (newNorm * 100.0f);     break;
+        case ActiveKnob::ReverbSize:  processor.sfzPlayer2.setReverbSize (newNorm * 100.0f);     break;
+        case ActiveKnob::AdsrAttack:  processor.sfzPlayer2.setSfzAttack  (newNorm * 30.0f);      break;
+        case ActiveKnob::AdsrDecay:   processor.sfzPlayer2.setSfzDecay   (newNorm * 30.0f);      break;
+        case ActiveKnob::AdsrSustain: processor.sfzPlayer2.setSfzSustain (newNorm * 100.0f);     break;
+        case ActiveKnob::AdsrRelease: processor.sfzPlayer2.setSfzRelease (newNorm * 60.0f);      break;
         default: break;
     }
     repaint();
@@ -1082,9 +1266,20 @@ void SfzPlayerDropdownPanel::mouseUp (const juce::MouseEvent&)
     activeKnob = ActiveKnob::None;
 }
 
-void SfzPlayerDropdownPanel::mouseDoubleClick (const juce::MouseEvent&)
+void SfzPlayerDropdownPanel::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    // All double-click-to-reset knobs have been removed along with the sfizz engine.
+    const auto pos = e.getPosition();
+    if (volZone.contains    (pos)) { processor.sfzPlayer2.setVolume    (1.0f);  repaint(); }
+    if (transZone.contains  (pos)) { processor.sfzPlayer2.setTranspose (0);     repaint(); }
+    if (panZone.contains    (pos)) { processor.sfzPlayer2.setPan       (0.0f);  repaint(); }
+    if (fineZone.contains   (pos)) { processor.sfzPlayer2.setFineTune  (0.0f);  repaint(); }
+    if (rvMixZone.contains  (pos)) { processor.sfzPlayer2.setReverbMix  (0.0f);  repaint(); }
+    if (rvSizeZone.contains (pos)) { processor.sfzPlayer2.setReverbSize (50.0f);  repaint(); }
+    // ADSR defaults
+    if (adsrAtkZone.contains (pos)) { processor.sfzPlayer2.setSfzAttack  (0.005f);  repaint(); }
+    if (adsrDecZone.contains (pos)) { processor.sfzPlayer2.setSfzDecay   (0.1f);    repaint(); }
+    if (adsrSusZone.contains (pos)) { processor.sfzPlayer2.setSfzSustain (100.0f);  repaint(); }
+    if (adsrRelZone.contains (pos)) { processor.sfzPlayer2.setSfzRelease (0.05f);   repaint(); }
 }
 
 void SfzPlayerDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
@@ -1092,7 +1287,8 @@ void SfzPlayerDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
 {
     if (browserOpen) return;
 
-    const auto pos = e.getPosition();
+    const auto  pos  = e.getPosition();
+    const float step = w.deltaY * (e.mods.isShiftDown() ? 0.01f : 0.05f);
 
     if (nameZone.contains (pos))
     {
@@ -1101,7 +1297,31 @@ void SfzPlayerDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
         return;
     }
 
-    // All sfizz-engine knob scroll handlers removed.
+    auto adjustNorm = [&] (float current, float s) {
+        return juce::jlimit (0.f, 1.f, current + s);
+    };
+
+    if (volZone.contains (pos))
+        processor.sfzPlayer2.setVolume (normToVol (adjustNorm (volToNorm (processor.sfzPlayer2.getVolume()), step)));
+    else if (transZone.contains (pos))
+        processor.sfzPlayer2.setTranspose (normToTrans (adjustNorm (transToNorm (processor.sfzPlayer2.getTranspose()), step)));
+    else if (panZone.contains (pos))
+        processor.sfzPlayer2.setPan (normToPan (adjustNorm (panToNorm (processor.sfzPlayer2.getPan()), step)));
+    else if (fineZone.contains (pos))
+        processor.sfzPlayer2.setFineTune (normToFine (adjustNorm (fineToNorm (processor.sfzPlayer2.getFineTune()), step)));
+    else if (rvMixZone.contains (pos))
+        processor.sfzPlayer2.setReverbMix  (juce::jlimit (0.0f, 100.0f, processor.sfzPlayer2.getReverbMix()  + step * 100.0f));
+    else if (rvSizeZone.contains (pos))
+        processor.sfzPlayer2.setReverbSize (juce::jlimit (0.0f, 100.0f, processor.sfzPlayer2.getReverbSize() + step * 100.0f));
+    else if (adsrAtkZone.contains (pos))
+        processor.sfzPlayer2.setSfzAttack  (juce::jlimit (0.f, 30.f,  adjustNorm (processor.sfzPlayer2.getSfzAttack()  / 30.0f,  step) * 30.0f));
+    else if (adsrDecZone.contains (pos))
+        processor.sfzPlayer2.setSfzDecay   (juce::jlimit (0.f, 30.f,  adjustNorm (processor.sfzPlayer2.getSfzDecay()   / 30.0f,  step) * 30.0f));
+    else if (adsrSusZone.contains (pos))
+        processor.sfzPlayer2.setSfzSustain (juce::jlimit (0.f, 100.f, adjustNorm (processor.sfzPlayer2.getSfzSustain() / 100.0f, step) * 100.0f));
+    else if (adsrRelZone.contains (pos))
+        processor.sfzPlayer2.setSfzRelease (juce::jlimit (0.f, 60.f,  adjustNorm (processor.sfzPlayer2.getSfzRelease() / 60.0f,  step) * 60.0f));
+
     repaint();
 }
 
@@ -1128,7 +1348,8 @@ void SfzPlayerDropdownPanel::filesDropped (const juce::StringArray& files, int, 
         if (ext == ".sfz")   // SFZ-Player only
         {
             juce::File file (f);
-            processor.syncSfzPlayer2ChannelMaskFromEngine();
+            processor.sfzPlayer2.loadFile (file, processor.fileLoadPool);
+            processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
             reloadZones (file);
             closeBrowser();
             repaint();
@@ -1145,7 +1366,7 @@ void SfzPlayerDropdownPanel::panelDidShow()
 {
     presetList = processor.sfzPlayer2.getPresetList();
 
-    if ((processor.sliceManager2.getNumSlices() > 0))
+    if (processor.sfzPlayer2.isLoaded())
     {
         const auto f = processor.sfzPlayer2.getLoadedFile();
         reloadZones (f);
@@ -1171,7 +1392,8 @@ void SfzPlayerDropdownPanel::initEmptySfz()
     if (! sfz.existsAsFile())
         sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
 
-    processor.syncSfzPlayer2ChannelMaskFromEngine();
+    processor.sfzPlayer2.loadFile (sfz, processor.fileLoadPool);   // sfizz handles empty file gracefully (silence)
+    processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
     reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }
 
@@ -1667,7 +1889,8 @@ void SfzPlayerDropdownPanel::writeSfzZoneChange (const juce::File& f,
     f.replaceWithText (newContent);
 
     // Hot-reload the SFZ player so changes take effect immediately
-    processor.syncSfzPlayer2ChannelMaskFromEngine();
+    processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
+    processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
 }
 
 // =============================================================================
@@ -1678,7 +1901,7 @@ void SfzPlayerDropdownPanel::openAddZoneChooser()
 {
     // Resolve the target SFZ (may be empty if nothing is loaded yet).
     juce::File targetSfz;
-    if ((processor.sliceManager2.getNumSlices() > 0))
+    if (processor.sfzPlayer2.isLoaded())
     {
         const auto loaded = processor.sfzPlayer2.getLoadedFile();
         if (loaded.getFileExtension().toLowerCase() == ".sfz")
@@ -1734,7 +1957,8 @@ void SfzPlayerDropdownPanel::showAddZoneOverlay (const juce::File& sfzFile,
             return;
         }
 
-        processor.syncSfzPlayer2ChannelMaskFromEngine();
+        processor.sfzPlayer2.loadFile (sfzFile, processor.fileLoadPool);
+        processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
         reloadZones (sfzFile);
         keysPanel.autoScrollToZones();
         repaint();
@@ -1795,7 +2019,8 @@ void SfzPlayerDropdownPanel::openSaveAsNewForZone (const juce::File& sampleFile)
 
         addZoneTargetSfz = dest;
 
-        processor.syncSfzPlayer2ChannelMaskFromEngine();
+        processor.sfzPlayer2.loadFile (dest, processor.fileLoadPool);
+        processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
         reloadZones (dest);
         repaint();
 
@@ -1811,7 +2036,7 @@ void SfzPlayerDropdownPanel::openSaveAsNewForZone (const juce::File& sampleFile)
 
 void SfzPlayerDropdownPanel::openSaveAsOverlay()
 {
-    const auto currentFile = (processor.sliceManager2.getNumSlices() > 0)
+    const auto currentFile = processor.sfzPlayer2.isLoaded()
                            ? processor.sfzPlayer2.getLoadedFile()
                            : juce::File::getSpecialLocation (juce::File::userMusicDirectory)
                                  .getChildFile ("Custom.sfz");
@@ -1845,6 +2070,7 @@ void SfzPlayerDropdownPanel::openSaveAsOverlay()
             dest.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
         }
 
+        processor.sfzPlayer2.loadFile (dest, processor.fileLoadPool);
         reloadZones (dest);
         repaint();
     };

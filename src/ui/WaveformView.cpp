@@ -10,45 +10,19 @@ void WaveformView::drawPlaybackCursors (juce::Graphics& g)
  const int h = getHeight();
  const int w = getWidth();
 
- if (isSfzPlayer2Mode())
- {
-     // voicePool2 voice positions are already absolute sample offsets
-     // within sampleData2 (same as the Slicer's voicePool below) — no
-     // elapsed-since-noteOn translation needed now that sfzPlayer2's
-     // live sfizz engine has been replaced by real slice playback.
-     const int midiPreviewVoice2 = LazyChopEngine::getPreviewVoiceIndex();
-     for (int i = 0; i < VoicePool::kMaxVoices; ++i)
-     {
-         if (i == midiPreviewVoice2) continue;
-
-         float pos = processor.voicePool2.voicePositions[i].load (std::memory_order_relaxed);
-         if (pos <= 0.0f) continue;
-
-         int px = sampleToPixel ((int) pos);
-         if (px < 0 || px >= w) continue;
-
-         g.setColour (juce::Colours::white.withAlpha (0.85f));
-         g.drawVerticalLine (px, 0.0f, (float) h);
-
-         juce::Path tri;
-         tri.addTriangle ((float) px - 5.0f, 0.0f,
-                           (float) px + 5.0f, 0.0f,
-                           (float) px,        8.0f);
-         g.fillPath (tri);
-     }
-     return;
- }
-
- // The MIDI slice preview voice is drawn exclusively by paintLazyChopOverlay.
+ // The MIDI slice preview voice is drawn exclusively by paintLazyChopOverlay
+ // (Slicer mode only — SFZ-PLAYER has no Lazy Chop/preview-voice concept).
  // Skipping it here prevents a ghost white line from persisting after MIDI slice stops.
  const int midiPreviewVoice = LazyChopEngine::getPreviewVoiceIndex();
+ const bool sfzMode = isSfzPlayer2Mode();
 
+ auto& pool = activeVoicePool();
  for (int i = 0; i < VoicePool::kMaxVoices; ++i)
  {
- if (i == midiPreviewVoice)
+ if (! sfzMode && i == midiPreviewVoice)
  continue;
 
- float pos = processor.voicePool.voicePositions[i].load (std::memory_order_relaxed);
+ float pos = pool.voicePositions[i].load (std::memory_order_relaxed);
  if (pos <= 0.0f)
  continue;
 
@@ -137,14 +111,14 @@ SampleData& WaveformView::activeSampleData() const noexcept
     return isSfzPlayer2Mode() ? processor.sampleData2 : processor.sampleData;
 }
 
-const DysektProcessor::UiSliceSnapshot& WaveformView::activeUiSnapshot() const noexcept
-{
-    return isSfzPlayer2Mode() ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
-}
-
 SliceManager& WaveformView::activeSliceManager() const noexcept
 {
     return isSfzPlayer2Mode() ? processor.sliceManager2 : processor.sliceManager;
+}
+
+VoicePool& WaveformView::activeVoicePool() const noexcept
+{
+    return isSfzPlayer2Mode() ? processor.voicePool2 : processor.voicePool;
 }
 
 WaveformView::ViewState WaveformView::buildViewState (const SampleData::SnapshotPtr& sampleSnap) const
@@ -740,11 +714,14 @@ void WaveformView::drawWaveform (juce::Graphics& g)
 
 void WaveformView::drawSlices (juce::Graphics& g)
 {
+ const bool sfzMode = isSfzPlayer2Mode();
+
  // --- Consume pending optimistic marker commit from processor (for MIDI/knob moves) ---
- // Slicer-only feature (driven by sliceControlBar knobs/MIDI on the real
- // sliceManager) — skip entirely in SFZ-PLAYER mode so it can't cross-talk
- // with sliceManager2's display.
- if (! isSfzPlayer2Mode())
+ // SFZ-PLAYER has no live-drag/optimistic-commit machinery at all (its
+ // slices come only from the loaded SFZ file, never user-edited), so this
+ // entire block is skipped in that mode — optimisticSliceIdx simply never
+ // gets set, and the dependent code below naturally never triggers.
+ if (! sfzMode)
  {
  int optIdx = processor.pendingUiOptimisticIdx.exchange(-1, std::memory_order_acq_rel);
  int optSample = -1;
@@ -779,7 +756,8 @@ void WaveformView::drawSlices (juce::Graphics& g)
  }
  }
 
- const auto& ui = activeUiSnapshot();
+ const auto& ui = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
+ auto& activeMgr = activeSliceManager();
  int sel = ui.selectedSlice;
  int num = ui.numSlices;
 
@@ -789,12 +767,15 @@ void WaveformView::drawSlices (juce::Graphics& g)
  if (! s.active) continue;
 
  int drawStartSample = s.startSample;
- if (i == optimisticSliceIdx && optimisticStartSample >= 0)
+ if (! sfzMode && i == optimisticSliceIdx && optimisticStartSample >= 0)
  drawStartSample = optimisticStartSample;
 
- int drawEndSample = activeSliceManager().getEndForSlice(i, ui.sampleNumFrames);
+ int drawEndSample = activeMgr.getEndForSlice(i, ui.sampleNumFrames);
 
  // Live preview during drag: fill tracks dragPreviewStart/End for any dragged slice
+ // (SFZ-PLAYER mode: dragSliceIdx/linkedSliceIdx/liveDragSliceIdx are never
+ // set against this engine — see the mouse handlers' sfzMode guards — so
+ // these branches naturally fall through to the plain committed bounds.)
  if (dragSliceIdx == i &&
  (dragMode == DragEdgeLeft || dragMode == MoveSlice))
  {
@@ -927,7 +908,8 @@ void WaveformView::mouseMove (const juce::MouseEvent& e)
 
  if (isSfzPlayer2Mode())
  {
-     // previewZones2 has no draggable edges — always the plain cursor.
+     // SFZ-PLAYER's slices come from the loaded SFZ file and are never
+     // user-edited — no draggable edges, always the plain cursor.
      setMouseCursor (juce::MouseCursor::NormalCursor);
      if (hoveredEdge != HoveredEdge::None) { hoveredEdge = HoveredEdge::None; repaint(); }
      return;
@@ -984,32 +966,49 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
  return;
  }
 
- // ── SFZ-PLAYER mode: real slices in sliceManager2, but not user-editable
- // here — no slice context menu, edge-dragging, or move/lock logic below
- // applies (no manual slicing for SFZ-PLAYER; slices come exclusively from
- // SFZ key-zones at load time). Clicking a slice selects it for
- // highlight/info display and triggers a one-shot audition of that exact
- // sample range (see DysektProcessor::zonePreview2).
+ // ── SFZ-PLAYER mode: real slices (sliceManager2), but display-only — no
+ // context menu, edge-dragging, move, or lock (the slice layout is fixed
+ // by the loaded SFZ file, never user-edited). Clicking a slice here only
+ // selects it for highlight and triggers a one-shot audition by starting
+ // a real voice on voicePool2, exactly as if that slice's pinned MIDI
+ // note had just been played — so ADSR/looping/everything sounds exactly
+ // like it would during normal MIDI playback, not a raw buffer dub.
  if (isSfzPlayer2Mode())
  {
-     const auto& ui2 = activeUiSnapshot();
+     const auto& ui = processor.getUiSliceSnapshot2();
+     const int num = ui.numSlices;
      int hitIdx = -1;
-     for (int i = 0; i < ui2.numSlices; ++i)
+     for (int i = 0; i < num; ++i)
      {
-         const auto& s = ui2.slices[(size_t) i];
+         const auto& s = ui.slices[(size_t) i];
          if (! s.active) continue;
-         const int sEnd = activeSliceManager().getEndForSlice (i, ui2.sampleNumFrames);
+         const int sEnd = processor.sliceManager2.getEndForSlice (i, ui.sampleNumFrames);
          if (samplePos >= s.startSample && samplePos < sEnd) { hitIdx = i; break; }
      }
 
      processor.sliceManager2.selectedSlice.store (hitIdx, std::memory_order_relaxed);
+     processor.uiSnapshotDirty.store (true, std::memory_order_release);
 
      if (hitIdx >= 0 && ! e.mods.isRightButtonDown())
      {
-         const auto& s = ui2.slices[(size_t) hitIdx];
-         const int sEnd = activeSliceManager().getEndForSlice (hitIdx, ui2.sampleNumFrames);
-         processor.zonePreview2.triggerEnd.store (sEnd, std::memory_order_relaxed);
-         processor.zonePreview2.triggerStart.store (s.startSample, std::memory_order_release);
+         const auto& s = ui.slices[(size_t) hitIdx];
+         // Tail slices (loop targets, midiNote left unpinned by design —
+         // see Slice::nextSliceIdx) have no sensible note to audition
+         // directly; only audition slices that are actually MIDI-reachable.
+         if (s.midiNote >= 0 && s.midiNote <= 127)
+         {
+             VoiceStartParams p;
+             p.sliceIdx = hitIdx;
+             p.note     = s.midiNote;
+             p.velocity = 100.0f;
+
+             int voiceIdx = processor.voicePool2.allocate();
+             const int mg = (int) processor.sliceManager2.resolveParam (
+                 hitIdx, kLockMuteGroup, (float) s.muteGroup, (float) p.globalMuteGroup);
+             processor.voicePool2.muteGroup (mg, voiceIdx);
+             p.globalMuteGroup = mg;
+             processor.voicePool2.startVoice (voiceIdx, p, processor.sliceManager2, processor.sampleData2);
+         }
      }
 
      repaint();
@@ -1317,7 +1316,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
 void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
 {
  if (trimMode) return;
- if (isSfzPlayer2Mode()) return;   // no manual slice creation for SFZ-PLAYER
+ if (isSfzPlayer2Mode()) return;   // no manual slice creation — layout comes from the SFZ file
  auto sampleSnap = activeSampleData().getSnapshot();
  if (sampleSnap == nullptr) return;
  int rawPos = juce::jlimit (0, sampleSnap->buffer.getNumSamples(), pixelToSample (e.x));
@@ -1509,15 +1508,20 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
  processor.scroll.store (0.0f);
  prevCacheKey = {};
     const int routeMode2 = processor.midiRouteMode.load (std::memory_order_relaxed);
-    const bool sfzMode = (routeMode2 == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer))
-                      || (routeMode2 == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
- if (sfzMode)
+    const bool isSfPlayerTab    = (routeMode2 == static_cast<int> (DysektProcessor::MidiRouteMode::SfPlayer));
+    const bool isSfzPlayer2Tab  = (routeMode2 == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
+ if (isSfPlayerTab || isSfzPlayer2Tab)
  {
-        // SFZ-PLAYER: loadSoundFontAsync renders into sampleData2 and creates
-        // real slices in sliceManager2 — sfzPlayer2's live sfizz engine is no
-        // longer used for playback, so there's nothing else to load here.
-        if (ext == ".sfz")
+        // SFZ-PLAYER tab: load via SoundFontLoader, which renders every SFZ
+        // key zone as a real slice into sliceManager2 (see PluginProcessor's
+        // pendingPreviewZones2 consumption). No separate live-engine load —
+        // sfzPlayer2 no longer processes audio; voicePool2/sliceManager2 do.
+        // SF2-PLAYER tab: only .sf2 accepted; routes to its own sampleData3/
+        // previewZones3 pipeline via SoundFontLoadTarget::SfPlayer.
+        if (isSfzPlayer2Tab && ext == ".sfz")
             processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);
+        else if (isSfPlayerTab && ext == ".sf2")
+            processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);
  }
  else if (ext == ".sf2" || ext == ".sfz")
      processor.loadSoundFontAsync (f);

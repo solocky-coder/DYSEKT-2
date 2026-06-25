@@ -75,10 +75,16 @@ juce::String SliceLcdDisplay::formatPan (float pan)
 
 // ── Constructor ────────────────────────────────────────────────────────────────
 
-SliceLcdDisplay::SliceLcdDisplay (DysektProcessor& p, bool useSecondInstance)
-    : processor (p), isSecondInstance (useSecondInstance)
+SliceLcdDisplay::SliceLcdDisplay (DysektProcessor& p)
+    : processor (p)
 {
     setOpaque (true);
+}
+
+bool SliceLcdDisplay::isSfzPlayer2Mode() const noexcept
+{
+    // midiRouteMode: 0=Slicer, 1=SfPlayer, 2=SfzPlayer2, 3=Sequencer
+    return processor.midiRouteMode.load (std::memory_order_relaxed) == 2;
 }
 
 // ── Data building ──────────────────────────────────────────────────────────────
@@ -87,7 +93,8 @@ void SliceLcdDisplay::buildDisplayData()
 {
     data = {};
 
-    const auto& snap = activeSnapshot();
+    const bool sfzMode = isSfzPlayer2Mode();
+    const auto& snap = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
     data.hasSample    = snap.sampleLoaded && ! snap.sampleMissing;
     data.numSlices    = snap.numSlices;
     data.rootNote     = snap.rootNote;
@@ -98,6 +105,7 @@ void SliceLcdDisplay::buildDisplayData()
     if (! data.hasSample || snap.selectedSlice < 0 || snap.selectedSlice >= snap.numSlices)
     {
         data.hasSlice = false;
+        if (sfzMode) processor.releaseUiSliceSnapshot2(); else processor.releaseUiSliceSnapshot();
         return;
     }
 
@@ -110,10 +118,12 @@ void SliceLcdDisplay::buildDisplayData()
 
     // During a live drag (waveform or CC), override startSample with the real-time
     // position so the ST: row updates without waiting for the audio-thread snapshot.
+    // SFZ-PLAYER never sets liveDragSliceIdx (no manual slicing/bounds-dragging for
+    // that engine), so this naturally always falls through to sl.startSample there.
     {
         const int liveIdx = processor.liveDragSliceIdx.load (std::memory_order_acquire);
         const int liveStart = processor.liveDragBoundsStart.load (std::memory_order_relaxed);
-        data.startSample = (liveIdx == snap.selectedSlice && liveStart >= 0)
+        data.startSample = (! sfzMode && liveIdx == snap.selectedSlice && liveStart >= 0)
                                ? liveStart
                                : sl.startSample;
     }
@@ -159,6 +169,8 @@ void SliceLcdDisplay::buildDisplayData()
     data.releaseTail     = sl.releaseTail;
     data.outputBus       = sl.outputBus;
     data.bpm             = sl.bpm;
+
+    if (sfzMode) processor.releaseUiSliceSnapshot2(); else processor.releaseUiSliceSnapshot();
 }
 
 // ── Repaint trigger ────────────────────────────────────────────────────────────
@@ -474,7 +486,6 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
             cmd.type        = DysektProcessor::CmdSetSliceName;
             cmd.intParam1   = sliceIdx;
             cmd.stringParam = newName;
-            cmd.targetInstance2 = isSecondInstance;
             processor.pushCommand (cmd);
             repaint();
         };
@@ -493,10 +504,19 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
         if (! hit.bounds.contains (pos)) continue;
 
         using F = DysektProcessor;
+        const bool sfzMode = isSfzPlayer2Mode();
+
+        // FieldGlobalMono is a true global APVTS param (shared polyphony mode
+        // for the WHOLE Slicer engine) with no SFZ-PLAYER equivalent —
+        // processMidi2 never reads it, so toggling it from this tab would
+        // silently change the Slicer's behaviour instead. Hide/ignore it here.
+        if (sfzMode && hit.fieldId == F::FieldGlobalMono)
+            return;
+
         DysektProcessor::Command cmd;
-        cmd.type      = F::CmdSetSliceParam;
-        cmd.intParam1 = hit.fieldId;
-        cmd.targetInstance2 = isSecondInstance;
+        cmd.type          = F::CmdSetSliceParam;
+        cmd.intParam1     = hit.fieldId;
+        cmd.targetEngine2 = sfzMode;
 
         switch (hit.fieldId)
         {
@@ -516,7 +536,7 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
                     clr.type       = F::CmdSetSliceParam;
                     clr.intParam1  = F::FieldOneShot;
                     clr.floatParam1 = 0.0f;
-                    clr.targetInstance2 = isSecondInstance;
+                    clr.targetEngine2 = sfzMode;
                     processor.pushCommand (clr);
                 }
                 repaint();
@@ -534,7 +554,7 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
                     clr.type       = F::CmdSetSliceParam;
                     clr.intParam1  = F::FieldLoop;
                     clr.floatParam1 = 0.0f;
-                    clr.targetInstance2 = isSecondInstance;
+                    clr.targetEngine2 = sfzMode;
                     processor.pushCommand (clr);
                 }
                 repaint();
