@@ -370,6 +370,15 @@ public:
     void publishUiSliceSnapshot();
     void publishUiSliceSnapshot2();
 
+    /** Thread-safe: call from the UI thread to request that the next
+     *  processBlock() republish both UI snapshots (sliceManager and
+     *  sliceManager2) immediately, e.g. after a UI-only selection change
+     *  that isn't itself routed through the Command FIFO. */
+    void markUiSnapshotDirty() noexcept
+    {
+        uiSnapshotDirty.store (true, std::memory_order_release);
+    }
+
     /** Returns the peak amplitude (0..1) at a given sample position in the
      *  loaded audio buffer.  Used by SliceWaveformLcd to render the mini waveform.
      *  Safe to call from the UI (message) thread. */

@@ -987,7 +987,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
      }
 
      processor.sliceManager2.selectedSlice.store (hitIdx, std::memory_order_relaxed);
-     processor.uiSnapshotDirty.store (true, std::memory_order_release);
+     processor.markUiSnapshotDirty();
 
      if (hitIdx >= 0 && ! e.mods.isRightButtonDown())
      {

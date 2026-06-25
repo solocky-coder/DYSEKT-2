@@ -631,7 +631,10 @@ void VoicePool::retriggerChainedSlice (int voiceIdx, SliceManager* chainSource,
     startVoice (voiceIdx, p, *chainSource, sample);
 }
 
-
+void VoicePool::processVoiceSample (int i, const SampleData& sample, double sampleRate,
+                                     float& outL, float& outR,
+                                     SliceManager* chainSource)
+{
     auto& v = voices[i];
     outL = 0.0f;
     outR = 0.0f;
