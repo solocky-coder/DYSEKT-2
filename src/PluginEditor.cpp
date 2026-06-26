@@ -1501,7 +1501,7 @@ void DysektEditor::timerCallback()
  if (activeSlot == SlotContent::Eq)    eqPanel.repaint();
 
  headerBar.repaint();
- if (uiMode == 0) { sliceControlBar.updateMidiLearnPulse(); sliceControlBar.repaint(); }
+ if (uiMode == 0 || uiMode == 1) { sliceControlBar.updateMidiLearnPulse(); sliceControlBar.repaint(); }
 if (activeSlot == SlotContent::Mixer)
 {
     // Refresh strips in case a preset was just assigned or un-assigned.
