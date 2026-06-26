@@ -2522,6 +2522,12 @@ void DysektProcessor::processMidi2 (const juce::MidiBuffer& midi)
             const int sliceIdx = sliceManager2.midiNoteToSlice (note);
             if (sliceIdx >= 0)
             {
+                if (midiSelectsSlice.load (std::memory_order_relaxed))
+                {
+                    sliceManager2.selectedSlice.store (sliceIdx, std::memory_order_relaxed);
+                    uiSnapshotDirty.store (true, std::memory_order_release);
+                }
+
                 VoiceStartParams p;   // defaults: no global knobs for SFZ-PLAYER —
                                       // every parameter is resolved per-slice from
                                       // the loaded SFZ file's region data.

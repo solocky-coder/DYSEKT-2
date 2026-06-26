@@ -978,8 +978,17 @@ void DysektEditor::resized()
  // SCB and zoom bar (overview) are only shown when a real user sample is loaded —
  // the default Empty.wav placeholder does not count.
  auto sampleSnap = processor.sampleData.getSnapshot();
+ bool sfz2HasSample = false;
+ {
+     // SFZ-PLAYER is a full second Slicer instance (sliceManager2/sampleData2) —
+     // NOT the disconnected legacy sfzPlayer2 live engine, which is never loaded
+     // by this tab anymore and would always read back false here.
+     const auto& snap2 = processor.getUiSliceSnapshot2();
+     sfz2HasSample = snap2.sampleLoaded && ! snap2.sampleMissing;
+     processor.releaseUiSliceSnapshot2();
+ }
  const bool hasRealSample = (uiMode == 1)
-    ? processor.sfzPlayer2.isLoaded()
+    ? sfz2HasSample
     : (hasSampleLoaded
        && sampleSnap != nullptr
        && ! sampleSnap->filePath.containsIgnoreCase ("DYSEKT_default.wav"));
