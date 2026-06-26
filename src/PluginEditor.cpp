@@ -350,6 +350,11 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      auto initSnap = processor.sampleData.getSnapshot();
      hasSampleLoaded = (initSnap != nullptr && initSnap->buffer.getNumSamples() > 0);
  }
+ {
+     // Same rationale, for the SFZ-PLAYER tab (sliceManager2/sampleData2).
+     auto initSnap2 = processor.sampleData2.getSnapshot();
+     hasSampleLoaded2 = (initSnap2 != nullptr && initSnap2->buffer.getNumSamples() > 0);
+ }
 
  setWantsKeyboardFocus (true);
  setResizable (true, false);
@@ -978,15 +983,14 @@ void DysektEditor::resized()
  // SCB and zoom bar (overview) are only shown when a real user sample is loaded —
  // the default Empty.wav placeholder does not count.
  auto sampleSnap = processor.sampleData.getSnapshot();
- bool sfz2HasSample = false;
- {
-     // SFZ-PLAYER is a full second Slicer instance (sliceManager2/sampleData2) —
-     // NOT the disconnected legacy sfzPlayer2 live engine, which is never loaded
-     // by this tab anymore and would always read back false here.
-     const auto& snap2 = processor.getUiSliceSnapshot2();
-     sfz2HasSample = snap2.sampleLoaded && ! snap2.sampleMissing;
-     processor.releaseUiSliceSnapshot2();
- }
+ // SFZ-PLAYER is a full second Slicer instance (sliceManager2/sampleData2) —
+ // NOT the disconnected legacy sfzPlayer2 live engine. Read sampleData2's own
+ // snapshot directly here, exactly like the Slicer branch below does for
+ // sampleData — not via getUiSliceSnapshot2(), which only refreshes once
+ // processBlock() next consumes uiSnapshotDirty and is an extra, avoidable
+ // hop for what should be an immediate "is anything actually loaded?" check.
+ auto sampleSnap2 = processor.sampleData2.getSnapshot();
+ const bool sfz2HasSample = (sampleSnap2 != nullptr && sampleSnap2->buffer.getNumSamples() > 0);
  const bool hasRealSample = (uiMode == 1)
     ? sfz2HasSample
     : (hasSampleLoaded
@@ -1458,13 +1462,13 @@ void DysektEditor::timerCallback()
  }
 
  // SFZ-PLAYER (sliceManager2/sampleData2): same expand/collapse-on-load
- // detection as above, but driven off the UI snapshot rather than
- // sampleData2 directly, since that's the field SliceWaveformLcd and
- // resized()'s hasRealSample already treat as the source of truth.
+ // detection as above, reading sampleData2's own snapshot directly —
+ // not the UI snapshot — for the same reason resized()'s hasRealSample
+ // does: it's one hop closer to the actual load completion than waiting
+ // on uiSnapshotDirty to be consumed inside processBlock().
  {
-     const auto& snap2 = processor.getUiSliceSnapshot2();
-     const bool hasSample2 = snap2.sampleLoaded && ! snap2.sampleMissing;
-     processor.releaseUiSliceSnapshot2();
+     auto timerSnap2 = processor.sampleData2.getSnapshot();
+     const bool hasSample2 = (timerSnap2 != nullptr && timerSnap2->buffer.getNumSamples() > 0);
      if (hasSample2 != hasSampleLoaded2)
      {
          hasSampleLoaded2 = hasSample2;
