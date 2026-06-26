@@ -921,10 +921,18 @@ void DysektProcessor::handleCommand (const Command& cmd)
     switch (cmd.type)
     {
         case CmdBeginGesture:
-            if (! gestureSnapshotCaptured)
-                captureSnapshot();
-            gestureSnapshotCaptured = true;
-            blocksSinceGestureActivity = 0;
+            // SFZ-PLAYER (targetEngine2): no undo/redo support yet for this
+            // engine — see CmdSetSliceParam's identical guard below for the
+            // rationale. Without this, every SFZ-PLAYER knob-drag would push
+            // a useless Slicer-state snapshot that Ctrl+Z would "restore"
+            // without actually undoing the SFZ-PLAYER edit that triggered it.
+            if (! cmd.targetEngine2)
+            {
+                if (! gestureSnapshotCaptured)
+                    captureSnapshot();
+                gestureSnapshotCaptured = true;
+                blocksSinceGestureActivity = 0;
+            }
             break;
 
         case CmdSetSliceParam:

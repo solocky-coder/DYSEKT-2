@@ -45,6 +45,13 @@ SliceControlBar::SliceControlBar (DysektProcessor& p) : processor (p)
     startTimerHz (30); // always running so CC-driven marker repaints in real time
 }
 
+bool SliceControlBar::isSfzPlayer2Mode() const noexcept
+{
+    // midiRouteMode: 0=Slicer, 1=SfPlayer, 2=SfzPlayer2, 3=Sequencer
+    return processor.midiRouteMode.load (std::memory_order_relaxed)
+         == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2);
+}
+
 void SliceControlBar::timerCallback()
 {
     // Advance pulse at ~1.2 Hz (full cycle every ~0.85s)
@@ -246,7 +253,8 @@ void SliceControlBar::drawKnobCell (juce::Graphics& g, int x, int y,
 
  const bool armed = (processor.midiLearn.getArmedSlot() == fieldId);
  const bool mapped = processor.midiLearn.isMapped (fieldId);
- const int sel = processor.getUiSliceSnapshot().selectedSlice;
+ const bool sfzMode = isSfzPlayer2Mode();
+ const int sel = (sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot()).selectedSlice;
 
  if (armed)
  {
@@ -528,7 +536,8 @@ void SliceControlBar::drawMarkerSliderCell (juce::Graphics& g, int x, int y,
     const float fineWinHi   = processor.markerFineWindowHi.load  (std::memory_order_relaxed);
     const bool mapped       = processor.midiLearn.isMapped  (DysektProcessor::FieldSliceStart);
     const bool endless      = processor.midiLearn.isEndless (DysektProcessor::FieldSliceStart);
-    const int sel           = processor.getUiSliceSnapshot().selectedSlice;
+    const bool sfzMode      = isSfzPlayer2Mode();
+    const int sel           = (sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot()).selectedSlice;
     const bool prePickup    = mapped && !endless
         && sel >= 0 && sel < DysektProcessor::kMaxCCSlices
         && !processor.ccPickedUp[(size_t) sel][(size_t) DysektProcessor::FieldSliceStart];
@@ -843,7 +852,10 @@ void SliceControlBar::paint (juce::Graphics& g)
  psKnobR = juce::roundToInt ((float) kKnobR * paintSf);
  auto si  = [this](int v) { return juce::roundToInt ((float) v * paintSf); };
 
- const auto& ui = processor.getUiSliceSnapshot();
+ // SFZ-PLAYER tab (sliceManager2/voicePool2 — a full second Slicer instance):
+ // source every read below from the "2" engine instead of the Native Sampler's.
+ const bool sfzMode = isSfzPlayer2Mode();
+ const auto& ui = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
  int idx = ui.selectedSlice;
  int numSlices = ui.numSlices;
  const int kToggleBtnW = si (52);
@@ -860,8 +872,9 @@ void SliceControlBar::paint (juce::Graphics& g)
  // Read live slice values directly from sliceManager — not the UI snapshot.
  // The snapshot lags by one processBlock cycle; sliceManager has the current
  // committed value which the smoother writes to immediately.
- const auto& s = (processor.sliceManager.getNumSlices() > idx && idx >= 0)
- ? processor.sliceManager.getSlice (idx)
+ auto& activeSliceManager = sfzMode ? processor.sliceManager2 : processor.sliceManager;
+ const auto& s = (activeSliceManager.getNumSlices() > idx && idx >= 0)
+ ? activeSliceManager.getSlice (idx)
  : ui.slices[(size_t) juce::jmax (0, idx)];
 
  // ── Resolve all per-slice params against their global APVTS fallbacks ────────
@@ -964,9 +977,10 @@ void SliceControlBar::paint (juce::Graphics& g)
  x += cw + si (4);
  }
 
- // MARKER — slice boundary knob in row 1
- // During MIDI CC movement, read from live drag atomics so the readout
- // tracks the encoder in real time instead of waiting for idle commit.
+ // MARKER — slice boundary knob in row 1. Hidden in SFZ-PLAYER mode: bounds
+ // editing has no engine-2 support (no live-drag atomics, CmdSetSliceBounds
+ // doesn't accept targetEngine2) — see isSfzPlayer2Mode() doc comment.
+ if (! sfzMode)
  {
  g.setColour (getTheme().separator.withAlpha (0.5f));
  g.drawVerticalLine (x + 2, (float) row1y + 4, (float) row1y + 28);
@@ -1070,7 +1084,7 @@ void SliceControlBar::paint (juce::Graphics& g)
  int adsrGroupX1 = x, adsrGroupX2 = x;
 float relMaxSec = 5.0f;
 {
-    const int total = processor.sampleData.getNumFrames();
+    const int total = (sfzMode ? processor.sampleData2 : processor.sampleData).getNumFrames();
     if (total > 0)
     {
         const int sliceEnd = (idx >= 0 && idx < ui.numSlices) ? ui.sliceEndSamples[idx] : total;
@@ -1332,8 +1346,9 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
     }
 
  // ── Lock guard: block all param changes if selected slice is fully locked ─
+ const bool sfzMode = isSfzPlayer2Mode();
  {
- const auto& snap = processor.getUiSliceSnapshot();
+ const auto& snap = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
  if (snap.selectedSlice >= 0 && snap.selectedSlice < snap.numSlices)
  {
  const auto& sl = snap.slices[(size_t) snap.selectedSlice];
@@ -1348,7 +1363,7 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  if (textEditor != nullptr) textEditor.reset();
  activeDragCell = -1;
  auto pos = e.getPosition();
- const auto& ui = processor.getUiSliceSnapshot();
+ const auto& ui = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
 
  // FINE mode toggle badge — check before cell loop so it doesn't start a drag
  if (!markerFineModeToggleArea.isEmpty() && markerFineModeToggleArea.contains (pos))
@@ -1372,14 +1387,15 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
      const auto& lc = cells[(size_t) li];
      if (! lc.isLockIcon || lc.lockBit == 0) continue;
      if (! juce::Rectangle<int> (lc.x, lc.y, lc.w, lc.h).contains (pos)) continue;
-     const auto& snap = processor.getUiSliceSnapshot();
+     const auto& snap = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
      const int sIdx = snap.selectedSlice;
      if (sIdx >= 0 && sIdx < snap.numSlices)
      {
          DysektProcessor::Command cmd;
-         cmd.type      = DysektProcessor::CmdToggleLock;
-         cmd.intParam1 = sIdx;
-         cmd.intParam2 = (int) lc.lockBit;
+         cmd.type         = DysektProcessor::CmdToggleLock;
+         cmd.intParam1    = sIdx;
+         cmd.intParam2    = (int) lc.lockBit;
+         cmd.targetEngine2 = sfzMode;
          processor.pushCommand (cmd);
          repaint();
      }
@@ -1424,7 +1440,9 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  {
  processor.midiLearn.armLearn (-1); repaint(); return;
  }
- DysektProcessor::Command gc; gc.type = DysektProcessor::CmdBeginGesture;
+ DysektProcessor::Command gc;
+ gc.type = DysektProcessor::CmdBeginGesture;
+ gc.targetEngine2 = sfzMode;
  processor.pushCommand (gc);
  activeDragCell = i;
  activeCellSnapshot = cell; // snapshot before cells[] is rebuilt by next repaint()
@@ -1517,12 +1535,14 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  pCmd.type = DysektProcessor::CmdSetSliceParam;
  pCmd.intParam1 = F::FieldOneShot;
  pCmd.floatParam1 = clickOneShot ? 1.f : 0.f;
+ pCmd.targetEngine2 = sfzMode;
  processor.pushCommand (pCmd); repaint();
  return;
  }
  DysektProcessor::Command cmd;
  cmd.type = DysektProcessor::CmdSetSliceParam;
  cmd.intParam1 = cell.fieldId; cmd.floatParam1 = currentVal ? 0.f : 1.f;
+ cmd.targetEngine2 = sfzMode;
  processor.pushCommand (cmd); repaint();
  }
  return;
@@ -1617,9 +1637,10 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
          {
              if (result <= 0 || result > (int) chValues.size()) return;
              DysektProcessor::Command cmd;
-             cmd.type        = DysektProcessor::CmdSetSliceParam;
-             cmd.intParam1   = fieldId;
-             cmd.floatParam1 = (float) chValues[(size_t)(result - 1)];  // actual ch number
+             cmd.type         = DysektProcessor::CmdSetSliceParam;
+             cmd.intParam1    = fieldId;
+             cmd.floatParam1  = (float) chValues[(size_t)(result - 1)];  // actual ch number
+             cmd.targetEngine2 = isSfzPlayer2Mode();
              processor.pushCommand (cmd);
              repaint();
          });
@@ -1634,6 +1655,7 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  DysektProcessor::Command cmd;
  cmd.type = DysektProcessor::CmdSetSliceParam;
  cmd.intParam1 = fieldId; cmd.floatParam1 = (float) next;
+ cmd.targetEngine2 = sfzMode;
  processor.pushCommand (cmd); repaint();
  return;
  }
@@ -1650,6 +1672,7 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
  cmd.type = DysektProcessor::CmdSetSliceParam;
  cmd.intParam1 = fieldId;
  cmd.floatParam1 = (float)(result - 1);
+ cmd.targetEngine2 = isSfzPlayer2Mode();
  processor.pushCommand (cmd);
  repaint();
  });
@@ -1663,9 +1686,11 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
 // =============================================================================
 void SliceControlBar::mouseDrag (const juce::MouseEvent& e)
 {
+ const bool sfzMode = isSfzPlayer2Mode();
+
  // ── Lock guard: block all param changes if selected slice is fully locked ─
  {
- const auto& snap = processor.getUiSliceSnapshot();
+ const auto& snap = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
  if (snap.selectedSlice >= 0 && snap.selectedSlice < snap.numSlices)
  {
  const auto& sl = snap.slices[(size_t) snap.selectedSlice];
@@ -1744,7 +1769,7 @@ void SliceControlBar::mouseDrag (const juce::MouseEvent& e)
 
     // ── Guard: do not modify a field that has its individual lock bit set ──
     {
-        const auto& snap = processor.getUiSliceSnapshot();
+        const auto& snap = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
         const int sIdx = snap.selectedSlice;
         if (sIdx >= 0 && sIdx < snap.numSlices && cell.lockBit != 0)
         {
@@ -1829,10 +1854,11 @@ void SliceControlBar::mouseDrag (const juce::MouseEvent& e)
     if (isAdsr && cell.fieldId != F::FieldHold)
     {
         DysektProcessor::Command cmd;
-        cmd.type        = F::CmdSetSliceParam;
-        cmd.intParam1   = cell.fieldId;
-        cmd.floatParam1 = newNative;
-        cmd.intParam2   = 1; // skipLock — write value without modifying lockMask
+        cmd.type         = F::CmdSetSliceParam;
+        cmd.intParam1    = cell.fieldId;
+        cmd.floatParam1  = newNative;
+        cmd.intParam2    = 1; // skipLock — write value without modifying lockMask
+        cmd.targetEngine2 = sfzMode;
         processor.pushCommand (cmd); repaint(); return;
     }
 
@@ -1841,6 +1867,7 @@ void SliceControlBar::mouseDrag (const juce::MouseEvent& e)
  cmd.type = F::CmdSetSliceParam;
  cmd.intParam1 = cell.fieldId; cmd.floatParam1 = newNative;
  cmd.intParam2 = 0;
+ cmd.targetEngine2 = sfzMode;
  processor.pushCommand (cmd); repaint();
 }
 
@@ -1889,7 +1916,8 @@ void SliceControlBar::mouseUp (const juce::MouseEvent& /*e*/)
 void SliceControlBar::mouseDoubleClick (const juce::MouseEvent& e)
 {
  auto pos = e.getPosition();
- const auto& ui = processor.getUiSliceSnapshot();
+ const bool sfzMode = isSfzPlayer2Mode();
+ const auto& ui = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
 
  for (int i = 0; i < (int) cells.size(); ++i)
  {
@@ -2126,7 +2154,8 @@ void SliceControlBar::showTextEditor (const ParamCell& cell, float currentValue)
  val /= 100.f;
  val = juce::jlimit (minV, maxV, val);
  // Check the current lock state from the snapshot
- const auto& snap2 = processor.getUiSliceSnapshot();
+ const bool sfzMode = isSfzPlayer2Mode();
+ const auto& snap2 = sfzMode ? processor.getUiSliceSnapshot2() : processor.getUiSliceSnapshot();
  const int sIdx2 = snap2.selectedSlice;
  const bool fieldLocked = (sIdx2 >= 0 && sIdx2 < snap2.numSlices)
      && (snap2.slices[(size_t) sIdx2].lockMask & activeCellSnapshot.lockBit) != 0;
@@ -2147,6 +2176,7 @@ void SliceControlBar::showTextEditor (const ParamCell& cell, float currentValue)
  cmd.type = DysektProcessor::CmdSetSliceParam;
  cmd.intParam1 = fieldId; cmd.floatParam1 = val;
  cmd.intParam2 = 0;
+ cmd.targetEngine2 = sfzMode;
  processor.pushCommand (cmd); textEditor.reset(); repaint();
  };
  textEditor->onEscapeKey = [this] { textEditor.reset(); repaint(); };

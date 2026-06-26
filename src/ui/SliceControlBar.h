@@ -37,6 +37,14 @@ private:
     juce::Rectangle<int> padToggleBtnArea;  // hit-tested in mouseDown — PADS button
     juce::Rectangle<int> waveToggleBtnArea; // hit-tested in mouseDown — WAVE button
 
+    // True when the SFZ-PLAYER tab (sliceManager2/voicePool2 — a full second
+    // Slicer instance) is the active engine. Mirrors SliceLcdDisplay's
+    // identically-named helper. When true, every snapshot/slice/sample-data
+    // read below must source from the "2" (engine 2) side, and every pushed
+    // Command must set targetEngine2 = true so the audio thread mutates
+    // sliceManager2/voicePool2 instead of sliceManager/voicePool.
+    bool isSfzPlayer2Mode() const noexcept;
+
 private:
     struct ParamCell
     {
