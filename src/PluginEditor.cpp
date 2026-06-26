@@ -1456,6 +1456,21 @@ void DysektEditor::timerCallback()
  hasSampleLoaded = hasSample;
  resized(); // expand/collapse SCB + zoom bar
  }
+
+ // SFZ-PLAYER (sliceManager2/sampleData2): same expand/collapse-on-load
+ // detection as above, but driven off the UI snapshot rather than
+ // sampleData2 directly, since that's the field SliceWaveformLcd and
+ // resized()'s hasRealSample already treat as the source of truth.
+ {
+     const auto& snap2 = processor.getUiSliceSnapshot2();
+     const bool hasSample2 = snap2.sampleLoaded && ! snap2.sampleMissing;
+     processor.releaseUiSliceSnapshot2();
+     if (hasSample2 != hasSampleLoaded2)
+     {
+         hasSampleLoaded2 = hasSample2;
+         resized(); // expand/collapse SCB for the SFZ-PLAYER tab
+     }
+ }
  // Only show the overview / zoom bar for a real user sample, not the default placeholder.
  const bool hasRealSampleNow = hasSample && timerSnap != nullptr
  && ! timerSnap->filePath.containsIgnoreCase ("DYSEKT_default.wav");

@@ -115,6 +115,7 @@ private:
     int  uiMode = 0;
     bool showPadGrid     = false;  ///< true = PadGridView, false = WaveformView (within uiMode 0)
     bool hasSampleLoaded = false;   // true once a sample with audio is loaded
+    bool hasSampleLoaded2 = false;  // true once SFZ-PLAYER (sliceManager2/sampleData2) has a real sample loaded
 
     std::unique_ptr<TrimSession>       trimSession;
     std::unique_ptr<TrimDialog>        trimDialog;
