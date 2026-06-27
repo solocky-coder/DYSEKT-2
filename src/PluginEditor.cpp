@@ -799,6 +799,47 @@ void DysektEditor::paintOverChildren (juce::Graphics& g)
  g.drawRoundedRectangle (outerF.reduced (4.0f * sf), 2.0f * sf, 1.0f * sf);
  }
 
+ // Slot-panel frame border (Browser / Mixer / EQ / Sequencer) — same recipe
+ // as the waveform and SFZ frames above. resized() hides waveformView/
+ // padGridView/sfzDropdown/sfzPlayerDropdown whenever one of these slot
+ // panels takes over the workspace, so without this block none of them
+ // ever got a closing border — the window just stopped abruptly after
+ // their content.
+ {
+ juce::Rectangle<int> slotBounds;
+ bool slotPanelVisible = false;
+
+ if (browserPanel.isVisible() && browserPanel.getHeight() > 0)
+ { slotBounds = browserPanel.getBounds(); slotPanelVisible = true; }
+ else if (mixerPanel.isVisible() && mixerPanel.getHeight() > 0)
+ { slotBounds = mixerPanel.getBounds(); slotPanelVisible = true; }
+ else if (eqPanel.isVisible() && eqPanel.getHeight() > 0)
+ { slotBounds = eqPanel.getBounds(); slotPanelVisible = true; }
+#if DYSEKT_STANDALONE
+ else if (arrangeView.isVisible() && arrangeView.getHeight() > 0)
+ { slotBounds = arrangeView.getBounds(); slotPanelVisible = true; }
+#endif
+
+ if (slotPanelVisible)
+ {
+ const auto outerF = waveformFrameRect (*this, slotBounds, false);
+ const auto ac = getTheme().accent;
+
+ {
+     juce::Graphics::ScopedSaveState clip (g);
+     g.reduceClipRegion (outerF.expanded (1.0f * sf).toNearestInt());
+     g.setColour (ac.withAlpha (0.18f));
+     g.drawRoundedRectangle (outerF.expanded (1.0f * sf), 5.0f * sf, 1.0f * sf);
+ }
+
+ g.setColour (ac.withAlpha (0.60f));
+ g.drawRoundedRectangle (outerF.reduced (0.5f * sf), 4.0f * sf, 1.5f * sf);
+
+ g.setColour (ac.withAlpha (0.30f));
+ g.drawRoundedRectangle (outerF.reduced (4.0f * sf), 2.0f * sf, 1.0f * sf);
+ }
+ }
+
  // Logo frame border
  if (logoBar.isVisible() && logoBar.getHeight() > 0)
  {
