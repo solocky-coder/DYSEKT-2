@@ -77,14 +77,12 @@ public:
      */
     void syncMidiRouteMode();
 
-    /** The centred, aspect-correct sub-rectangle (always kBaseW:kTotalH)
-     *  that the actual UI is laid out within. The real component can be
-     *  any size/aspect a host gives it — we no longer force a fixed
-     *  aspect ratio on the component itself, since a hosted plugin can't
-     *  reposition its own floating window to recentre after a hard clamp.
-     *  Instead resized() recomputes this each time and everything lays
-     *  out relative to it, with paint() filling plain background in the
-     *  surrounding letterbox margins. */
+    /** The editor's full local bounds. No aspect-ratio lock and no letterbox —
+     *  the editor accepts whatever size/aspect the host gives it. Kept as a
+     *  member + getter (rather than just calling getLocalBounds() inline)
+     *  so paint()/paintOverChildren()/the free-function waveformFrameRect()
+     *  helper all read the same up-to-date value without needing their own
+     *  Component reference plumbing. */
     const juce::Rectangle<int>& getDesignArea() const noexcept { return designArea; }
 
 private:
@@ -127,10 +125,9 @@ private:
     bool hasSampleLoaded = false;   // true once a sample with audio is loaded
     bool hasSampleLoaded2 = false;  // true once SFZ-PLAYER (sliceManager2/sampleData2) has a real sample loaded
 
-    /// Centred kBaseW:kTotalH sub-rectangle the UI is actually laid out
-    /// within; recomputed at the top of every resized() call. See
-    /// getDesignArea() above for why this exists instead of a hard
-    /// component-level aspect-ratio lock.
+    /// The editor's full local bounds, cached each resized() so paint()/
+    /// paintOverChildren()/waveformFrameRect() can read it. See
+    /// getDesignArea() above.
     juce::Rectangle<int> designArea;
 
     std::unique_ptr<TrimSession>       trimSession;

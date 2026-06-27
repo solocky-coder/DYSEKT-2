@@ -360,10 +360,9 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  setResizable (true, true);
  setResizeLimits (kBaseW / 2, kTotalH / 2, 3840, 2160);
  // No setFixedAspectRatio() here — see getDesignArea()/resized() for why:
- // a hosted plugin can't reposition its own floating window, so a hard
- // aspect lock just left blank space pinned to whichever corner the host
- // anchors content at. We accept whatever size we're given and compute a
- // centred, aspect-correct sub-rectangle internally instead.
+ // we accept whatever size/aspect the host gives us. Vertical layout (sf)
+ // tracks height; extra/less width reflows into the side LCD columns and
+ // panel widths instead of forcing a uniform zoom or being letterboxed.
  // Start at 1.5x design units (the preferred big default), but clamp to
     // 90% of the primary display's usable area so the window is never
     // taller than the screen on first launch.
@@ -692,7 +691,7 @@ static juce::Rectangle<float> waveformFrameRect (const DysektEditor& ed,
                                                   bool hasTrimDialog)
 {
  const auto& da = ed.getDesignArea();
- const float sf = (float) da.getWidth() / (float) kBaseW;
+ const float sf = (float) da.getHeight() / (float) kTotalH;
  const int kFrameInset = juce::roundToInt (4.0f * sf);
  const int kFX = da.getX() + juce::roundToInt (kMargin * sf);
  const int kFW = da.getWidth() - juce::roundToInt (kMargin * sf) * 2;
@@ -705,7 +704,7 @@ static juce::Rectangle<float> waveformFrameRect (const DysektEditor& ed,
 
 void DysektEditor::paint (juce::Graphics& g)
 {
- g.fillAll (getTheme().background);  // also covers the letterbox margins outside designArea
+ g.fillAll (getTheme().background);
 
  // Draw the CRT frame in waveform mode, or whenever trim mode forces the waveform visible
  const bool wvVisible  = waveformView.isVisible() && waveformView.getHeight() > 0;
@@ -721,7 +720,7 @@ void DysektEditor::paint (juce::Graphics& g)
  g.setGradientFill (outerGrad);
  g.fillRoundedRectangle (outerF, 4.0f);
 
- const float sf = (float) designArea.getWidth() / (float) kBaseW;
+ const float sf = (float) designArea.getHeight() / (float) kTotalH;
  const auto screenF = outerF.reduced (4.0f * sf);
  g.setColour (getTheme().darkBar.darker (0.55f));
  g.fillRoundedRectangle (screenF, 2.0f);
@@ -751,7 +750,7 @@ void DysektEditor::paintOverChildren (juce::Graphics& g)
 
  // Scale all border pixel amounts proportionally to avoid sub-pixel overlap
  // at non-integer UI scales (1.5×, 1.75× etc.)
- const float sf = (float) designArea.getWidth() / (float) kBaseW;
+ const float sf = (float) designArea.getHeight() / (float) kTotalH;
 
  if (wvVisible || padVisible)
  {
@@ -895,30 +894,22 @@ void DysektEditor::resized()
      setResizeLimits (kBaseW / 2, kTotalH / 2, maxW, maxH);
  }
 
- // ── Centred, aspect-correct design area ────────────────────────────────────
- // The component itself can now be any size/aspect the host gives it (see
- // the constructor — no more setFixedAspectRatio()). Recompute the largest
- // kBaseW:kTotalH rectangle that fits inside our current bounds, centred,
- // and lay everything out relative to THAT instead of getLocalBounds().
- // paint() fills plain background everywhere outside it, so a host window
- // wider/taller than our design aspect now letterboxes evenly on both
- // sides instead of forcing a stretch or leaving space pinned to one corner.
- {
- const double aspect = (double) kBaseW / (double) kTotalH;
- int dw = getWidth();
- int dh = juce::roundToInt ((double) dw / aspect);
- if (dh > getHeight())
- {
- dh = getHeight();
- dw = juce::roundToInt ((double) dh * aspect);
- }
- const int dx = (getWidth()  - dw) / 2;
- const int dy = (getHeight() - dh) / 2;
- designArea = { dx, dy, dw, dh };
- }
-
- // ── Scale factor: all fixed-pixel constants scale with the design area's width ──
- const float sf = (float) designArea.getWidth() / (float) kBaseW;
+ // ── Layout area: no aspect lock ─────────────────────────────────────────────
+ // The editor accepts whatever size the host gives it (see the constructor —
+ // no setFixedAspectRatio()). designArea is just the full local bounds now;
+ // kept as a member/getter so the helper functions below don't need a
+ // separate code path. The scale factor `sf` is derived from HEIGHT only —
+ // every vertical region in this layout (logo, LCD rows, button bar, slice
+ // control bar, etc.) is a fixed proportion of kTotalH stacked top-to-bottom
+ // with no slack to absorb extra/less height, so it has to track height
+ // directly. Width has no such constraint: the side LCD columns and the
+ // waveform/browser/panel widths below are already computed as "whatever's
+ // left after the fixed-width centre column," so extra width from a wider
+ // host window flows straight into those instead of needing a letterbox —
+ // a wider window just reveals more side-panel space, it doesn't zoom the
+ // whole UI up.
+ designArea = getLocalBounds();
+ const float sf = (float) getHeight() / (float) kTotalH;
  auto si = [sf](int v) -> int { return juce::roundToInt ((float) v * sf); };
 
  // Keep popup menu item heights in sync with the window scale.
@@ -934,7 +925,12 @@ void DysektEditor::resized()
  auto topArea = area.removeFromTop (kTopStripH);
  auto topRow = topArea.reduced (si (kMargin), si (4));
 
- const int sideW = (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2;
+ // Leftover horizontal space after the fixed-width centre column and its
+ // margins, split evenly between the two side LCD columns. This is what
+ // actually reflows on a wider/narrower host window now that width isn't
+ // aspect-locked to height — clamped at 0 so an extremely narrow window
+ // (near the resize-limit floor) can't drive this negative.
+ const int sideW = juce::jmax (0, (topRow.getWidth() - si (kCtrlFrameW) - si (kMargin) * 2) / 2);
  // Show/hide LCD panels per mode.
  // Real tab order: 0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER.
  // sliceLcd/sliceWaveformLcd are mode-aware (see WaveformView's
