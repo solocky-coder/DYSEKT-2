@@ -888,8 +888,15 @@ void DysektEditor::resized()
      const auto  userArea = (display != nullptr) ? display->userArea
                                                    : juce::Rectangle<int> (0, 0, 3840, 2160);
 
-     const int maxW = juce::jmax (kBaseW  / 2, juce::roundToInt ((float) userArea.getWidth()  * 0.95f));
-     const int maxH = juce::jmax (kTotalH / 2, juce::roundToInt ((float) userArea.getHeight() * 0.95f));
+     // No safety-margin shrink here (e.g. ×0.95) — that was leaving a strip
+     // of dead host background on one edge whenever the host maximized its
+     // own floating window to exactly userArea: the host's frame filled the
+     // full screen, but our component refused to grow that last few percent
+     // to match. userArea is already the screen's usable area (monitor
+     // minus OS taskbar etc.), so clamping our own ceiling to exactly that
+     // is the correct "don't run off-screen" limit with no extra shrink.
+     const int maxW = juce::jmax (kBaseW  / 2, userArea.getWidth());
+     const int maxH = juce::jmax (kTotalH / 2, userArea.getHeight());
 
      setResizeLimits (kBaseW / 2, kTotalH / 2, maxW, maxH);
  }
