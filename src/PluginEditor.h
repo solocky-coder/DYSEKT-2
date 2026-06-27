@@ -77,6 +77,16 @@ public:
      */
     void syncMidiRouteMode();
 
+    /** The centred, aspect-correct sub-rectangle (always kBaseW:kTotalH)
+     *  that the actual UI is laid out within. The real component can be
+     *  any size/aspect a host gives it — we no longer force a fixed
+     *  aspect ratio on the component itself, since a hosted plugin can't
+     *  reposition its own floating window to recentre after a hard clamp.
+     *  Instead resized() recomputes this each time and everything lays
+     *  out relative to it, with paint() filling plain background in the
+     *  surrounding letterbox margins. */
+    const juce::Rectangle<int>& getDesignArea() const noexcept { return designArea; }
+
 private:
     void timerCallback() override;
     void ensureDefaultThemes();
@@ -116,6 +126,12 @@ private:
     bool showPadGrid     = false;  ///< true = PadGridView, false = WaveformView (within uiMode 0)
     bool hasSampleLoaded = false;   // true once a sample with audio is loaded
     bool hasSampleLoaded2 = false;  // true once SFZ-PLAYER (sliceManager2/sampleData2) has a real sample loaded
+
+    /// Centred kBaseW:kTotalH sub-rectangle the UI is actually laid out
+    /// within; recomputed at the top of every resized() call. See
+    /// getDesignArea() above for why this exists instead of a hard
+    /// component-level aspect-ratio lock.
+    juce::Rectangle<int> designArea;
 
     std::unique_ptr<TrimSession>       trimSession;
     std::unique_ptr<TrimDialog>        trimDialog;

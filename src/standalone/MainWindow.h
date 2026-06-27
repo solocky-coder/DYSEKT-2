@@ -86,6 +86,27 @@ public:
         centreWithSize (getWidth(), getHeight());
     }
 
+    // DocumentWindow's default layout stretches the content area to fill
+    // whatever size the OS gives the window (e.g. on native maximize), then
+    // DysektEditor's own fixed-aspect-ratio constrainer clamps itself back
+    // down to the largest size that still fits the locked aspect ratio.
+    // That clamp keeps the editor's existing top-left origin, though, so
+    // any leftover space ends up dumped entirely on the right/bottom
+    // instead of being split evenly — looking lopsided/broken rather than
+    // a deliberate letterbox. Re-centre the (already correctly-sized)
+    // editor within the content area on every resize to fix that.
+    void resized() override
+    {
+        DocumentWindow::resized();
+
+        if (editor != nullptr)
+        {
+            const auto contentArea = getLocalBounds().withTrimmedTop (
+                (menuBar != nullptr) ? kMenuH : 0);
+            editor->setCentrePosition (contentArea.getCentre());
+        }
+    }
+
     ~MainWindow() override
     {
         setMenuBar (nullptr);
