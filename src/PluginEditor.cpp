@@ -357,7 +357,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  }
 
  setWantsKeyboardFocus (true);
- setResizable (true, false);
+ setResizable (true, true);
  setResizeLimits (kBaseW / 2, kTotalH / 2, 3840, 2160);
  if (auto* c = getConstrainer())
      c->setFixedAspectRatio ((double) kBaseW / (double) kTotalH);
@@ -867,6 +867,30 @@ void DysektEditor::paintOverChildren (juce::Graphics& g)
 
 void DysektEditor::resized()
 {
+ // Re-clamp the live resize ceiling to whichever monitor we're currently
+ // on. setResizeLimits() in the constructor set a flat, screen-agnostic
+ // max of 3840x2160 — fine for the corner-resizer's min/max plumbing in
+ // general, but on any monitor smaller than that, nothing stops the user
+ // from dragging the handle taller/wider than the actual screen. Hosts
+ // generally trust whatever max size a plugin reports rather than
+ // re-clamping it themselves, so the window just runs off the bottom/
+ // right edge of the display with no scrolling — clipping whatever
+ // painted content (e.g. a panel's closing border) happens to land past
+ // the visible edge. setResizeLimits() only updates stored numbers on
+ // the constrainer, not the component's own bounds, so calling it here
+ // on every resized() (including mid-drag) is safe and won't recurse.
+ {
+     const auto& displays = juce::Desktop::getInstance().getDisplays();
+     const auto* display  = displays.getDisplayForRect (getScreenBounds());
+     const auto  userArea = (display != nullptr) ? display->userArea
+                                                   : juce::Rectangle<int> (0, 0, 3840, 2160);
+
+     const int maxW = juce::jmax (kBaseW  / 2, juce::roundToInt ((float) userArea.getWidth()  * 0.95f));
+     const int maxH = juce::jmax (kTotalH / 2, juce::roundToInt ((float) userArea.getHeight() * 0.95f));
+
+     setResizeLimits (kBaseW / 2, kTotalH / 2, maxW, maxH);
+ }
+
  // ── Scale factor: all fixed-pixel constants scale with component width ────
  const float sf = (float) getWidth() / (float) kBaseW;
  auto si = [sf](int v) -> int { return juce::roundToInt ((float) v * sf); };
