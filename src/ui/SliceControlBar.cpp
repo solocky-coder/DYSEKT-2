@@ -1283,6 +1283,9 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
  }
 
  // ── PAD / WAVE — two separate toggle buttons side by side ────────────────────────────────────
+ // PAD MODE is a Slicer-only feature. The SFZ-PLAYER SCB has no pad grid, so
+ // we skip drawing (and hit-testing, see mouseDown) the toggle entirely there.
+ if (! isSfzPlayer2Mode())
  {
      const int btnY   = si (9);  // centred in row1 (y=7..35): (7+35-24)/2 = 9
      const int btnH   = si (24);
@@ -1317,6 +1320,13 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
      drawBtn (padToggleBtnArea,  "PADS",  padViewActive);
      drawBtn (waveToggleBtnArea, "WAVE", !padViewActive);
  }
+ else
+ {
+     // No toggle in SFZ-PLAYER mode — clear hit areas so stale rects from a
+     // previous Slicer-mode paint can't still register clicks.
+     padToggleBtnArea  = {};
+     waveToggleBtnArea = {};
+ }
 }
 
 // =============================================================================
@@ -1325,7 +1335,8 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
 void SliceControlBar::mouseDown (const juce::MouseEvent& e)
 {
     // ── PAD / WAVE — two separate buttons, each sets its own active state ───
-    if (e.mods.isLeftButtonDown())
+    // Slicer-only — see paint(). The SFZ-PLAYER SCB never shows this toggle.
+    if (e.mods.isLeftButtonDown() && ! isSfzPlayer2Mode())
     {
         if (padToggleBtnArea.contains (e.getPosition()) && !padViewActive)
         {
