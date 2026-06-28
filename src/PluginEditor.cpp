@@ -363,23 +363,18 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  // we accept whatever size/aspect the host gives us. Vertical layout (sf)
  // tracks height; extra/less width reflows into the side LCD columns and
  // panel widths instead of forcing a uniform zoom or being letterboxed.
- // Start at 1.5x design units (the preferred big default), but clamp to
-    // 90% of the primary display's usable area so the window is never
-    // taller than the screen on first launch.
     //
-    // IMPORTANT: clamp width and height independently — do NOT tie them
-    // together via kBaseW/kTotalH the way an aspect-locked size would.
-    // The design's aspect ratio (~1.29:1) is much taller/narrower than a
-    // typical 16:9 or 16:10 monitor, so computing height-from-width (or
-    // vice versa) via that ratio drags whichever dimension is unconstrained
-    // down with it even when the screen has plenty of room to spare —
-    // e.g. on a 1920x1200 display this used to produce a ~1390-wide window
-    // with several hundred pixels of unused width sitting empty next to
-    // it, looking like a layout bug rather than a deliberate small window.
-    // Since resized() already reflows extra width into the side columns
-    // with no aspect lock at all, the initial size shouldn't pretend one
-    // exists either — clamp each axis to the smaller of its own kInit*
-    // default and 90% of that axis's screen size, full stop.
+    // Default to 90% of the primary display's usable area on BOTH axes,
+    // independently — not capped at kInitW/kInitH ("1.5x design units").
+    // That flat 1695x1317 cap used to be the actual ceiling on any screen
+    // roomy enough to fit it uncapped (basically anything 1920x1200 or
+    // bigger), so the window opened at the same modest fixed size
+    // regardless of how much larger the display actually was — looking
+    // like a small window sitting in the middle of the screen rather than
+    // a window that fills it. There's no aspect lock and no reason to
+    // prefer a fixed design size over the screen's own dimensions; just
+    // fill 90% of whatever display we're on, leaving a small margin so
+    // the title bar/edges stay visibly distinct from the screen edge.
     {
         const auto& displays = juce::Desktop::getInstance().getDisplays();
         const auto* primary  = displays.getPrimaryDisplay();
@@ -387,11 +382,8 @@ DysektEditor::DysektEditor (DysektProcessor& p)
                                    ? primary->userArea
                                    : juce::Rectangle<int> (0, 0, 1920, 1080);
 
-        const int maxW = juce::roundToInt (userArea.getWidth()  * 0.90);
-        const int maxH = juce::roundToInt (userArea.getHeight() * 0.90);
-
-        const int w = juce::jmin (kInitW, maxW);
-        const int h = juce::jmin (kInitH, maxH);
+        const int w = juce::roundToInt (userArea.getWidth()  * 0.90);
+        const int h = juce::roundToInt (userArea.getHeight() * 0.90);
         setSize (w, h);
     }
  lastUiSnapshotVersion = processor.getUiSliceSnapshotVersion();
