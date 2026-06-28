@@ -366,6 +366,20 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  // Start at 1.5x design units (the preferred big default), but clamp to
     // 90% of the primary display's usable area so the window is never
     // taller than the screen on first launch.
+    //
+    // IMPORTANT: clamp width and height independently — do NOT tie them
+    // together via kBaseW/kTotalH the way an aspect-locked size would.
+    // The design's aspect ratio (~1.29:1) is much taller/narrower than a
+    // typical 16:9 or 16:10 monitor, so computing height-from-width (or
+    // vice versa) via that ratio drags whichever dimension is unconstrained
+    // down with it even when the screen has plenty of room to spare —
+    // e.g. on a 1920x1200 display this used to produce a ~1390-wide window
+    // with several hundred pixels of unused width sitting empty next to
+    // it, looking like a layout bug rather than a deliberate small window.
+    // Since resized() already reflows extra width into the side columns
+    // with no aspect lock at all, the initial size shouldn't pretend one
+    // exists either — clamp each axis to the smaller of its own kInit*
+    // default and 90% of that axis's screen size, full stop.
     {
         const auto& displays = juce::Desktop::getInstance().getDisplays();
         const auto* primary  = displays.getPrimaryDisplay();
@@ -373,17 +387,11 @@ DysektEditor::DysektEditor (DysektProcessor& p)
                                    ? primary->userArea
                                    : juce::Rectangle<int> (0, 0, 1920, 1080);
 
-        const double aspect = (double) kBaseW / (double) kTotalH;
         const int maxW = juce::roundToInt (userArea.getWidth()  * 0.90);
         const int maxH = juce::roundToInt (userArea.getHeight() * 0.90);
 
-        int w = juce::jmin (kInitW, maxW);
-        int h = juce::roundToInt ((double) w / aspect);
-        if (h > maxH)
-        {
-            h = maxH;
-            w = juce::roundToInt ((double) h * aspect);
-        }
+        const int w = juce::jmin (kInitW, maxW);
+        const int h = juce::jmin (kInitH, maxH);
         setSize (w, h);
     }
  lastUiSnapshotVersion = processor.getUiSliceSnapshotVersion();

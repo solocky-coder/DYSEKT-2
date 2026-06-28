@@ -81,20 +81,34 @@ public:
         setMenuBar (this, kMenuH);
 
         // ── Initial size ──────────────────────────────────────────────────
+        // Give the window a sane windowed-mode fallback size first (in case
+        // setFullScreen() is ever a no-op on some platform/window manager),
+        // then maximise. setFullScreen(true) resizes the window to the
+        // monitor's usable area and — now that resized() above explicitly
+        // fills the content area — the editor reflows to match it on the
+        // very first frame, instead of opening at the smaller centred
+        // default and needing a manual corner-drag to fill the screen.
         setSize (editor->getWidth(), editor->getHeight() + kMenuH);
         setVisible (true);
         centreWithSize (getWidth(), getHeight());
+        setFullScreen (true);
     }
 
-    // DocumentWindow's default layout stretches the content area to fill
-    // whatever size the OS gives the window (e.g. on native maximize), then
-    // DysektEditor's own fixed-aspect-ratio constrainer clamps itself back
-    // down to the largest size that still fits the locked aspect ratio.
-    // That clamp keeps the editor's existing top-left origin, though, so
-    // any leftover space ends up dumped entirely on the right/bottom
-    // instead of being split evenly — looking lopsided/broken rather than
-    // a deliberate letterbox. Re-centre the (already correctly-sized)
-    // editor within the content area on every resize to fix that.
+    // NOTE: DysektEditor used to lock itself to a fixed aspect ratio, which
+    // meant any time the window grew, the editor would immediately clamp
+    // itself back down to the largest size that still fit that ratio while
+    // keeping its top-left origin — dumping the leftover space on the
+    // right/bottom instead of splitting it evenly. This override used to
+    // paper over that by re-centring the (already correctly-sized) editor.
+    //
+    // That clamp no longer exists — DysektEditor dropped setFixedAspectRatio()
+    // and now freely reflows at whatever size it's given (see the comments
+    // above resized() in PluginEditor.cpp). Re-centring alone no longer does
+    // anything useful: setCentrePosition() only moves the editor, it never
+    // resizes it, so on any window resize the editor was left at its old
+    // size, just repositioned — which is exactly the "doesn't fill the
+    // window until you manually drag the corner" bug. Explicitly fill the
+    // content area here so the editor's bounds always match the window.
     void resized() override
     {
         DocumentWindow::resized();
@@ -103,7 +117,7 @@ public:
         {
             const auto contentArea = getLocalBounds().withTrimmedTop (
                 (menuBar != nullptr) ? kMenuH : 0);
-            editor->setCentrePosition (contentArea.getCentre());
+            editor->setBounds (contentArea);
         }
     }
 
