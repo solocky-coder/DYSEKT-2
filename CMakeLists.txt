@@ -126,6 +126,7 @@ juce_add_plugin(Dysekt
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT TRUE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+    COPY_PLUGIN_AFTER_BUILD TRUE
 )
 
 # MSVC compile + link flags:
