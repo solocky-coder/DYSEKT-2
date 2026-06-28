@@ -613,11 +613,15 @@ public:
     //   channel 1                 → slicer always (hardwired, not stored in any mask)
     //   chromaticSliceChannelMask → channels 2–16 explicitly assigned to chromatic slices
     //   sfPlayerChannelMask       → channels currently active for SF player live MIDI;
-    //                               set to 0 while in Slicer mode (routing gate);
     //                               never overlaps channel 1 or chromaticSliceChannelMask
-    //   savedSfPlayerChannelMask  → user's configured SF channel range, preserved when
-    //                               sfPlayerChannelMask is zeroed for Slicer mode
-    //   0 in sfPlayerChannelMask  = SF player disabled; slicer gets everything
+    //   savedSfPlayerChannelMask  → mirrors sfPlayerChannelMask for state-save/restore
+    //   0 in sfPlayerChannelMask  = SF player disabled (no file loaded / no range set yet)
+    //
+    // IMPORTANT: these masks are channel-ownership state, NOT tied to which UI
+    // tab currently has focus — setMidiRouteMode() only updates the UI-display
+    // hint (midiRouteMode) and must never zero these. All engines (Slicer,
+    // SF-Player, SFZ-Player2) listen on their owned channels concurrently,
+    // regardless of which tab is in view.
     //
     // All three are derived/cached state — not serialised directly; rebuilt on load
     // (sfPlayerChannelMask and savedSfPlayerChannelMask are restored from the saved

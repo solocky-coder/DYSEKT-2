@@ -632,92 +632,45 @@ void DysektProcessor::rebuildChromaticChannelMask()
 
 void DysektProcessor::setMidiRouteMode (MidiRouteMode mode)
 {
-    // Called on the message thread.  Atomically update the route mode so
-    // processMidi() sees the new value on the next audio callback.
+    // Called on the message thread whenever the UI tab changes focus.
     //
-    // midiRouteMode is a UI-display hint (SliceWaveformLcd::isSfPlayerMode).
-    // All audio routing is gated by sfPlayerChannelMask — set in the switch
-    // cases below.  No force-downgrade needed for VST3/plugin builds.
+    // midiRouteMode is a UI-display hint ONLY (SliceWaveformLcd::isSfPlayerMode,
+    // SliceControlBar::isSfzPlayer2Mode, etc.) — it does NOT gate live MIDI
+    // routing. Slicer (ch 1), SF-Player, and SFZ-Player2 each listen
+    // concurrently on whatever channels they've been assigned, regardless of
+    // which tab currently has UI focus — see processMidi()/processMidi2(),
+    // which already route purely by channel ownership (sfPlayerChannelMask /
+    // sfzPlayer2ChannelMask), independent of mode.
+    //
+    // sfPlayerChannelMask / sfzPlayer2ChannelMask are owned and toggled by
+    // the player dropdown panels (enabled when a file is loaded / a channel
+    // range is configured — see SfzDropdownPanel, SfzModulePanel,
+    // SfzPlayerDropdownPanel). A tab switch must never zero them out from
+    // under the user, or the player silently stops responding to live MIDI
+    // the moment focus leaves its tab.
     midiRouteMode.store (static_cast<int> (mode), std::memory_order_relaxed);
 
+#if DYSEKT_STANDALONE
+    // Standalone sequencer only: which track's live MIDI preview is
+    // "selected" is a distinct, standalone-only concept from plugin channel
+    // routing above — keep that tied to tab focus as before.
     switch (mode)
     {
         case MidiRouteMode::Slicer:
-            // Zero the live routing masks so processMidi stops feeding sfzPlayer
-            // and sfzPlayer2. Save each non-zero mask first so switching back to
-            // SfPlayer / SfzPlayer2 can restore it rather than reverting to the
-            // omni/default fallback.
-            {
-                const uint32_t curMask = sfPlayerChannelMask.load (std::memory_order_relaxed);
-                if (curMask != 0u)
-                    savedSfPlayerChannelMask.store (curMask, std::memory_order_relaxed);
-                sfPlayerChannelMask.store (0u, std::memory_order_relaxed);
-            }
-            {
-                const uint32_t curMask2 = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-                if (curMask2 != 0u)
-                    savedSfzPlayer2ChannelMask.store (curMask2, std::memory_order_relaxed);
-                sfzPlayer2ChannelMask.store (0u, std::memory_order_relaxed);
-            }
-#if DYSEKT_STANDALONE
-            sequencer.setSelectedSfLiveChannels (0);
-#endif
-            break;
-
-        case MidiRouteMode::SfPlayer:
-            // Restore the saved channel range (stripping any channels now claimed
-            // by chromatic slices or by sfzPlayer2).  Fall back to omni (ch 2–16)
-            // if never configured.
-            if (sfPlayerChannelMask.load (std::memory_order_relaxed) == 0u)
-            {
-                uint32_t saved = savedSfPlayerChannelMask.load (std::memory_order_relaxed);
-                // Strip channels now owned by chromatic slices or sfzPlayer2.
-                saved &= ~chromaticSliceChannelMask.load (std::memory_order_relaxed);
-                saved &= ~sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-                // Fall back to omni if nothing remains (e.g. all channels claimed).
-                if (saved == 0u) saved = 0x1FFFEu;   // bits 2–16 (ch 1 hardwired to slicer)
-                sfPlayerChannelMask.store (saved, std::memory_order_relaxed);
-            }
-            // Zero sfzPlayer2's live mask too, so it stops listening while this
-            // (SF2-PLAYER) tab is active — save it first so switching back to
-            // SFZ-PLAYER restores it instead of reverting to the ch2 default.
-            {
-                const uint32_t curMask2 = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-                if (curMask2 != 0u)
-                    savedSfzPlayer2ChannelMask.store (curMask2, std::memory_order_relaxed);
-                sfzPlayer2ChannelMask.store (0u, std::memory_order_relaxed);
-            }
-#if DYSEKT_STANDALONE
-            sequencer.setSelectedSfLiveChannels (sequencer.getAllSfPlayerChannelMask());
-#endif
-            break;
-
         case MidiRouteMode::SfzPlayer2:
-            // Restore sfzPlayer2ChannelMask (default ch 2), zeroing SF-player mask.
-            {
-                const uint32_t curMask = sfPlayerChannelMask.load (std::memory_order_relaxed);
-                if (curMask != 0u)
-                    savedSfPlayerChannelMask.store (curMask, std::memory_order_relaxed);
-                sfPlayerChannelMask.store (0u, std::memory_order_relaxed);
-            }
-            if (sfzPlayer2ChannelMask.load (std::memory_order_relaxed) == 0u)
-            {
-                uint32_t saved = savedSfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-                saved &= ~chromaticSliceChannelMask.load (std::memory_order_relaxed);
-                saved &= ~sfPlayerChannelMask.load (std::memory_order_relaxed);
-                if (saved == 0u) saved = (1u << 2);   // default ch2
-                sfzPlayer2ChannelMask.store (saved, std::memory_order_relaxed);
-            }
-#if DYSEKT_STANDALONE
             sequencer.setSelectedSfLiveChannels (0);
-#endif
             break;
-
+        case MidiRouteMode::SfPlayer:
+            sequencer.setSelectedSfLiveChannels (sequencer.getAllSfPlayerChannelMask());
+            break;
         case MidiRouteMode::Sequencer:
             // Live-input mask is managed by ArrangeView / setSelectedSfLiveChannels();
             // leave it unchanged here so the currently-selected track keeps focus.
             break;
     }
+#else
+    (void) mode;
+#endif
 }
 
 void DysektProcessor::pushCommand (Command cmd)
@@ -1612,8 +1565,9 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
     // to sfzPlayer (SF2-PLAYER), and messages on channels owned by
     // sfzPlayer2ChannelMask are routed exclusively to sfzPlayer2 (SFZ-PLAYER) —
     // neither should trigger slices, lazy-chop, or MIDI learn here. Both masks
-    // are zero in Slicer mode (see setMidiRouteMode), so the slicer gets
-    // everything in that case.
+    // are zero only when their respective engine has never been enabled (no
+    // file loaded / no channel range configured) — NOT based on which tab has
+    // UI focus, so all engines keep listening concurrently regardless of tab.
     const uint32_t sfMask  = sfPlayerChannelMask.load  (std::memory_order_relaxed);
     const uint32_t sfz2Mask = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
 
@@ -2502,7 +2456,7 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
 void DysektProcessor::processMidi2 (const juce::MidiBuffer& midi)
 {
     const uint32_t sfz2Mask = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-    if (sfz2Mask == 0) return;   // SFZ-PLAYER not the active tab — no channels owned
+    if (sfz2Mask == 0) return;   // SFZ-PLAYER not enabled — no channels owned
 
     for (const auto metadata : midi)
     {
