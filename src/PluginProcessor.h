@@ -507,6 +507,10 @@ public:
     static constexpr int kMaxMeterSlices = 128;
     std::array<std::atomic<float>, kMaxMeterSlices> slicePeakL {};
     std::array<std::atomic<float>, kMaxMeterSlices> slicePeakR {};
+    // Per-slice peak meters for SFZ-Player (voicePool2) -- separate so
+    // voicePool2 activity never bleeds into the main slicer's SCB meters.
+    std::array<std::atomic<float>, kMaxMeterSlices> slicePeak2L {};
+    std::array<std::atomic<float>, kMaxMeterSlices> slicePeak2R {};
     // Master output peak meters (0..1, decaying, written in audio thread, read by UI)
     std::atomic<float> masterPeakL {0.0f}, masterPeakR {0.0f};
     // Peak meters written by processBlock, read by SfzModulePanel timer

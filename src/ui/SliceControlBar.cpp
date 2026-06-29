@@ -1226,8 +1226,8 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
 
      if (idx >= 0 && idx < DysektProcessor::kMaxMeterSlices)
      {
-         const float pkL = processor.slicePeakL[(size_t) idx].load (std::memory_order_relaxed);
-         const float pkR = processor.slicePeakR[(size_t) idx].load (std::memory_order_relaxed);
+         const float pkL = (sfzMode ? processor.slicePeak2L : processor.slicePeakL)[(size_t) idx].load (std::memory_order_relaxed);
+         const float pkR = (sfzMode ? processor.slicePeak2R : processor.slicePeakR)[(size_t) idx].load (std::memory_order_relaxed);
          const int barH  = (meterH - 2) / 2;
          const int inner = meterW - 4; // pixels available for signal fill
 

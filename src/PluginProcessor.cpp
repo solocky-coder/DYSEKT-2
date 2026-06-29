@@ -3503,7 +3503,8 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         sfz2PeakR.store (std::max (sfz2PeakR.load (std::memory_order_relaxed) * decaySFZ2, pk2R),
                          std::memory_order_relaxed);
 
-        // Per-slice peaks for SCB meter — mirrors the voicePool scan above
+        // Per-slice peaks for SCB meter (SFZ-Player tab) -- written to the
+        // dedicated slicePeak2L/R array so main-slicer meters are unaffected.
         for (int vi = 0; vi < voicePool2.getMaxActiveVoices(); ++vi)
         {
             const auto& v = voicePool2.getVoice (vi);
@@ -3513,10 +3514,10 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const float vol = juce::jlimit (0.0f, 1.0f, v.volume);
             const float pkL = vol * v.panL;
             const float pkR = vol * v.panR;
-            float curL = slicePeakL[si].load (std::memory_order_relaxed);
-            float curR = slicePeakR[si].load (std::memory_order_relaxed);
-            if (pkL > curL) slicePeakL[si].store (pkL, std::memory_order_relaxed);
-            if (pkR > curR) slicePeakR[si].store (pkR, std::memory_order_relaxed);
+            float curL = slicePeak2L[si].load (std::memory_order_relaxed);
+            float curR = slicePeak2R[si].load (std::memory_order_relaxed);
+            if (pkL > curL) slicePeak2L[si].store (pkL, std::memory_order_relaxed);
+            if (pkR > curR) slicePeak2R[si].store (pkR, std::memory_order_relaxed);
         }
     }   // end SFZ-PLAYER block
 
@@ -3560,6 +3561,10 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         slicePeakL[si].store (v, std::memory_order_relaxed);
         v = slicePeakR[si].load (std::memory_order_relaxed) * kDecayPerBlock;
         slicePeakR[si].store (v, std::memory_order_relaxed);
+        v = slicePeak2L[si].load (std::memory_order_relaxed) * kDecayPerBlock;
+        slicePeak2L[si].store (v, std::memory_order_relaxed);
+        v = slicePeak2R[si].load (std::memory_order_relaxed) * kDecayPerBlock;
+        slicePeak2R[si].store (v, std::memory_order_relaxed);
     }
 }
 juce::AudioProcessorEditor* DysektProcessor::createEditor()
