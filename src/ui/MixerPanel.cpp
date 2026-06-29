@@ -870,13 +870,13 @@ void MixerPanel::drawSf2Row (juce::Graphics& g, int ry) const
     for (int i = ColFcut; i < kNumCols; ++i)
         g.drawText ("—", colX ((Col)i), ry, kKnobColW, kSf2RowH, juce::Justification::centred);
 
-    // Peak meter using sfzPeakL/R from processor
+    // Peak meter using sfz2PeakL/R from processor (SFZ-Player / voicePool2)
     const int mx = colX (ColOut) + kKnobColW + 4;
     const int mw = getWidth() - mx - 6;
     if (mw > 20)
     {
-        float pkL = processor.sfzPeakL.load (std::memory_order_relaxed);
-        float pkR = processor.sfzPeakR.load (std::memory_order_relaxed);
+        float pkL = processor.sfz2PeakL.load (std::memory_order_relaxed);
+        float pkR = processor.sfz2PeakR.load (std::memory_order_relaxed);
         // Use a dedicated hold slot beyond the slice slots (index kMaxHoldSlices - 2)
         constexpr int kSf2HoldSlot = kMaxHoldSlices - 2;
         holdL[kSf2HoldSlot] = std::max (holdL[kSf2HoldSlot], pkL);

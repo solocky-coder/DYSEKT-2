@@ -3502,6 +3502,22 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                          std::memory_order_relaxed);
         sfz2PeakR.store (std::max (sfz2PeakR.load (std::memory_order_relaxed) * decaySFZ2, pk2R),
                          std::memory_order_relaxed);
+
+        // Per-slice peaks for SCB meter — mirrors the voicePool scan above
+        for (int vi = 0; vi < voicePool2.getMaxActiveVoices(); ++vi)
+        {
+            const auto& v = voicePool2.getVoice (vi);
+            if (! v.active) continue;
+            const int si = v.sliceIdx;
+            if (si < 0 || si >= kMaxMeterSlices) continue;
+            const float vol = juce::jlimit (0.0f, 1.0f, v.volume);
+            const float pkL = vol * v.panL;
+            const float pkR = vol * v.panR;
+            float curL = slicePeakL[si].load (std::memory_order_relaxed);
+            float curR = slicePeakR[si].load (std::memory_order_relaxed);
+            if (pkL > curL) slicePeakL[si].store (pkL, std::memory_order_relaxed);
+            if (pkR > curR) slicePeakR[si].store (pkR, std::memory_order_relaxed);
+        }
     }   // end SFZ-PLAYER block
 
     // ── Global post-mix EQ (applied to main bus only) ─────────────────────────
