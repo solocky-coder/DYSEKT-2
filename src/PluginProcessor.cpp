@@ -3284,19 +3284,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    // ---- Compute master output peak (sum across all output buses) ----
-    float masterL = 0.0f, masterR = 0.0f;
-    for (int b = 0; b < numActiveBuses; ++b)
-    {
-        if (busL[b])
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                masterL = juce::jmax(masterL, std::abs(busL[b][i]));
-        if (busR[b])
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                masterR = juce::jmax(masterR, std::abs(busR[b][i]));
-    }
-    masterPeakL.store(masterL, std::memory_order_relaxed);
-    masterPeakR.store(masterR, std::memory_order_relaxed);
 
     // ── SF2/SFZ live player — dedicated audio bus ("SF2 Player"), summed to main ──
     //
@@ -3520,6 +3507,24 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             if (pkR > curR) slicePeak2R[si].store (pkR, std::memory_order_relaxed);
         }
     }   // end SFZ-PLAYER block
+
+    // ---- Compute master output peak (sum across all output buses) ----
+    // Must be after all engines (voicePool, sfzPlayer, voicePool2) have
+    // written to the bus, otherwise SFZ-PLAYER audio is missed.
+    {
+        float masterL = 0.0f, masterR = 0.0f;
+        for (int b = 0; b < numActiveBuses; ++b)
+        {
+            if (busL[b])
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    masterL = juce::jmax(masterL, std::abs(busL[b][i]));
+            if (busR[b])
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    masterR = juce::jmax(masterR, std::abs(busR[b][i]));
+        }
+        masterPeakL.store(masterL, std::memory_order_relaxed);
+        masterPeakR.store(masterR, std::memory_order_relaxed);
+    }
 
     // ── Global post-mix EQ (applied to main bus only) ─────────────────────────
     if (busL[0] != nullptr && buffer.getNumSamples() > 0)
