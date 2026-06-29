@@ -487,11 +487,22 @@ void DysektProcessor::publishUiSliceSnapshot()
     snap.sampleNumFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
     if (sampleSnap != nullptr)
     {
-        juce::String fn = sampleSnap->fileName;
-        if (fn.equalsIgnoreCase ("Empty.wav") || fn.equalsIgnoreCase ("DYSEKT_default.wav"))
-            fn = {};
+        // Identify the bundled placeholder by its actual on-disk path — the
+        // same check already used elsewhere (see PluginEditor's "hasReal"
+        // sample checks: snap->filePath.containsIgnoreCase ("DYSEKT_default.wav")) —
+        // rather than by matching the display filename. Filename-equality
+        // against a generic name like "Empty.wav" (which is only the
+        // BinaryData resource name and never the actual on-disk filename —
+        // loadDefaultSampleIfNeeded() always writes "DYSEKT_default.wav")
+        // is unreliable: any real user sample that happens to be named
+        // "Empty.wav", or whose resolved display name comes back empty for
+        // any other reason, would be misidentified as the placeholder and
+        // hidden by SliceWaveformLcd even though a real sample with real
+        // slices is loaded.
+        const bool isPlaceholder = sampleSnap->filePath.containsIgnoreCase ("DYSEKT_default.wav");
+        const juce::String fn = isPlaceholder ? juce::String() : sampleSnap->fileName;
         fn.copyToUTF8 (snap.sampleFileName, sizeof (snap.sampleFileName));
-        snap.isDefaultSample = fn.isEmpty();
+        snap.isDefaultSample = isPlaceholder;
     }
     else if (snap.sampleMissing && missingFilePath.isNotEmpty())
     {
@@ -503,7 +514,7 @@ void DysektProcessor::publishUiSliceSnapshot()
     {
         juce::String fn = sampleData.getFileName();
         fn.copyToUTF8 (snap.sampleFileName, sizeof (snap.sampleFileName));
-        snap.isDefaultSample = fn.equalsIgnoreCase ("Empty.wav");
+        snap.isDefaultSample = sampleData.getFilePath().containsIgnoreCase ("DYSEKT_default.wav");
     }
     else
     {
@@ -562,9 +573,16 @@ void DysektProcessor::publishUiSliceSnapshot2()
     snap.sampleNumFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
     if (sampleSnap != nullptr)
     {
-        juce::String fn = sampleData2.getFileName();
+        // Engine 2 (SFZ-PLAYER) never loads a bundled placeholder sample —
+        // there is no "DYSEKT_default.wav" equivalent for sampleData2 — so
+        // a successfully loaded sample is never the "default" here. Unlike
+        // the Slicer's publishUiSliceSnapshot(), this must NOT fall back to
+        // "isEmpty() on the resolved name", which would wrongly blank
+        // SliceWaveformLcd for any real render/load whose display name
+        // happens to come back empty.
+        const juce::String fn = sampleData2.getFileName();
         fn.copyToUTF8 (snap.sampleFileName, sizeof (snap.sampleFileName));
-        snap.isDefaultSample = fn.isEmpty();
+        snap.isDefaultSample = false;
     }
     else
     {
