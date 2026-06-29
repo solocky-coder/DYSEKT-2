@@ -2,6 +2,16 @@
 #include "ui/DysektLookAndFeel.h"
 #include "ui/PluginEditorConstants.h"
 
+#if JUCE_WINDOWS && ! DYSEKT_STANDALONE
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #ifndef WIN32_LEAN_AND_MEAN
+  #define WIN32_LEAN_AND_MEAN
+ #endif
+ #include <windows.h>
+#endif
+
 // ========================== FILEPATH HELPERS ==========================
 static juce::File getSettingsDir()
 {
@@ -1634,6 +1644,54 @@ if (activeSlot == SlotContent::Seq)   pianoRollPanel.syncSnap();
             }
         }
     }
+
+#if JUCE_WINDOWS && ! DYSEKT_STANDALONE
+    // ── Host editor-window resize desync watchdog ───────────────────────────
+    // Reproduces the bug where reopening the plugin (or restoring a session)
+    // after the floating editor window was previously maximised/fullscreen
+    // leaves our UI laid out at our own small requested size (90% of the
+    // primary display, set in the constructor) while the HOST's outer
+    // window is left at its remembered larger size — some VST3 hosts
+    // restore the floating window's OS-level size without ever routing that
+    // through IPlugView::onSize(), so our resized() never sees it and the
+    // extra space around our UI is just blank host background.
+    //
+    // We have no way to intercept a resize the host never tells us about,
+    // but we can detect it: our own native window's PARENT (the host's
+    // outer view) reports its true client size independently of what JUCE
+    // thinks our size is. Require the mismatch to persist for a couple of
+    // ticks before acting, so a live corner-drag (which legitimately
+    // changes size through the normal path tick-to-tick) is never fought.
+    if (auto* hwnd = (HWND) getWindowHandle())
+    {
+        if (auto* parentHwnd = ::GetParent (hwnd))
+        {
+            RECT r;
+            if (::GetClientRect (parentHwnd, &r))
+            {
+                const int parentW = (int) (r.right  - r.left);
+                const int parentH = (int) (r.bottom - r.top);
+                const bool mismatched = parentW > 0 && parentH > 0
+                                      && (parentW != getWidth() || parentH != getHeight());
+
+                if (mismatched && parentW == lastPeerMismatchW && parentH == lastPeerMismatchH)
+                {
+                    if (++peerMismatchTicks >= 2)
+                    {
+                        setSize (parentW, parentH);
+                        peerMismatchTicks = 0;
+                    }
+                }
+                else
+                {
+                    peerMismatchTicks = 0;
+                    lastPeerMismatchW = parentW;
+                    lastPeerMismatchH = parentH;
+                }
+            }
+        }
+    }
+#endif
 }
 
 void DysektEditor::ensureDefaultThemes()

@@ -115,6 +115,14 @@ private:
     enum class SlotContent { None, Browser, Mixer, Eq, Seq };
     SlotContent activeSlot   = SlotContent::None;
     bool initBrowserOpen     = false;  // true until the first real sample is loaded
+
+#if JUCE_WINDOWS && ! DYSEKT_STANDALONE
+    // State for the host editor-window resize desync watchdog — see
+    // timerCallback() in PluginEditor.cpp for the full explanation.
+    int peerMismatchTicks = 0;
+    int lastPeerMismatchW  = 0;
+    int lastPeerMismatchH  = 0;
+#endif
     int  waveformMode = 0;  // 0=Hard 1=Soft 2=Outline 3=Rectified 4=Mirrored 5=Bars 6=RMS 7=Stepped
 
     /// Current interface layout mode.
