@@ -125,19 +125,12 @@ void FileBrowserPanel::ArchiveListModel::listBoxItemDoubleClicked (int row, cons
 // ── Constructor / Destructor ─────────────────────────────────────────────────
 
 FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
-    : processor (p),
-      fileFilter ("*.wav;*.aif;*.aiff;*.ogg;*.flac;*.mp3;*.sf2;*.sfz", "*", "Audio & SoundFont Files"),
-      dirList (&fileFilter, ioThread),
-      browser (juce::FileBrowserComponent::openMode
-               | juce::FileBrowserComponent::canSelectFiles,
-               juce::File::getSpecialLocation (juce::File::userHomeDirectory),
-               &fileFilter, nullptr)
+    : processor (p)
 {
-    ioThread.startThread();
-    browser.addListener (this);
-    browser.setLookAndFeel (&smallLAF);
-    smallLAF.refreshTheme();
-    addAndMakeVisible (browser);
+    // ── SfzFileBrowser — same widget used in the SFZ-Player panel ────────────
+    sfzBrowser.setMode (SfzFileBrowser::Mode::kSfz);   // shows sf2/sfz + all audio
+    sfzBrowser.onFileChosen = [this] (const juce::File& f) { fileDoubleClicked (f); };
+    addAndMakeVisible (sfzBrowser);
 
     // ── Archive list view (initially hidden) ─────────────────────────────────
     archiveModel.owner = this;
@@ -253,7 +246,7 @@ FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
             for (int i = 0; i < comp->getNumChildComponents(); ++i)
                 walk (comp->getChildComponent (i));
         };
-        walk (&browser);
+        walk (&sfzBrowser);
     };
 
     juce::Timer::callAfterDelay (100,  [enforceReadOnly] { enforceReadOnly(); });
@@ -307,7 +300,6 @@ FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
 FileBrowserPanel::~FileBrowserPanel()
 {
     stopTimer();
-    browser.setLookAndFeel (nullptr);
     archiveList.setLookAndFeel (nullptr);
     transport.stop();
     transport.setSource (nullptr);   // blocks until audio thread releases reader
@@ -315,8 +307,6 @@ FileBrowserPanel::~FileBrowserPanel()
     sourcePlayer.setSource (nullptr);
     if (deviceManager.getCurrentAudioDevice() != nullptr)
         deviceManager.removeAudioCallback (&sourcePlayer);
-    browser.removeListener (this);
-    ioThread.stopThread (2000);
 
     // ── Clean up temp preview downloads — these are never needed after session ends
     ArchiveIntegration::clearTemp();
@@ -389,14 +379,14 @@ void FileBrowserPanel::resized()
     if (archiveViewActive)
     {
         archiveList.setVisible (true);
-        browser.setVisible (false);
+        sfzBrowser.setVisible (false);
         archiveList.setBounds (inner);
     }
     else
     {
         archiveList.setVisible (false);
-        browser.setVisible (true);
-        browser.setBounds (inner);
+        sfzBrowser.setVisible (true);
+        sfzBrowser.setBounds (inner);
     }
 }
 
@@ -625,9 +615,8 @@ void FileBrowserPanel::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void FileBrowserPanel::refreshTheme()
 {
-    smallLAF.refreshTheme();
     repaint();
-    browser.repaint();
+    sfzBrowser.repaint();
 }
 
 // ── Cloud bookmark detection ──────────────────────────────────────────────────
@@ -887,7 +876,7 @@ void FileBrowserPanel::rebuildBookmarkBar()
         btn->onClick = [this, i]
         {
             exitArchiveView();
-            browser.setRoot (bookmarks[i].path);
+            sfzBrowser.setRootDirectory (bookmarks[i].path);
         };
 
         if (bookmarks[i].removable)
