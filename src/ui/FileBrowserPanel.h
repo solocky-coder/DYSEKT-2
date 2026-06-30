@@ -5,6 +5,7 @@
 #include "DysektLookAndFeel.h"
 #include "ArchiveIntegration.h"
 #include "ArchiveUrlOverlay.h"
+#include "SfzFileBrowser.h"
 
 class DysektProcessor;
 
@@ -232,7 +233,6 @@ struct ArchiveRow
 };
 
 class FileBrowserPanel : public juce::Component,
-                         private juce::FileBrowserListener,
                          private juce::ChangeListener,
                          private juce::Timer
 {
@@ -249,19 +249,17 @@ public:
     std::function<void (const juce::File&)> onLoadRequest;
 
 private:
-    // ── FileBrowserListener ───────────────────────────────────────────────────
-    void selectionChanged() override {}
-    void fileClicked       (const juce::File& f, const juce::MouseEvent&) override;
-    void fileDoubleClicked (const juce::File& f) override;
-    void browserRootChanged (const juce::File&) override {}
-
     // ── ChangeListener ────────────────────────────────────────────────────────
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     // ── Timer (spinner animation) ─────────────────────────────────────────────
     void timerCallback() override;
 
-    // ── Preview ───────────────────────────────────────────────────────────────
+    // ── File events (wired to sfzBrowser callbacks) ───────────────────────────
+    void fileClicked       (const juce::File& f);
+    void fileDoubleClicked (const juce::File& f);
+
+    // ── Preview engine ────────────────────────────────────────────────────────
     void startPreview (const juce::File& f);
     void startPreviewFromReader (juce::AudioFormatReader* reader);  // takes ownership
     void stopPreview();
@@ -336,12 +334,8 @@ private:
     void loadArchiveFile (const ArchiveRow& row);
     void exitArchiveView();
 
-    // ── Preview bar ───────────────────────────────────────────────────────────
-    SmallListLookAndFeel           smallLAF;
-    juce::WildcardFileFilter       fileFilter;
-    juce::TimeSliceThread          ioThread  { "FileBrowserIO" };
-    juce::DirectoryContentsList    dirList;
-    juce::FileBrowserComponent     browser;
+    // ── File browser (SfzFileBrowser — matches SFZ-Player panel style) ───────
+    SfzFileBrowser             sfzBrowser;
 
     juce::AudioDeviceManager       deviceManager;
     juce::AudioFormatManager       formatManager;
