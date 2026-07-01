@@ -18,6 +18,7 @@ public:
     enum class Mode { kSfz, kSf2, kAddZone };
 
     /** Called when the user double-clicks a file (type depends on current mode). */
+    std::function<void (const juce::File&)> onFileSingleClicked;
     std::function<void (const juce::File&)> onFileChosen;
     /** Called after a new SF2/SFZ file has been accepted (any path). */
     std::function<void (const juce::File&)> onFileLoaded;

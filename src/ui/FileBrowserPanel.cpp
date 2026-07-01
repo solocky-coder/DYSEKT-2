@@ -129,6 +129,7 @@ FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
 {
     // ── SfzFileBrowser — same widget used in the SFZ-Player panel ────────────
     sfzBrowser.setMode (SfzFileBrowser::Mode::kSfz);   // shows sf2/sfz + all audio
+    sfzBrowser.onFileSingleClicked = [this] (const juce::File& f) { fileClicked (f, {}); };
     sfzBrowser.onFileChosen = [this] (const juce::File& f) { fileDoubleClicked (f); };
     addAndMakeVisible (sfzBrowser);
 

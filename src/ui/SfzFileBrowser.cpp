@@ -317,9 +317,11 @@ void SfzFileBrowser::paintListBoxItem (int row, juce::Graphics& g,
     }
 }
 
-void SfzFileBrowser::listBoxItemClicked (int /*row*/, const juce::MouseEvent&)
+void SfzFileBrowser::listBoxItemClicked (int row, const juce::MouseEvent& e)
 {
     repaint();
+    if (row >= 0 && row < rows.size() && ! rows[row].isDirectory() && onFileSingleClicked)
+        onFileSingleClicked (rows[row]);
 }
 
 void SfzFileBrowser::listBoxItemDoubleClicked (int row, const juce::MouseEvent&)

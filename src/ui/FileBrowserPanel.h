@@ -221,7 +221,7 @@ public:
     }
 };
 
-// ── Archive list row ────────────────────────────────────────────────────────[...]
+// ── Archive list row ─────────────────────────────────────────────────────────
 struct ArchiveRow
 {
     juce::String name;
@@ -351,9 +351,6 @@ private:
     IconButton                     playStopBtn;
     juce::Slider                   volumeSlider;
     juce::Label                    fileNameLabel;
-
-    // ── Archive list look-and-feel ───────────────────────────────────────────
-    SmallListLookAndFeel           smallLAF;
 
     // ── Spinner state for pending archive bookmarks ───────────────────────────
     int spinnerFrame = 0;
