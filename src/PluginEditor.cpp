@@ -343,6 +343,9 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  if (! hasReal)
  {
  initBrowserOpen = true;
+ browserPanel.setBrowserMode (uiMode == 0 ? SfzFileBrowser::Mode::kAddZone
+                            : uiMode == 1 ? SfzFileBrowser::Mode::kSfz
+                                         : SfzFileBrowser::Mode::kSf2);
  browserPanel.setVisible (true);
  headerBar.setBrowserActive (true);
  }
@@ -515,6 +518,9 @@ void DysektEditor::toggleBrowserPanel()
             headerBar.setSeqActive (false);
         }
         activeSlot = SlotContent::Browser;
+        browserPanel.setBrowserMode (uiMode == 0 ? SfzFileBrowser::Mode::kAddZone
+                                   : uiMode == 1 ? SfzFileBrowser::Mode::kSfz
+                                                : SfzFileBrowser::Mode::kSf2);
         browserPanel.setVisible (true);
         headerBar.setBrowserActive (true);
     }
