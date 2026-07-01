@@ -1,22 +1,20 @@
 #pragma once
 // =============================================================================
-//  SfzDropdownPanel.h  —  SF2 / SFZ instrument strip with inline file browser
+//  SfzDropdownPanel.h  —  SF2 / SFZ instrument strip
 // =============================================================================
 //  Header strip layout (left → right):
-//    [< Preset Name  📁 >] [TRN] [FINE] [REV MIX] [REV SIZE] [PAN] [VOL] [METER]
+//    [< Preset Name >] [TRN] [FINE] [REV MIX] [REV SIZE] [PAN] [VOL] [METER]
 //
-//  The preset picker doubles as the file browser entry-point:
-//    • When a file IS loaded   — scrolls through SF2 presets as before.
-//                                Small 📁 icon on right edge opens browser.
-//    • When NO file is loaded  — clicking anywhere on the picker opens the
-//                                inline browser.
-//    • Mouse-wheel on the picker scrolls presets (when loaded).
+//  File loading is handled by the shared, global FileBrowserPanel (opened via
+//  the header's Browse button) rather than an inline browser — this matches
+//  the Slicer tab's behavior. PluginEditor wires FileBrowserPanel's
+//  onLoadRequest callback to call onFileChosen() on this panel when a .sf2
+//  file is picked while uiMode == SF2-PLAYER.
 //
-//  The inline browser is a full-panel overlay (below the header strip) with:
-//    • Breadcrumb path bar + ↑ up-button
-//    • Scrollable list: directories first, then .sfz / .sf2 files
-//    • Single-click selects; double-click enters directory or loads file
-//    • Pressing Escape / clicking the 📁 icon again closes the browser
+//  The preset picker still doubles as navigation once a file IS loaded:
+//    • Left/right arrows step through SF2 presets.
+//    • Clicking the label opens the SF2 program grid.
+//    • Mouse-wheel on the picker scrolls presets.
 // =============================================================================
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -27,7 +25,6 @@
 class DysektProcessor;
 
 // =============================================================================
-#include "SfzFileBrowser.h"
 #include "Sf2ProgramGrid.h"
 
 // =============================================================================
@@ -56,11 +53,16 @@ public:
     /** Returns true if the SF2 program grid is currently shown (programPickerOpen). */
     bool isProgramGridOpen() const noexcept { return programPickerOpen; }
 
-    /** Returns true if the inline file browser overlay is open. */
-    bool isBrowserOpen()     const noexcept { return browserOpen; }
-
     /** Called after a new SF2 file has been accepted. */
     std::function<void (const juce::File&)> onFileLoaded;
+
+    /**
+     * Accepts a newly-picked .sf2 file (e.g. routed here from PluginEditor's
+     * shared FileBrowserPanel::onLoadRequest when uiMode == SF2-PLAYER).
+     * Loads the file, sets the fan-out channel mask, opens the program grid,
+     * and fires onFileLoaded. Silently ignores non-.sf2 files.
+     */
+    void onFileChosen (const juce::File& f);
 
     /** Fired when the user right-clicks a preset cell and assigns a MIDI channel. */
     std::function<void (const Sf2PresetInfo&, int midiChannel1Based)> onPresetChannelAssigned;
@@ -100,7 +102,7 @@ private:
     juce::Rectangle<int> chGainZone;
 
     // Sub-zones inside nameZone
-    juce::Rectangle<int> presetDecBtn, presetLabel, presetIncBtn, folderIconZone;
+    juce::Rectangle<int> presetDecBtn, presetLabel, presetIncBtn;
 
     // ── Drag state for knobs ──────────────────────────────────────────────────
     enum class ActiveKnob { None, Volume, Transpose, Pan, FineTune, ReverbMix, ReverbSize,
@@ -123,10 +125,6 @@ private:
     // ── Cached preset list ────────────────────────────────────────────────────
     std::vector<Sf2PresetInfo> presetList;
 
-    // ── Inline file browser ───────────────────────────────────────────────────
-    SfzFileBrowser fileBrowser;
-    bool           browserOpen      { false };
-
     // ── SF2 program grid ──────────────────────────────────────────────────────
     Sf2ProgramGrid programGrid;
     bool           programPickerOpen { false };
@@ -147,10 +145,6 @@ private:
     void openProgramGrid();
     void closeProgramGrid();
     void restoreGridChannelAssignments();
-
-    void openBrowser();
-    void closeBrowser();
-    void onFileChosen (const juce::File& f);
 
     // ── Value mapping helpers ─────────────────────────────────────────────────
     float volToNorm    (float linear) const;

@@ -13,7 +13,6 @@ static constexpr int kPickerW      = 160;   // narrowed to fit ADSR knobs in str
 static constexpr int kKnobW        = 52;
 static constexpr int kMeterW       = 60;
 static constexpr int kPresetArrowW = 18;
-static constexpr int kFolderIconW  = 20;
 static constexpr int kPad          = 6;
 static constexpr int kKnobGap      = 4;
 
@@ -24,15 +23,6 @@ static constexpr int kKnobGap      = 4;
 SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     : processor (p)
 {
-    // ── Inline file browser ───────────────────────────────────────────────────
-    fileBrowser.onFileChosen = [this] (const juce::File& f) { onFileChosen (f); };
-    fileBrowser.onDismiss = [this]
-    {
-        fileBrowser.setMode (SfzFileBrowser::Mode::kSf2);
-        closeBrowser();
-    };
-    addChildComponent (fileBrowser);
-
     // ── SF2 program grid ──────────────────────────────────────────────────────
     // Left-click in the grid auditions the preset (handled by onPreviewToggled).
     // It must NOT close the grid — the grid stays open until the user explicitly
@@ -213,25 +203,12 @@ void SfzDropdownPanel::resized()
                       .expanded (kKnobGap / 2, 0);
 
     // Sub-divide nameZone:
-    //   [< arrow] [folder icon] [label] [> arrow]
+    //   [< arrow] [label] [> arrow]
     {
         auto z = nameZone;
         presetDecBtn  = z.removeFromLeft  (kPresetArrowW);
         presetIncBtn  = z.removeFromRight (kPresetArrowW);
-        folderIconZone = z.removeFromRight (kFolderIconW);
         presetLabel   = z;
-    }
-
-    // ── Inline browser overlay ────────────────────────────────────────────────
-    if (browserOpen)
-    {
-        fileBrowser.setBounds (kPad, kStripH + 1, w - kPad * 2, h - kStripH - 1);
-        fileBrowser.setVisible (true);
-    }
-    else
-    {
-        fileBrowser.setVisible (false);
-        fileBrowser.setBounds ({});
     }
 
     // ── SF2 program grid overlay ──────────────────────────────────────────────
@@ -275,56 +252,6 @@ void SfzDropdownPanel::resized()
         chHighLabel = z.removeFromLeft (numW);
         chHighInc   = z.removeFromLeft (btnW);
     }
-}
-
-// =============================================================================
-//  Browser open / close
-// =============================================================================
-
-void SfzDropdownPanel::openBrowser()
-{
-    if (browserOpen) return;
-    browserOpen = true;
-
-    fileBrowser.setMode (SfzFileBrowser::Mode::kSf2);   // SF2-PLAYER: .sf2 files only
-
-    if (processor.sfzPlayer.isLoaded())
-    {
-        fileBrowser.setRootDirectory (
-            processor.sfzPlayer.getLoadedFile().getParentDirectory());
-    }
-    else if (! fileBrowser.hasNavigated())
-    {
-        // First-ever open with nothing loaded — pick the best default directory
-        const juce::File::SpecialLocationType candidates[] = {
-            juce::File::userMusicDirectory,
-            juce::File::userDocumentsDirectory,
-            juce::File::userDesktopDirectory,
-            juce::File::userHomeDirectory,
-        };
-        juce::File startDir;
-        for (auto loc : candidates)
-        {
-            auto d = juce::File::getSpecialLocation (loc);
-            if (d.isDirectory()) { startDir = d; break; }
-        }
-        if (startDir.isDirectory())
-            fileBrowser.setRootDirectory (startDir);
-        else
-            fileBrowser.showDrives();
-    }
-    // else: browser has been used before — leave it where the user left it
-
-    resized();
-    repaint();
-}
-
-void SfzDropdownPanel::closeBrowser()
-{
-    if (! browserOpen) return;
-    browserOpen = false;
-    resized();
-    repaint();
 }
 
 // =============================================================================
@@ -438,7 +365,6 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
     processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
     processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed);
-    closeBrowser();
     openProgramGrid();
     repaint();
 
@@ -632,30 +558,18 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
     // Background
     {
         auto bg = nameZone.toFloat();
-        const bool anyOpen = browserOpen || programPickerOpen;
-        g.setColour (anyOpen ? theme.accent.withAlpha (0.10f)
-                             : theme.darkBar.darker (0.12f));
+        g.setColour (programPickerOpen ? theme.accent.withAlpha (0.10f)
+                                       : theme.darkBar.darker (0.12f));
         g.fillRoundedRectangle (bg, 3.0f);
-        g.setColour (anyOpen ? theme.accent.withAlpha (0.55f)
-                             : theme.accent.withAlpha (0.20f));
+        g.setColour (programPickerOpen ? theme.accent.withAlpha (0.55f)
+                                       : theme.accent.withAlpha (0.20f));
         g.drawRoundedRectangle (bg.reduced (0.5f), 3.0f, 1.0f);
-    }
-
-    // Folder icon (always visible — this is the open/close toggle)
-    {
-        const bool hover = folderIconZone.contains (getMouseXYRelative());
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
-        g.setColour (browserOpen
-                     ? theme.accent.withAlpha (0.90f)
-                     : hover ? theme.accent.withAlpha (0.70f)
-                             : theme.foreground.withAlpha (0.35f));
-        g.drawText (u8"\U0001F4C1", folderIconZone, juce::Justification::centred, false);
     }
 
     // Arrow buttons (only useful when loaded + presets exist)
     auto drawArrow = [&] (juce::Rectangle<int> zone, const juce::String& sym)
     {
-        const bool active = isLoaded && ! presetList.empty() && ! browserOpen;
+        const bool active = isLoaded && ! presetList.empty();
         const bool hover  = zone.contains (getMouseXYRelative()) && active;
         g.setColour (hover ? theme.accent.withAlpha (0.30f) : juce::Colours::transparentBlack);
         g.fillRoundedRectangle (zone.toFloat(), 2.0f);
@@ -671,15 +585,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
     {
         auto lbl = presetLabel;
 
-        if (browserOpen)
-        {
-            // Browser is open — show a hint
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.accent.withAlpha (0.70f));
-            g.drawText ("browsing files \u2014 double-click to load", lbl,
-                        juce::Justification::centred, true);
-        }
-        else if (programPickerOpen)
+        if (programPickerOpen)
         {
             // Program grid is open
             g.setFont (DysektLookAndFeel::makeFont (12.0f));
@@ -691,7 +597,7 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
         {
             g.setFont (DysektLookAndFeel::makeFont (12.0f));
             g.setColour (theme.foreground.withAlpha (0.38f));
-            g.drawText ("click \U0001F4C1 or drop a file", lbl,
+            g.drawText ("use Browse or drop a file", lbl,
                         juce::Justification::centred, false);
         }
         else if (presetList.empty())
@@ -989,24 +895,6 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     if (chHighDec.contains (pos)) { adjustChannel (false, -1); return; }
     if (chHighInc.contains (pos)) { adjustChannel (false, +1); return; }
 
-    // ── Folder icon — toggle browser ─────────────────────────────────────────
-    if (folderIconZone.contains (pos))
-    {
-        // Close grid if open before opening browser
-        if (programPickerOpen) closeProgramGrid();
-        if (browserOpen) closeBrowser();
-        else             openBrowser();
-        return;
-    }
-
-    // ── Clicking the label area when browser is closed and no file loaded ─────
-    if (presetLabel.contains (pos) && ! browserOpen && ! programPickerOpen
-        && ! processor.sfzPlayer.isLoaded())
-    {
-        openBrowser();
-        return;
-    }
-
     // ── Clicking label when the program grid is open — close it ──────────────
     if (nameZone.contains (pos) && programPickerOpen)
     {
@@ -1014,15 +902,8 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    // ── Clicking label when browser is open — close it ────────────────────────
-    if (nameZone.contains (pos) && browserOpen)
-    {
-        closeBrowser();
-        return;
-    }
-
     // ── Left-click preset label when SF2 is loaded — open program grid ────────
-    if (presetLabel.contains (pos) && ! browserOpen && ! programPickerOpen
+    if (presetLabel.contains (pos) && ! programPickerOpen
         && processor.sfzPlayer.isLoaded()
         && ! presetList.empty()
         && ! e.mods.isRightButtonDown())
@@ -1034,7 +915,7 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     // ── Right-click — MIDI Learn menu, Save SFZ As, or SFZ MIDI channel ──────
     if (e.mods.isRightButtonDown())
     {
-        if (nameZone.contains (pos) || folderIconZone.contains (pos))
+        if (nameZone.contains (pos))
         {
             if (processor.sfzPlayer.isLoaded())
             {
@@ -1110,11 +991,8 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     }
 
     // ── Preset arrows ─────────────────────────────────────────────────────────
-    if (! browserOpen)
-    {
-        if (presetDecBtn.contains (pos)) { selectPreset (-1); return; }
-        if (presetIncBtn.contains (pos)) { selectPreset (+1); return; }
-    }
+    if (presetDecBtn.contains (pos)) { selectPreset (-1); return; }
+    if (presetIncBtn.contains (pos)) { selectPreset (+1); return; }
 
     // ── Knob drag start ───────────────────────────────────────────────────────
     {
@@ -1211,7 +1089,7 @@ void SfzDropdownPanel::mouseDoubleClick (const juce::MouseEvent& e)
 void SfzDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
                                         const juce::MouseWheelDetails& w)
 {
-    if (browserOpen || programPickerOpen) return;
+    if (programPickerOpen) return;
 
     const auto  pos  = e.getPosition();
     const float step = w.deltaY * (e.mods.isShiftDown() ? 0.01f : 0.05f);
@@ -1262,12 +1140,7 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
         juce::File file (f);
         if (file.getFileExtension().toLowerCase() == ".sf2")
         {
-            processor.sfzPlayer.loadFile (file, processor.fileLoadPool);
-            processor.loadSoundFontAsync (file, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
-            processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed);
-            closeBrowser();
-            openProgramGrid();
-            repaint();
+            onFileChosen (file);
             return;
         }
     }

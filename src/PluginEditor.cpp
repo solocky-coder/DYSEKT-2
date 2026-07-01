@@ -224,12 +224,12 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      }
      if (uiMode == 2)
      {
-        // SF2-PLAYER: SF2 files only, routed to sfzPlayer (FluidSynth)
+        // SF2-PLAYER: SF2 files only. Routing through sfzDropdown.onFileChosen()
+        // (rather than duplicating the load logic here) keeps that as the single
+        // source of truth -- it also stores sfPlayerChannelMask, opens the SF2
+        // program grid, and fires onFileLoaded, matching the drag-and-drop path.
          if (ext == ".sf2")
-         {
-             processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
-             processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
-         }
+             sfzDropdown.onFileChosen (f);
      }
  };
  waveformView.onLoadRequest = [this] (const juce::File& f)
@@ -343,9 +343,6 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  if (! hasReal)
  {
  initBrowserOpen = true;
- browserPanel.setBrowserMode (uiMode == 0 ? SfzFileBrowser::Mode::kAddZone
-                            : uiMode == 1 ? SfzFileBrowser::Mode::kSfz
-                                         : SfzFileBrowser::Mode::kSf2);
  browserPanel.setVisible (true);
  headerBar.setBrowserActive (true);
  }
@@ -518,9 +515,6 @@ void DysektEditor::toggleBrowserPanel()
             headerBar.setSeqActive (false);
         }
         activeSlot = SlotContent::Browser;
-        browserPanel.setBrowserMode (uiMode == 0 ? SfzFileBrowser::Mode::kAddZone
-                                   : uiMode == 1 ? SfzFileBrowser::Mode::kSfz
-                                                : SfzFileBrowser::Mode::kSf2);
         browserPanel.setVisible (true);
         headerBar.setBrowserActive (true);
     }
@@ -1560,21 +1554,8 @@ void DysektEditor::timerCallback()
 
  // uiMode==1 (SFZ-PLAYER) uses waveformView — repainted above with uiMode==0 path.
  // uiMode==2 (SF2-PLAYER): repaint sfzDropdown (SF2 program grid)
- if (uiMode == 2)
- {
-     // Populate/open the program grid once after a load. If FluidSynth's
-     // preset list isn't ready yet, panelDidShow() no-ops and we keep
-     // retrying on subsequent ticks until sfzPanelRestored is set.
-     if (! sfzPanelRestored)
-     {
-         sfzDropdown.panelDidShow();
-         if (processor.sfzPlayer.isLoaded() && ! processor.sfzPlayer.getPresetList().empty())
-             sfzPanelRestored = true;
-     }
-
-     if (uiChanged || playbackActive)
-         sfzDropdown.repaint();
- }
+ if (uiMode == 2 && (uiChanged || playbackActive))
+     sfzDropdown.repaint();
 
  sliceLcd.repaintLcd();
  sliceWaveformLcd.repaintLcd();
