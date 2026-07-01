@@ -1560,8 +1560,21 @@ void DysektEditor::timerCallback()
 
  // uiMode==1 (SFZ-PLAYER) uses waveformView — repainted above with uiMode==0 path.
  // uiMode==2 (SF2-PLAYER): repaint sfzDropdown (SF2 program grid)
- if (uiMode == 2 && (uiChanged || playbackActive))
-     sfzDropdown.repaint();
+ if (uiMode == 2)
+ {
+     // Populate/open the program grid once after a load. If FluidSynth's
+     // preset list isn't ready yet, panelDidShow() no-ops and we keep
+     // retrying on subsequent ticks until sfzPanelRestored is set.
+     if (! sfzPanelRestored)
+     {
+         sfzDropdown.panelDidShow();
+         if (processor.sfzPlayer.isLoaded() && ! processor.sfzPlayer.getPresetList().empty())
+             sfzPanelRestored = true;
+     }
+
+     if (uiChanged || playbackActive)
+         sfzDropdown.repaint();
+ }
 
  sliceLcd.repaintLcd();
  sliceWaveformLcd.repaintLcd();
