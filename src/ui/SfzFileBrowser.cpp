@@ -220,7 +220,7 @@ void SfzFileBrowser::rebuildList()
                             ? "*.wav;*.aif;*.aiff;*.flac;*.ogg"
                             : (mode == Mode::kSf2)
                               ? "*.sf2"
-                              : "*.sf2;*.sfz";
+                              : "*.sfz";
 
     auto files = currentDir.findChildFiles (
         juce::File::findFiles, false, pattern);
@@ -320,7 +320,10 @@ void SfzFileBrowser::paintListBoxItem (int row, juce::Graphics& g,
 void SfzFileBrowser::listBoxItemClicked (int row, const juce::MouseEvent& e)
 {
     repaint();
-    if (row >= 0 && row < rows.size() && ! rows[row].isDirectory() && onFileSingleClicked)
+    if (row < 0 || row >= rows.size()) return;
+    if (rows[row].isDirectory())
+        navigateTo (rows[row]);
+    else if (onFileSingleClicked)
         onFileSingleClicked (rows[row]);
 }
 

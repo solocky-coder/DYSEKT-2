@@ -128,7 +128,7 @@ FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
     : processor (p)
 {
     // ── SfzFileBrowser — same widget used in the SFZ-Player panel ────────────
-    sfzBrowser.setMode (SfzFileBrowser::Mode::kSfz);   // shows sf2/sfz + all audio
+    sfzBrowser.setMode (SfzFileBrowser::Mode::kAddZone);  // Slicer tab is default
     sfzBrowser.onFileSingleClicked = [this] (const juce::File& f) { fileClicked (f); };
     sfzBrowser.onFileChosen = [this] (const juce::File& f) { fileDoubleClicked (f); };
     addAndMakeVisible (sfzBrowser);
