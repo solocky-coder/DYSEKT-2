@@ -318,6 +318,7 @@ private:
     juce::Array<ArchiveRow>      archiveRows;
     juce::ListBox                archiveList;
     juce::String                 archiveListTitle;
+    SmallListLookAndFeel         smallLAF;
 
     // Simple ListBoxModel inline
     struct ArchiveListModel : public juce::ListBoxModel
