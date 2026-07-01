@@ -427,9 +427,9 @@ void DysektEditor::setUiMode (int mode)
 
  // Filter browser files to match the active tab:
  // Slicer → audio files only, SFZ-PLAYER → .sfz only, SF2-PLAYER → .sf2 only
- browserPanel.sfzBrowser.setMode (uiMode == 0 ? SfzFileBrowser::Mode::kAddZone
-                                 : uiMode == 1 ? SfzFileBrowser::Mode::kSfz
-                                              : SfzFileBrowser::Mode::kSf2);
+ browserPanel.setBrowserMode (uiMode == 0 ? SfzFileBrowser::Mode::kAddZone
+                             : uiMode == 1 ? SfzFileBrowser::Mode::kSfz
+                                          : SfzFileBrowser::Mode::kSf2);
 
  // Keep the tab strip in sync (0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER)
  headerBar.dualFrame().setUiTab (uiMode);

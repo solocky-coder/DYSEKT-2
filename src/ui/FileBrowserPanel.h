@@ -248,6 +248,8 @@ public:
     std::function<void()> onFileLoaded;
     std::function<void (const juce::File&)> onLoadRequest;
 
+    void setBrowserMode (SfzFileBrowser::Mode m) { sfzBrowser.setMode (m); }
+
 private:
     // ── ChangeListener ────────────────────────────────────────────────────────
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
