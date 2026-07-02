@@ -749,6 +749,19 @@ void SfzDropdownPanel::timerCallback()
 
     presetList = processor.sfzPlayer.getPresetList();
 
+    // onFileChosen() opens the program grid immediately after kicking off the
+    // async SF2 load, so the grid can end up open with zero presets if
+    // FluidSynth hasn't finished parsing the file yet. Catch it up here the
+    // moment presets become available -- mirrors the retry logic already used
+    // in panelDidShow().
+    if (programPickerOpen && programGrid.getPresets().empty() && ! presetList.empty())
+    {
+        programGrid.setPresets (presetList,
+                                processor.sfzPlayer.getCurrentPresetIndex(),
+                                processor.sfzPlayer.getMidiChannel());
+        restoreGridChannelAssignments();
+    }
+
     // Poll sfPlayerChannelMask from processor for paint (avoids atomic reads in paint).
     // Derive lo/hi as the lowest and highest set channel bits for spinner display.
     // Channel 1 is hardwired to the slicer and never appears in sfPlayerChannelMask.
