@@ -263,9 +263,9 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 }
                 else
                 {
-                    g.setColour (juce::Colour (0xff16161F));
+                    g.setColour (juce::Colours::black);
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
-                    g.setColour (juce::Colour (0xff222230));
+                    g.setColour (theme.accent.withAlpha (0.18f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
 
