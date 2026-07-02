@@ -85,11 +85,9 @@ private:
                    float normalised, const juce::String& label,
                    const juce::String& valueStr) const;
     void drawMeter (juce::Graphics& g) const;
-    void drawPresetPicker (juce::Graphics& g) const;
 
     // ── Layout zones (computed in resized) ────────────────────────────────────
-    juce::Rectangle<int> nameZone,
-                          volZone, transZone,
+    juce::Rectangle<int> volZone, transZone,
                           panZone, fineZone,
                           rvMixZone, rvSizeZone,
                           meterZone;
@@ -100,9 +98,6 @@ private:
     juce::Rectangle<int> chSizeZone;
     juce::Rectangle<int> chDampZone;
     juce::Rectangle<int> chGainZone;
-
-    // Sub-zones inside nameZone
-    juce::Rectangle<int> presetLabel;
 
     // ── Drag state for knobs ──────────────────────────────────────────────────
     enum class ActiveKnob { None, Volume, Transpose, Pan, FineTune, ReverbMix, ReverbSize,

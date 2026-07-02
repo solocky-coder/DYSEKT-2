@@ -9,7 +9,6 @@
 #include <algorithm>
 
 // ── Layout constants (header strip) ──────────────────────────────────────────
-static constexpr int kPickerW      = 160;   // narrowed to fit ADSR knobs in strip
 static constexpr int kKnobW        = 52;
 static constexpr int kMeterW       = 60;
 static constexpr int kPad          = 6;
@@ -160,14 +159,9 @@ void SfzDropdownPanel::resized()
     const int h = getHeight();
 
     // Strip order (left → right):
-    // [picker 310] [gap] [TRN] [FINE] [REV] [CHO] [PAN] [VOL] [METER]
+    // [CH range + FX knobs, spans full freed width] [REV] [PAN] [VOL] [METER]
     auto strip = juce::Rectangle<int> (0, 0, w, kStripH).reduced (kPad, 0);
     strip.removeFromLeft (4);   // left margin
-
-    // Preset picker (wider, no LOAD button)
-    auto pickerSlot = strip.removeFromLeft (kPickerW);
-    nameZone = pickerSlot.withSizeKeepingCentre (kPickerW, kStripH - 6);
-    strip.removeFromLeft (kPad * 2);
 
     // Right-side knobs
     meterZone   = strip.removeFromRight (kMeterW);
@@ -196,16 +190,14 @@ void SfzDropdownPanel::resized()
     transZone  = strip.removeFromRight (kKnobW);
     strip.removeFromRight (kPad);
 
-    // Ch-FX knobs reuse the knob slots vacated by ADSR/TRN/FINE (hidden for SF2)
-    chComboZone = transZone
-                      .getUnion (fineZone)
-                      .expanded (kKnobGap / 2, 0);
-
-    // presetLabel now spans the full nameZone — the step arrows were removed
-    // (they drove the legacy single-preset mechanism, which programmed
-    // FluidSynth channel 0 / MIDI ch1 — a channel reserved for the Slicer.
-    // The program grid below is the real preset picker now).
-    presetLabel = nameZone;
+    // The preset-picker label was removed (redundant with the LCD readout, and
+    // its stepper wrote to a channel reserved for the Slicer). Whatever's left
+    // of `strip` now runs all the way to the left margin, so the CH-range
+    // spinner gets that whole freed span instead of being squeezed into just
+    // the TRN+FINE slot.
+    chComboZone = strip.getUnion (transZone)
+                        .getUnion (fineZone)
+                        .expanded (kKnobGap / 2, 0);
 
     // ── SF2 program grid overlay ──────────────────────────────────────────────
     if (programPickerOpen)
@@ -471,7 +463,6 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
 void SfzDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
 {
     const auto& theme = getTheme();
-    drawPresetPicker (g);
 
     const auto& f = processor.sfzPlayer.getLoadedFile();
     const bool isSf2 = f.existsAsFile() && f.hasFileExtension (".sf2");
@@ -539,78 +530,6 @@ void SfzDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
         g.setFont (juce::Font (7.0f));
         g.drawText ("M", midiLedZone.translated (0, midiLedZone.getHeight() + 1),
                     juce::Justification::centredTop, false);
-    }
-}
-
-// =============================================================================
-//  drawPresetPicker
-// =============================================================================
-
-void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
-{
-    const auto& theme    = getTheme();
-    const bool  isLoaded = processor.sfzPlayer.isLoaded();
-
-    // Background
-    {
-        auto bg = nameZone.toFloat();
-        g.setColour (programPickerOpen ? theme.accent.withAlpha (0.10f)
-                                       : theme.darkBar.darker (0.12f));
-        g.fillRoundedRectangle (bg, 3.0f);
-        g.setColour (programPickerOpen ? theme.accent.withAlpha (0.55f)
-                                       : theme.accent.withAlpha (0.20f));
-        g.drawRoundedRectangle (bg.reduced (0.5f), 3.0f, 1.0f);
-    }
-
-    // Label area
-    {
-        auto lbl = presetLabel;
-
-        if (programPickerOpen)
-        {
-            // Program grid is open
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.accent.withAlpha (0.70f));
-            g.drawText ("select a preset \u2014 right-click for MIDI ch", lbl,
-                        juce::Justification::centred, true);
-        }
-        else if (! isLoaded)
-        {
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.foreground.withAlpha (0.38f));
-            g.drawText ("use Browse or drop a file", lbl,
-                        juce::Justification::centred, false);
-        }
-        else if (presetList.empty())
-        {
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.foreground.withAlpha (0.75f));
-            g.drawText (processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension(),
-                        lbl, juce::Justification::centred, true);
-        }
-        else
-        {
-            const int idx = juce::jlimit (0, (int) presetList.size() - 1,
-                                          processor.sfzPlayer.getCurrentPresetIndex());
-            const auto& info = presetList[(size_t) idx];
-
-            // Top mini-label
-            {
-                auto topLine = lbl.removeFromTop (lbl.getHeight() / 2);
-                g.setFont (DysektLookAndFeel::makeFont (10.5f));
-                g.setColour (theme.foreground.withAlpha (0.38f));
-                const auto caption =
-                    processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension()
-                    + "  B:" + juce::String (info.bank)
-                    + " P:" + juce::String (info.preset);
-                g.drawText (caption, topLine, juce::Justification::centred, true);
-            }
-
-            // Preset name
-            g.setFont (DysektLookAndFeel::makeFont (13.0f));
-            g.setColour (theme.foreground);
-            g.drawText (info.name, lbl, juce::Justification::centred, true);
-        }
     }
 }
 
@@ -871,79 +790,9 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     if (chHighDec.contains (pos)) { adjustChannel (false, -1); return; }
     if (chHighInc.contains (pos)) { adjustChannel (false, +1); return; }
 
-    // ── Clicking label when the program grid is open — close it ──────────────
-    if (nameZone.contains (pos) && programPickerOpen)
-    {
-        closeProgramGrid();
-        return;
-    }
-
-    // ── Left-click preset label when SF2 is loaded — open program grid ────────
-    if (presetLabel.contains (pos) && ! programPickerOpen
-        && processor.sfzPlayer.isLoaded()
-        && ! presetList.empty()
-        && ! e.mods.isRightButtonDown())
-    {
-        openProgramGrid();
-        return;
-    }
-
-    // ── Right-click — MIDI Learn menu, Save SFZ As, or SFZ MIDI channel ──────
+    // ── Right-click — MIDI Learn menu on knobs ────────────────────────────────
     if (e.mods.isRightButtonDown())
     {
-        if (nameZone.contains (pos))
-        {
-            if (processor.sfzPlayer.isLoaded())
-            {
-                const auto ext = processor.sfzPlayer.getLoadedFile()
-                                     .getFileExtension().toLowerCase();
-
-                if (ext == ".sfz")
-                {
-                    // SFZ: channel picker + Save As in the same menu
-                    const int curCh = processor.sfzPlayer.getMidiChannel();
-                    juce::PopupMenu menu;
-                    menu.addSectionHeader ("MIDI Input Channel");
-                    menu.addItem (200, "Omni (all channels)", true, curCh == 0);
-                    menu.addSeparator();
-                    for (int ch = 1; ch <= 16; ++ch)
-                        menu.addItem (200 + ch, "Channel " + juce::String (ch), true, curCh == ch);
-                    menu.addSeparator();
-                    menu.addItem (300, "Save SFZ As\u2026");
-
-                    auto* topLvl = getTopLevelComponent();
-                    float ms = DysektLookAndFeel::getMenuScale();
-                    menu.showMenuAsync (
-                        juce::PopupMenu::Options()
-                            .withTargetScreenArea (juce::Rectangle<int> (
-                                e.getScreenPosition().x, e.getScreenPosition().y, 1, 1))
-                            .withParentComponent (topLvl)
-                            .withStandardItemHeight ((int)(22 * ms)),
-                        [this] (int result)
-                        {
-                            if (result == 200)
-                            {
-                                processor.sfzPlayer.setMidiChannel (0);
-                            }
-                            else if (result > 200 && result <= 216)
-                            {
-                                const int ch = result - 200;
-                                processor.sfzPlayer.setMidiChannel (ch);
-                                if (onPresetChannelAssigned && ! presetList.empty())
-                                {
-                                    const int idx = juce::jlimit (0, (int) presetList.size() - 1,
-                                                                  processor.sfzPlayer.getCurrentPresetIndex());
-                                    onPresetChannelAssigned (presetList[(size_t) idx], ch);
-                                }
-                            }
-                        });
-                    return;
-                }
-                // SF2: no Save As, fall through to nothing (grid handles its own right-click)
-            }
-            return;
-        }
-
         // Right-click on any knob → MIDI Learn menu
         using F = DysektProcessor::SliceParamField;
         struct { juce::Rectangle<int>& zone; int fieldId; } knobFields[] =
@@ -1065,9 +914,6 @@ void SfzDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
 
     const auto  pos  = e.getPosition();
     const float step = w.deltaY * (e.mods.isShiftDown() ? 0.01f : 0.05f);
-
-    if (nameZone.contains (pos))
-        return;
 
     auto adjustNorm = [&] (float current, float s) {
         return juce::jlimit (0.f, 1.f, current + s);
