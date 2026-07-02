@@ -102,7 +102,7 @@ private:
     juce::Rectangle<int> chGainZone;
 
     // Sub-zones inside nameZone
-    juce::Rectangle<int> presetDecBtn, presetLabel, presetIncBtn;
+    juce::Rectangle<int> presetLabel;
 
     // ── Drag state for knobs ──────────────────────────────────────────────────
     enum class ActiveKnob { None, Volume, Transpose, Pan, FineTune, ReverbMix, ReverbSize,
@@ -155,9 +155,6 @@ private:
     float normToPan    (float n)      const;
     float fineToNorm   (float cents)  const;
     float normToFine   (float n)      const;
-
-    // ── Preset navigation ─────────────────────────────────────────────────────
-    void selectPreset (int delta);
 
     // ── Zone parser (SF2 only — for KeysPanel display) ────────────────────────
     static std::vector<KeysPanel::Keyzone> parseSf2Zones (const juce::File& f,

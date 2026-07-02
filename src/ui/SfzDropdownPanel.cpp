@@ -12,7 +12,6 @@
 static constexpr int kPickerW      = 160;   // narrowed to fit ADSR knobs in strip
 static constexpr int kKnobW        = 52;
 static constexpr int kMeterW       = 60;
-static constexpr int kPresetArrowW = 18;
 static constexpr int kPad          = 6;
 static constexpr int kKnobGap      = 4;
 
@@ -202,14 +201,11 @@ void SfzDropdownPanel::resized()
                       .getUnion (fineZone)
                       .expanded (kKnobGap / 2, 0);
 
-    // Sub-divide nameZone:
-    //   [< arrow] [label] [> arrow]
-    {
-        auto z = nameZone;
-        presetDecBtn  = z.removeFromLeft  (kPresetArrowW);
-        presetIncBtn  = z.removeFromRight (kPresetArrowW);
-        presetLabel   = z;
-    }
+    // presetLabel now spans the full nameZone — the step arrows were removed
+    // (they drove the legacy single-preset mechanism, which programmed
+    // FluidSynth channel 0 / MIDI ch1 — a channel reserved for the Slicer.
+    // The program grid below is the real preset picker now).
+    presetLabel = nameZone;
 
     // ── SF2 program grid overlay ──────────────────────────────────────────────
     if (programPickerOpen)
@@ -566,21 +562,6 @@ void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
         g.drawRoundedRectangle (bg.reduced (0.5f), 3.0f, 1.0f);
     }
 
-    // Arrow buttons (only useful when loaded + presets exist)
-    auto drawArrow = [&] (juce::Rectangle<int> zone, const juce::String& sym)
-    {
-        const bool active = isLoaded && ! presetList.empty();
-        const bool hover  = zone.contains (getMouseXYRelative()) && active;
-        g.setColour (hover ? theme.accent.withAlpha (0.30f) : juce::Colours::transparentBlack);
-        g.fillRoundedRectangle (zone.toFloat(), 2.0f);
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
-        g.setColour (active ? theme.accent.withAlpha (0.75f)
-                            : theme.foreground.withAlpha (0.20f));
-        g.drawText (sym, zone, juce::Justification::centred, false);
-    };
-    drawArrow (presetDecBtn, "<");
-    drawArrow (presetIncBtn, ">");
-
     // Label area
     {
         auto lbl = presetLabel;
@@ -786,24 +767,6 @@ void SfzDropdownPanel::timerCallback()
 }
 
 // =============================================================================
-//  Preset navigation
-// =============================================================================
-
-void SfzDropdownPanel::selectPreset (int delta)
-{
-    if (presetList.empty()) return;
-
-    const int cur  = processor.sfzPlayer.getCurrentPresetIndex();
-    const int next = juce::jlimit (0, (int) presetList.size() - 1, cur + delta);
-
-    if (next != cur)
-    {
-        processor.sfzPlayer.setPresetByIndex (next);
-        repaint();
-    }
-}
-
-// =============================================================================
 //  MIDI Learn menu
 // =============================================================================
 
@@ -1003,10 +966,6 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    // ── Preset arrows ─────────────────────────────────────────────────────────
-    if (presetDecBtn.contains (pos)) { selectPreset (-1); return; }
-    if (presetIncBtn.contains (pos)) { selectPreset (+1); return; }
-
     // ── Knob drag start ───────────────────────────────────────────────────────
     {
         const int selCh = selectedSf2Ch >= 0 ? selectedSf2Ch + 1 : 0;
@@ -1108,11 +1067,7 @@ void SfzDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
     const float step = w.deltaY * (e.mods.isShiftDown() ? 0.01f : 0.05f);
 
     if (nameZone.contains (pos))
-    {
-        if (w.deltaY > 0.05f)       selectPreset (+1);
-        else if (w.deltaY < -0.05f) selectPreset (-1);
         return;
-    }
 
     auto adjustNorm = [&] (float current, float s) {
         return juce::jlimit (0.f, 1.f, current + s);
