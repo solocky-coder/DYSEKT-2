@@ -271,9 +271,9 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
 
                 // Preset number badge (top-left)
                 {
-                    const auto badge = cell.withWidth (22).withHeight (10)
+                    const auto badge = cell.withWidth (28).withHeight (14)
                                            .withX (cell.getX() + 2).withY (cell.getY() + 2);
-                    g.setFont (DysektLookAndFeel::makeFont (9.5f));
+                    g.setFont (DysektLookAndFeel::makeFont (11.5f));
                     g.setColour (isPreviewing ? theme.accent.brighter (0.3f)
                                  : isEditing  ? theme.accent.brighter (0.3f)
                                  : isAssigned ? theme.accent.brighter (0.1f)
@@ -287,26 +287,26 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 if (isAssigned)
                 {
                     const juce::String chLabel = "ch" + juce::String (assignedCh);
-                    const int bw = 22, bh = 11;
+                    const int bw = 26, bh = 14;
                     const auto badgeR = juce::Rectangle<int> (
                         cell.getRight() - bw - 2, cell.getBottom() - bh - 2, bw, bh);
                     g.setColour (isEditing ? theme.accent : theme.accent.withAlpha (0.85f));
                     g.fillRoundedRectangle (badgeR.toFloat(), 2.f);
-                    g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
+                    g.setFont (DysektLookAndFeel::makeFont (10.0f, true));
                     g.setColour (theme.darkBar);
                     g.drawText (chLabel, badgeR, juce::Justification::centred, false);
                 }
 
                 // Preset name (centred)
                 {
-                    g.setFont (DysektLookAndFeel::makeFont (13.0f));
+                    g.setFont (DysektLookAndFeel::makeFont (15.0f));
                     g.setColour (isPreviewing ? theme.foreground.brighter (0.2f).withAlpha (0.95f)
                                  : isEditing  ? theme.foreground.brighter (0.2f)
                                  : isAssigned ? theme.foreground.brighter (0.05f).withAlpha (0.90f)
                                  : isSelected ? theme.foreground.brighter (0.1f)
                                              : theme.foreground.withAlpha (0.78f));
                     // Shrink name area if channel badge is showing
-                    const auto nameRect = isAssigned ? cell.reduced (3, 0).withTrimmedBottom (12)
+                    const auto nameRect = isAssigned ? cell.reduced (3, 0).withTrimmedBottom (15)
                                                      : cell.reduced (3, 0);
                     g.drawText (info.name, nameRect, juce::Justification::centred, true);
                 }
