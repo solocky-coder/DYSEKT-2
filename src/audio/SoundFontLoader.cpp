@@ -745,13 +745,14 @@ private:
 
     void postFailure()
     {
-        // A preset-scoped SfPlayer render (see runJob's Step 0b) can bail out
-        // here — bad preset, silent preset, or shouldExit() mid-probe — every
-        // early "return jobHasFinished" upstream of the completedLoadData3/
-        // pendingPreviewZones3 post ends up here. Always clear the in-flight
-        // flag on that path, or Sf2WaveformLcd would show "rendering..."
-        // forever with no result ever arriving to clear it.
-        if (target == SoundFontLoadTarget::SfPlayer && presetProgram >= 0)
+        // Any SfPlayer render (initial file-load OR a preset-scoped click
+        // re-render) can bail out here — bad file, silent preset, or
+        // shouldExit() mid-probe — every early "return jobHasFinished"
+        // upstream of the completedLoadData3/pendingPreviewZones3 post ends
+        // up here. Always clear the in-flight flag on that path, or
+        // Sf2WaveformLcd would show "rendering..." forever with no result
+        // ever arriving to clear it.
+        if (target == SoundFontLoadTarget::SfPlayer)
             processor.sf2PreviewRenderInFlight.store (false, std::memory_order_release);
 
         // SFZ-PLAYER preview is visual-only and has no failure-state UI of its
@@ -816,12 +817,16 @@ void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target,
         delete processor.completedLoadData3.exchange (nullptr, std::memory_order_acq_rel);
         delete processor.pendingPreviewZones3.exchange (nullptr, std::memory_order_acq_rel);
 
-        // Flag a preset-scoped preview render as in-flight so Sf2WaveformLcd
-        // can show a transient "rendering" state instead of a stale/wrong
-        // waveform while this job runs. Cleared in processBlock once the
-        // result is consumed (see PluginProcessor.cpp).
-        if (presetProgram >= 0)
-            processor.sf2PreviewRenderInFlight.store (true, std::memory_order_release);
+        // Flag ANY SfPlayer-target render as in-flight — the initial
+        // file-load render (presetProgram == -1) and a preset-scoped
+        // click-triggered render (presetProgram >= 0) both do the same
+        // 128-note probe+render pass and can take real time on a large
+        // soundfont (e.g. Arachno). Previously only click-triggered renders
+        // showed this, so the initial load looked indistinguishable from a
+        // broken/blank LCD while it was still running in the background.
+        // Cleared in processBlock once the result is consumed, or in
+        // postFailure() if the job bails out early.
+        processor.sf2PreviewRenderInFlight.store (true, std::memory_order_release);
     }
 
     processor.fileLoadPool.addJob (
