@@ -503,6 +503,33 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
             else if (result >= 101 && result <= 116)
             {
                 const int ch = result - 100;
+
+                // A MIDI channel can only drive one preset at a time. If another
+                // preset already holds this channel, its assignment is now stale
+                // (the engine will only honour the newest one) and must be
+                // cleared, or that cell would keep showing an "assigned" highlight
+                // and channel badge for a channel it no longer actually owns.
+                for (auto it = presetChannels.begin(); it != presetChannels.end(); )
+                {
+                    if (it->first != presetIdx && it->second == ch)
+                    {
+                        const int staleIdx = it->first;
+                        it = presetChannels.erase (it);
+                        if (onChannelChanged) onChannelChanged (staleIdx, 0);
+                        if (this->previewIdx == staleIdx)
+                        {
+                            this->previewIdx = -1;
+                            if (onPreviewToggled) onPreviewToggled (-1);
+                        }
+                        if (this->editingIdx == staleIdx)
+                            this->editingIdx = -1;
+                    }
+                    else
+                    {
+                        ++it;
+                    }
+                }
+
                 presetChannels[presetIdx] = ch;
                 if (onChannelChanged) onChannelChanged (presetIdx, ch);
 

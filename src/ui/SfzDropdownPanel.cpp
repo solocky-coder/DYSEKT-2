@@ -121,6 +121,8 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
         if (idx >= (int) presetList.size()) return;
         const auto& info = presetList[(size_t) idx];
 
+        processor.sfzPlayer.setDisplayPresetIndex (idx);
+
         // If this preset already has a real MIDI channel assigned, the audio
         // routing is already correct — just highlight it visually.
         const auto& chMap = programGrid.getPresetChannels();
@@ -135,6 +137,7 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     {
         // Sync combo selection to the channel of the clicked preset
         if (idx < 0 || idx >= (int) presetList.size()) return;
+        processor.sfzPlayer.setDisplayPresetIndex (idx);
         const auto& chMap = programGrid.getPresetChannels();
         if (! chMap.count (idx)) return;
         const int ch = chMap.at (idx);
