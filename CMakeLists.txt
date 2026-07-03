@@ -19,7 +19,7 @@ if(EXISTS "${_DYSEKT_VST3_PATCH}")
 else()
     message(WARNING "DYSEKT: juce_patches/juce_audio_plugin_client_VST3.cpp not found — DY-SFP port 1 will be missing in DAWs")
 endif()
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 
 # --- chowdsp_utils (SVF EQ filters — used by VoicePool per-slice EQ) ---
 include(FetchContent)
@@ -113,9 +113,9 @@ if(DYSEKT_HAS_SFIZZ)
     message(STATUS "sfizz C API include: ${SFIZZ_C_API_INCLUDE}")
 endif()
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 #  DYSEKT VST3 Plugin
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────���───────────────────────────────────────
 juce_add_plugin(Dysekt
     COMPANY_NAME "DunSoft"
     PLUGIN_MANUFACTURER_CODE Dnst
@@ -146,6 +146,18 @@ juce_add_binary_data(DysektFonts SOURCES
     src/ui/fonts/JetBrainsMono-Bold.ttf
     src/ui/assets/dysekt_logo.svg
     src/ui/assets/Empty.wav
+    src/ui/assets/icons/icon_mute.svg
+    src/ui/assets/icons/icon_solo.svg
+    src/ui/assets/icons/icon_lock.svg
+    src/ui/assets/icons/icon_power.svg
+    src/ui/assets/icons/icon_pan.svg
+    src/ui/assets/icons/icon_volume.svg
+    src/ui/assets/buttons/button_idle.svg
+    src/ui/assets/buttons/button_hover.svg
+    src/ui/assets/buttons/button_active.svg
+    src/ui/assets/knobs/knob_face.svg
+    src/ui/assets/knobs/knob_pointer.svg
+    src/ui/assets/knobs/knob_sprite_64x64_64frames.svg
 )
 
 target_sources(Dysekt PRIVATE
@@ -160,6 +172,7 @@ target_sources(Dysekt PRIVATE
     src/audio/SfzPlayer.cpp
     src/params/ParamLayout.cpp
     src/ui/DysektLookAndFeel.cpp
+    src/ui/IconManager.cpp
     src/ui/HeaderBar.cpp
     src/ui/SliceControlBar.cpp
     src/ui/WaveformView.cpp
@@ -223,11 +236,11 @@ target_link_libraries(Dysekt
         juce::juce_recommended_warning_flags
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 #  DYSEKT Standalone App
 #  Same engine + UI as the plugin, plus piano roll, pattern manager,
 #  and audio device selection.
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 juce_add_gui_app(DysektStandalone
     PRODUCT_NAME "DYSEKT"
 )
@@ -250,6 +263,7 @@ target_sources(DysektStandalone PRIVATE
     src/audio/SfzPlayer.cpp
     src/params/ParamLayout.cpp
     src/ui/DysektLookAndFeel.cpp
+    src/ui/IconManager.cpp
     src/ui/HeaderBar.cpp
     src/ui/SliceControlBar.cpp
     src/ui/WaveformView.cpp
