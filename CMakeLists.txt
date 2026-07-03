@@ -115,7 +115,7 @@ endif()
 
 # ────────────────────────────────────────────────────────────────────────────
 #  DYSEKT VST3 Plugin
-# ────────────────────────────────────���───────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 juce_add_plugin(Dysekt
     COMPANY_NAME "DunSoft"
     PLUGIN_MANUFACTURER_CODE Dnst
@@ -158,6 +158,7 @@ juce_add_binary_data(DysektFonts SOURCES
     src/ui/assets/knobs/knob_face.svg
     src/ui/assets/knobs/knob_pointer.svg
     src/ui/assets/knobs/knob_sprite_64x64_64frames.svg
+    src/ui/assets/knobs/knob_sprite_64x64_64frames.png
 )
 
 target_sources(Dysekt PRIVATE
