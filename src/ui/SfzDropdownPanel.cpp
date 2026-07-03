@@ -123,6 +123,23 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
 
         processor.sfzPlayer.setDisplayPresetIndex (idx);
 
+        // Waveform LCD: sampleData3/previewZones3 only ever hold ONE preset's
+        // rendered audio, and that used to always be whatever preset sfizz
+        // defaulted to at file-load — never the preset actually clicked here.
+        // Kick off a scoped re-render for THIS preset so Sf2WaveformLcd shows
+        // the right waveform, regardless of whether it also gets a real MIDI
+        // channel below. Dedupe against the last-requested preset so rapid
+        // re-clicks on the same cell don't spam the background render pool.
+        if (processor.sf2PreviewRequestedBank.load (std::memory_order_relaxed)    != info.bank ||
+            processor.sf2PreviewRequestedProgram.load (std::memory_order_relaxed) != info.preset)
+        {
+            processor.sf2PreviewRequestedBank.store    (info.bank,   std::memory_order_relaxed);
+            processor.sf2PreviewRequestedProgram.store (info.preset, std::memory_order_relaxed);
+            processor.loadSoundFontAsync (processor.sfzPlayer.getLoadedFile(),
+                                           SoundFontLoadTarget::SfPlayer,
+                                           info.bank, info.preset);
+        }
+
         // If this preset already has a real MIDI channel assigned, the audio
         // routing is already correct — just highlight it visually.
         const auto& chMap = programGrid.getPresetChannels();
@@ -354,6 +371,14 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
         return;   // SF2-PLAYER only accepts .sf2 — silently ignore anything else
 
     processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
+
+    // New file — any previously-requested/rendered preset bank/program is
+    // now meaningless (could coincidentally match a preset number in THIS
+    // file and wrongly skip a needed re-render below). Reset the dedupe
+    // state; the load below (no preset override) renders this file's
+    // default preset, same as -1/-1 always meant.
+    processor.sf2PreviewRequestedBank.store    (-1, std::memory_order_relaxed);
+    processor.sf2PreviewRequestedProgram.store (-1, std::memory_order_relaxed);
     processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
     processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed);
     openProgramGrid();

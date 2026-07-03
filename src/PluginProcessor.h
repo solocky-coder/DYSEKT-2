@@ -325,7 +325,8 @@ public:
     std::atomic<float>* releaseParam      { nullptr };
     std::atomic<float>* holdParam         { nullptr };
     void loadSoundFontAsync (const juce::File& file,
-                              SoundFontLoadTarget target = SoundFontLoadTarget::Slicer);
+                              SoundFontLoadTarget target = SoundFontLoadTarget::Slicer,
+                              int presetBank = -1, int presetProgram = -1);
     void relinkFileAsync    (const juce::File& file);
     void applyTrimToCurrentSample (int trimStart, int trimEnd);
 
@@ -806,6 +807,18 @@ public:
      *  completedLoadData2/pendingPreviewZones2 exactly. */
     std::atomic<SampleData::DecodedSample*> completedLoadData3  { nullptr };
     std::atomic<SfzPreviewZonePayload*>     pendingPreviewZones3 { nullptr };
+
+    /** SF2-PLAYER per-preset waveform preview state. sampleData3/previewZones3
+     *  used to be locked to whichever preset the .sf2 file defaulted to at
+     *  load time; these track which preset they now reflect so a preset-grid
+     *  click can request a scoped re-render (see SoundFontLoader::load's
+     *  presetBank/presetProgram params) and the UI can dedupe/show progress.
+     *  -1/-1 means "the file's default preset" (nothing requested yet). */
+    std::atomic<int>  sf2PreviewRenderedBank     { -1 };
+    std::atomic<int>  sf2PreviewRenderedProgram  { -1 };
+    std::atomic<int>  sf2PreviewRequestedBank    { -1 };
+    std::atomic<int>  sf2PreviewRequestedProgram { -1 };
+    std::atomic<bool> sf2PreviewRenderInFlight   { false };
 
 
     // =========================================================================

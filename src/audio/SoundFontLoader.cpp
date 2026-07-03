@@ -304,13 +304,16 @@ static std::pair<int,int> parseSf2LoopPoints (const juce::File& sf2File)
 class SoundFontLoader::LoadJob final : public juce::ThreadPoolJob
 {
 public:
-    LoadJob (juce::File f, double sr, int tok, DysektProcessor& proc, SoundFontLoadTarget tgt)
+    LoadJob (juce::File f, double sr, int tok, DysektProcessor& proc, SoundFontLoadTarget tgt,
+             int presetBankIn = -1, int presetProgramIn = -1)
         : juce::ThreadPoolJob ("SfzLoadJob"),
           file (std::move (f)),
           sampleRate (sr),
           token (tok),
           processor (proc),
-          target (tgt)
+          target (tgt),
+          presetBank (presetBankIn),
+          presetProgram (presetProgramIn)
     {}
 
     // ── Main entry point ──────────────────────────────────────────────────────
@@ -330,9 +333,33 @@ public:
             return jobHasFinished;
         }
 
+        // ── Step 0b: select a specific preset before probing (SfPlayer only) ───
+        // sfizz_load_file() alone leaves the synth on whatever preset it
+        // defaults to (bank 0 / program 0). When the caller asked for a
+        // specific preset (SF2-PLAYER preset-grid click), send a standard
+        // MIDI bank-select (CC0 = bank MSB, CC32 = bank LSB) followed by a
+        // program change, then flush a small silent block so the change is
+        // fully applied before discoverActiveNotes()/rendering begin — every
+        // note probed/rendered below then belongs to THIS preset, not
+        // whatever the file defaulted to.
+        if (target == SoundFontLoadTarget::SfPlayer && presetProgram >= 0)
+        {
+            const int bankMsb = (presetBank >> 7) & 0x7F;
+            const int bankLsb = presetBank & 0x7F;
+            sfizz_send_cc (sfz, 0, 0,  bankMsb);
+            sfizz_send_cc (sfz, 0, 32, bankLsb);
+            sfizz_send_program_change (sfz, 0, presetProgram & 0x7F);
+
+            std::vector<float> flushL (kBlockSize, 0.f), flushR (kBlockSize, 0.f);
+            float* flushOuts[2] = { flushL.data(), flushR.data() };
+            sfizz_render_block (sfz, flushOuts, 2, kBlockSize);
+
+            if (shouldExit()) { sfizz_free (sfz); postFailure(); return jobHasFinished; }
+        }
+
         // ── Step 1: discover active notes ─────────────────────────────────────
         std::vector<int> activeNotes = discoverActiveNotes (sfz);
-        if (shouldExit()) { sfizz_free (sfz); return jobHasFinished; }
+        if (shouldExit()) { sfizz_free (sfz); postFailure(); return jobHasFinished; }
 
         if (activeNotes.empty())
         {
@@ -622,7 +649,9 @@ public:
             // posting to the parallel completedLoadData3/pendingPreviewZones3
             // pipeline instead, so the two preview tabs never share a buffer.
             auto* zonePayload = new SfzPreviewZonePayload();
-            zonePayload->slices = std::move (payload->slices);
+            zonePayload->slices        = std::move (payload->slices);
+            zonePayload->presetBank    = presetBank;
+            zonePayload->presetProgram = presetProgram;
             delete payload;
 
             auto* oldZones = processor.pendingPreviewZones3.exchange (zonePayload,
@@ -716,6 +745,15 @@ private:
 
     void postFailure()
     {
+        // A preset-scoped SfPlayer render (see runJob's Step 0b) can bail out
+        // here — bad preset, silent preset, or shouldExit() mid-probe — every
+        // early "return jobHasFinished" upstream of the completedLoadData3/
+        // pendingPreviewZones3 post ends up here. Always clear the in-flight
+        // flag on that path, or Sf2WaveformLcd would show "rendering..."
+        // forever with no result ever arriving to clear it.
+        if (target == SoundFontLoadTarget::SfPlayer && presetProgram >= 0)
+            processor.sf2PreviewRenderInFlight.store (false, std::memory_order_release);
+
         // SFZ-PLAYER preview is visual-only and has no failure-state UI of its
         // own (sfzPlayer2's live engine handles its own failure reporting
         // separately) — so for that target we simply no-op rather than add a
@@ -737,12 +775,15 @@ private:
     int                 token;
     DysektProcessor&    processor;
     SoundFontLoadTarget target;
+    int                 presetBank;
+    int                 presetProgram;
 };
 
 // =============================================================================
 //  SoundFontLoader::load  (public entry point — UI thread)
 // =============================================================================
-void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
+void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target,
+                             int presetBank, int presetProgram)
 {
     const double sr = processor.currentSampleRate > 0.0
                       ? processor.currentSampleRate : 44100.0;
@@ -774,14 +815,23 @@ void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
         // SF2-PLAYER preview pipeline — mirrors SfzPlayer2 exactly, own buffer.
         delete processor.completedLoadData3.exchange (nullptr, std::memory_order_acq_rel);
         delete processor.pendingPreviewZones3.exchange (nullptr, std::memory_order_acq_rel);
+
+        // Flag a preset-scoped preview render as in-flight so Sf2WaveformLcd
+        // can show a transient "rendering" state instead of a stale/wrong
+        // waveform while this job runs. Cleared in processBlock once the
+        // result is consumed (see PluginProcessor.cpp).
+        if (presetProgram >= 0)
+            processor.sf2PreviewRenderInFlight.store (true, std::memory_order_release);
     }
 
-    processor.fileLoadPool.addJob (new LoadJob (file, sr, token, processor, target), true);
+    processor.fileLoadPool.addJob (
+        new LoadJob (file, sr, token, processor, target, presetBank, presetProgram), true);
 }
 
 #else  // DYSEKT_HAS_SFIZZ not defined
 
-void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
+void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target,
+                             int /*presetBank*/, int /*presetProgram*/)
 {
     // sfizz not linked — hand off to the regular audio file loader.
     // It will likely fail and show the normal "failed to load" UI.

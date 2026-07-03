@@ -77,7 +77,15 @@ public:
 
     // ── Public API (call from UI thread) ─────────────────────────────────────
     // Queues a background job; returns immediately.
-    void load (const juce::File& file, SoundFontLoadTarget target = SoundFontLoadTarget::Slicer);
+    //
+    // presetBank/presetProgram (SfPlayer target only): when presetProgram >= 0,
+    // the job sends a bank-select (CC0/CC32) + program-change to the sfizz
+    // synth right after sfizz_load_file(), BEFORE probing/rendering — so the
+    // resulting sampleData3/previewZones3 reflect that specific preset's
+    // regions rather than whatever preset sfizz defaults to on load. Leave
+    // both at -1 (the default) to render the file's default preset, as before.
+    void load (const juce::File& file, SoundFontLoadTarget target = SoundFontLoadTarget::Slicer,
+               int presetBank = -1, int presetProgram = -1);
 
 private:
     DysektProcessor& processor;
@@ -170,4 +178,11 @@ private:
 struct SfzPreviewZonePayload
 {
     std::vector<SfzSliceDescriptor> slices;
+
+    // Which preset these zones/sampleData3 belong to (SfPlayer target only).
+    // -1/-1 means "the file's default preset" (SfzPlayer2 target, or an
+    // SfPlayer load that didn't request a specific preset). Consumed in
+    // processBlock to update DysektProcessor::sf2PreviewRenderedBank/Program.
+    int presetBank    = -1;
+    int presetProgram = -1;
 };
