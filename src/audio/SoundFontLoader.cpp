@@ -326,6 +326,12 @@ public:
         sfizz_set_samples_per_block (sfz, kBlockSize);
 
         const bool ok = sfizz_load_file (sfz, file.getFullPathName().toRawUTF8());
+
+        processor.crashLogger.log ("SoundFontLoader[" + targetName() + "] load " + file.getFileName()
+            + " sfizz_load_file=" + juce::String (ok ? "OK" : "FAILED")
+            + " regions=" + juce::String ((int) sfizz_get_num_regions (sfz))
+            + " preset=" + juce::String (presetBank) + "/" + juce::String (presetProgram));
+
         if (! ok || shouldExit())
         {
             sfizz_free (sfz);
@@ -360,6 +366,10 @@ public:
         // ── Step 1: discover active notes ─────────────────────────────────────
         std::vector<int> activeNotes = discoverActiveNotes (sfz);
         if (shouldExit()) { sfizz_free (sfz); postFailure(); return jobHasFinished; }
+
+        processor.crashLogger.log ("SoundFontLoader[" + targetName() + "] discoverActiveNotes found "
+            + juce::String ((int) activeNotes.size()) + " notes"
+            + (activeNotes.empty() ? " (falling back to piano range 21-108)" : ""));
 
         if (activeNotes.empty())
         {
@@ -420,6 +430,10 @@ public:
 
         sfizz_free (sfz);
         sfz = nullptr;
+
+        processor.crashLogger.log ("SoundFontLoader[" + targetName() + "] rendered "
+            + juce::String ((int) renders.size()) + "/" + juce::String ((int) activeNotes.size())
+            + " notes produced audio" + (shouldExit() ? " (job was cancelled)" : ""));
 
         if (renders.empty() || shouldExit())
         {
@@ -654,6 +668,11 @@ public:
             zonePayload->presetProgram = presetProgram;
             delete payload;
 
+            // Capture before exchange — once posted, processBlock (audio
+            // thread) may consume and delete zonePayload at any moment, so
+            // touching it afterwards would be a use-after-free race.
+            const int zoneCount = (int) zonePayload->slices.size();
+
             auto* oldZones = processor.pendingPreviewZones3.exchange (zonePayload,
                                                                        std::memory_order_acq_rel);
             delete oldZones;
@@ -661,11 +680,26 @@ public:
             auto* old = processor.completedLoadData3.exchange (decoded.release(),
                                                                std::memory_order_acq_rel);
             delete old;
+
+            processor.crashLogger.log ("SoundFontLoader[SfPlayer] posted completedLoadData3: "
+                + juce::String (totalFrames) + " frames, "
+                + juce::String (zoneCount) + " zones");
         }
         return jobHasFinished;
     }
 
 private:
+    static juce::String targetNameFor (SoundFontLoadTarget t)
+    {
+        switch (t)
+        {
+            case SoundFontLoadTarget::Slicer:     return "Slicer";
+            case SoundFontLoadTarget::SfzPlayer2: return "SfzPlayer2";
+            case SoundFontLoadTarget::SfPlayer:   return "SfPlayer";
+        }
+        return "?";
+    }
+    juce::String targetName() const { return targetNameFor (target); }
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     void renderPhase (sfizz_synth_t* sfz, int numSamples,
