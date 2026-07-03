@@ -1,10 +1,10 @@
 #pragma once
 
-#include <juce_graphics/juce_graphics.h>
+#include <juce_gui_basics/juce_gui_basics.h>
 
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
 //  IconManager — Load SVG drawables and image sprites from embedded BinaryData
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
 // Usage:
 //   auto mute_icon = IconManager::getIconMute();
 //   if (mute_icon) g.drawImage(mute_icon->toImage(...), ...);
@@ -33,7 +33,7 @@ namespace IconManager
     std::unique_ptr<juce::Drawable> getButtonHover();
     std::unique_ptr<juce::Drawable> getButtonActive();
 
-    // ── Knob components ─────────────────────────────────────────────────────────
+    // ── Knob components ──────────────────────────────────────────────────────
     std::unique_ptr<juce::Drawable> getKnobFace();
     std::unique_ptr<juce::Drawable> getKnobPointer();
 
