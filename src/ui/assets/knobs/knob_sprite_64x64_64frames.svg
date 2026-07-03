@@ -1,0 +1,21 @@
+<!-- Placeholder: Single-frame knob sprite (vertical filmstrip) -->
+<!-- In production, this should be replaced with a 64×4096px PNG (64 frames × 64px height) -->
+<!-- or generated from the knob_face.svg by rotating 64 times across [-135°, +135°] -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 4096" width="64" height="4096" preserveAspectRatio="none">
+  <defs>
+    <style>
+      .knob-frame { fill: #202028; stroke: #00ffe0; stroke-width: 0.5; }
+    </style>
+  </defs>
+  <!-- Repeat the basic knob face 64 times vertically (each 64px tall) -->
+  <!-- Frame 0 (0°) -->
+  <circle cx="32" cy="32" r="28" class="knob-frame" transform="translate(0, 0)"/>
+  <!-- Frame 1 -->
+  <circle cx="32" cy="32" r="28" class="knob-frame" transform="translate(0, 64)"/>
+  <!-- Frame 2 -->
+  <circle cx="32" cy="32" r="28" class="knob-frame" transform="translate(0, 128)"/>
+  <!-- ... (in production, use a script to generate all 64 frames) ... -->
+  <!-- Frames 3-61 omitted for brevity; production should auto-generate -->
+  <!-- Frame 63 (final frame) -->
+  <circle cx="32" cy="32" r="28" class="knob-frame" transform="translate(0, 4032)"/>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" rx="4">
+  <defs>
+    <style>rect { fill: #2a3040; stroke: #608090; stroke-width: 1; }</style>
+  </defs>
+  <rect width="120" height="40" rx="4"/>
+</svg>
