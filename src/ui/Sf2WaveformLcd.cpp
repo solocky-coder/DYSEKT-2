@@ -434,19 +434,6 @@ void Sf2WaveformLcd::drawHeader (juce::Graphics& g,
     g.drawText ("SF2 PLAYER", headerR.withRight (headerR.getX() + 72.0f),
                 juce::Justification::centredLeft, false);
 
-    // A preset-grid click is re-rendering sampleData3/previewZones3 for that
-    // specific preset in the background (see SoundFontLoader::load's
-    // presetBank/presetProgram params) — this can take a moment for a
-    // 128-note probe+render pass, so show that explicitly instead of leaving
-    // the previous preset's stale waveform up with no explanation.
-    if (processor.sf2PreviewRenderInFlight.load (std::memory_order_relaxed))
-    {
-        g.setFont (DysektLookAndFeel::makeFont (8.0f, true));
-        g.setColour (kSf2ColDecay.withAlpha (0.75f));
-        g.drawText ("RENDERING PREVIEW...", headerR, juce::Justification::centredRight, true);
-        return;
-    }
-
     if (processor.sfzPlayer.isLoaded())
     {
         const juce::String name = processor.sfzPlayer.getLoadedFile()

@@ -112,14 +112,6 @@ public:
     float      getReverb()      const noexcept { return reverb.load(); }
     float      getChorus()      const noexcept { return chorus.load(); }
     int        getCurrentPresetIndex() const noexcept { return presetIndex.load(); }
-
-    /** UI-display-only "currently selected" preset in the multitimbral program
-     *  grid — the last preset the user previewed or selected for per-channel FX
-     *  editing. Purely cosmetic: unlike setPresetByIndex()/presetIndex, setting
-     *  this never sends a program change on any MIDI channel. */
-    void       setDisplayPresetIndex (int idx) noexcept { displayPresetIndex.store (idx); }
-    int        getDisplayPresetIndex() const noexcept { return displayPresetIndex.load(); }
-
     juce::File getLoadedFile()  const;
 
     /** Returns the file most recently passed to loadFile(), even if the async
@@ -312,7 +304,6 @@ private:
     std::atomic<float> reverb      { 0.4f }; // 0..1
     std::atomic<float> chorus      { 0.2f }; // 0..1
     std::atomic<int>   presetIndex   { 0 };  // index into cachedPresets (UI display)
-    std::atomic<int>   displayPresetIndex { -1 }; // grid's "last selected" preset — UI-only, no engine effect
     std::atomic<int>   pendingBank   { 0 };  // bank number for applyProgramChange
     std::atomic<int>   pendingProgram{ 0 };  // program number for applyProgramChange
     std::atomic<bool>  loaded      { false };

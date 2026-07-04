@@ -230,10 +230,8 @@ void SfzFileBrowser::rebuildList()
 
     // Matching files — pattern depends on current mode
     const auto* pattern = (mode == Mode::kAddZone)
-                            ? "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3"
-                            : (mode == Mode::kSf2)
-                              ? "*.sf2"
-                              : "*.sfz";   // SFZ-Player: SFZ files only
+                            ? "*.wav;*.aif;*.aiff;*.flac;*.ogg"
+                            : "*.sfz";   // SFZ-Player: SFZ files only
 
     auto files = currentDir.findChildFiles (
         juce::File::findFiles, false, pattern);
@@ -330,11 +328,8 @@ void SfzFileBrowser::paintListBoxItem (int row, juce::Graphics& g,
     }
 }
 
-void SfzFileBrowser::listBoxItemClicked (int row, const juce::MouseEvent&)
+void SfzFileBrowser::listBoxItemClicked (int /*row*/, const juce::MouseEvent&)
 {
-    if (row >= 0 && row < rows.size() && ! rows[row].isDirectory() && onFileSingleClicked)
-        onFileSingleClicked (rows[row]);
-
     repaint();
 }
 
