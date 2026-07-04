@@ -2579,6 +2579,20 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
+    // TEMP diagnostic — logs EVERY block where the raw incoming MIDI buffer
+    // (before any port/channel routing to Slicer/SFZ-PLAYER/SF2-PLAYER) has
+    // events, so we can confirm whether MIDI is reaching the plugin at the
+    // host level at all, independent of any downstream engine-specific logic.
+    if (! midi.isEmpty())
+    {
+        juce::String desc;
+        for (const auto meta : midi)
+            desc << "[ch=" << meta.getMessage().getChannel()
+                 << " " << meta.getMessage().getDescription() << "] ";
+        crashLogger.log ("processBlock(): raw midi buffer has " + juce::String (midi.getNumEvents())
+            + " event(s): " + desc);
+    }
+
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
@@ -3353,8 +3367,8 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         //
         juce::MidiBuffer sfzMidiBuf;
         {
-            if (juce::MidiBuffer* port1 = dysektGetSfPlayerMidiPort();
-                port1 != nullptr && ! port1->isEmpty())
+            juce::MidiBuffer* port1 = dysektGetSfPlayerMidiPort();
+            if (port1 != nullptr && ! port1->isEmpty())
             {
                 // PATH A: dedicated port-1 buffer — use it as-is
                 sfzMidiBuf = *port1;
@@ -3383,6 +3397,18 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     }
                 }
             }
+        }
+
+        // TEMP diagnostic — shows which path was taken and what ended up in
+        // sfzMidiBuf whenever the raw midi buffer had anything in it.
+        if (! midi.isEmpty())
+        {
+            juce::MidiBuffer* dbgPort1 = dysektGetSfPlayerMidiPort();
+            crashLogger.log ("processBlock(): sf2/sfz split — rawMidi=" + juce::String (midi.getNumEvents())
+                + " port1=" + (dbgPort1 == nullptr ? juce::String ("null")
+                                                    : (juce::String ("nonnull,empty=") + juce::String ((int) dbgPort1->isEmpty())))
+                + " sfPlayerChannelMask=0x" + juce::String::toHexString ((int) sfPlayerChannelMask.load (std::memory_order_relaxed))
+                + " -> sfzMidiBuf=" + juce::String (sfzMidiBuf.getNumEvents()) + " event(s)");
         }
 
         // Render into a clean temp buffer — never overwrite main directly
