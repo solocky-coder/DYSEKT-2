@@ -224,12 +224,12 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      }
      if (uiMode == 2)
      {
-        // SF2-PLAYER: SF2 files only, routed to sfzPlayer (FluidSynth)
+        // SF2-PLAYER: SF2 files only. Routing through sfzDropdown.onFileChosen()
+        // (rather than duplicating the load logic here) keeps that as the single
+        // source of truth -- it also stores sfPlayerChannelMask, opens the SF2
+        // program grid, and fires onFileLoaded, matching the drag-and-drop path.
          if (ext == ".sf2")
-         {
-             processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
-             processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
-         }
+             sfzDropdown.onFileChosen (f);
      }
  };
  waveformView.onLoadRequest = [this] (const juce::File& f)

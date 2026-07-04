@@ -103,7 +103,15 @@ void FileBrowserPanel::ArchiveListModel::listBoxItemDoubleClicked (int row, cons
                 owner->stopPreview();   // stop streaming preview on load
 
                 auto ext = localFile.getFileExtension().toLowerCase();
-                if (ext == ".sf2" || ext == ".sfz")
+
+                // Prefer the owner-supplied callback so it can route by uiMode; only
+                // fall back to the hardcoded sf2/sfz routing when nobody has wired
+                // up onLoadRequest.
+                if (owner->onLoadRequest)
+                {
+                    owner->onLoadRequest (localFile);
+                }
+                else if (ext == ".sf2" || ext == ".sfz")
                 {
                     const bool sfzPlayer2Mode = (owner->processor.midiRouteMode.load (std::memory_order_relaxed)
                                                  == static_cast<int> (DysektProcessor::MidiRouteMode::SfzPlayer2));
@@ -112,10 +120,10 @@ void FileBrowserPanel::ArchiveListModel::listBoxItemDoubleClicked (int row, cons
                     owner->processor.loadSoundFontAsync (localFile,
                         sfzPlayer2Mode ? SoundFontLoadTarget::SfzPlayer2 : SoundFontLoadTarget::Slicer);
                 }
-                else if (owner->onLoadRequest)
-                    owner->onLoadRequest (localFile);
                 else
+                {
                     owner->processor.loadFileAsync (localFile);
+                }
 
                 if (owner->onFileLoaded) owner->onFileLoaded();
             });
@@ -507,6 +515,16 @@ void FileBrowserPanel::fileDoubleClicked (const juce::File& f)
 
     auto ext = f.getFileExtension().toLowerCase();
 
+    // Prefer the owner-supplied callback so it can route by uiMode (e.g. SF Player
+    // preview vs. Slicer vs. SfzPlayer2 live engine). Only fall back to the
+    // hardcoded sf2/sfz routing below when nobody has wired up onLoadRequest.
+    if (onLoadRequest)
+    {
+        onLoadRequest (f);
+        if (onFileLoaded) onFileLoaded();
+        return;
+    }
+
     if (ext == ".sf2" || ext == ".sfz")
     {
         const bool sfzPlayer2Mode = (processor.midiRouteMode.load (std::memory_order_relaxed)
@@ -519,16 +537,8 @@ void FileBrowserPanel::fileDoubleClicked (const juce::File& f)
         return;
     }
 
-    if (onLoadRequest)
-    {
-        onLoadRequest (f);
-        if (onFileLoaded) onFileLoaded();
-    }
-    else
-    {
-        processor.loadFileAsync (f);
-        if (onFileLoaded) onFileLoaded();
-    }
+    processor.loadFileAsync (f);
+    if (onFileLoaded) onFileLoaded();
 }
 
 // ── Preview engine ───────────────────────────────────────────────────────────

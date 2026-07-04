@@ -387,9 +387,8 @@ void DysektProcessor::loadSoundFontAsync (const juce::File& file, SoundFontLoadT
     // Delegate to SoundFontLoader which uses sfizz to render all active notes
     // into a single stereo buffer and posts the result back via
     // completedLoadData (Slicer target) or completedLoadData2 (SFZ-PLAYER
-    // preview target) depending on `target`. presetBank/presetProgram only
-    // affect .sf2 files (rendered via FluidSynth); pass -1/-1 (the default)
-    // to preview the font's default program.
+    // preview target) depending on `target`. presetBank/presetProgram are
+    // only meaningful for SfPlayer — see SoundFontLoader::load.
     SoundFontLoader loader (*this);
     loader.load (file, target, presetBank, presetProgram);
 #else
@@ -2796,6 +2795,9 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (rawZones3 != nullptr)
         {
             std::unique_ptr<SfzPreviewZonePayload> zonesOwner3 (rawZones3);
+            sf2PreviewRenderedBank.store    (zonesOwner3->presetBank,    std::memory_order_relaxed);
+            sf2PreviewRenderedProgram.store (zonesOwner3->presetProgram, std::memory_order_relaxed);
+            sf2PreviewRenderInFlight.store  (false, std::memory_order_release);
             auto zoneList = std::make_unique<SfzPreviewZoneStore::ZoneList> (
                 std::move (zonesOwner3->slices));
             previewZones3.set (std::move (zoneList));

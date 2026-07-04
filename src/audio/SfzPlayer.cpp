@@ -790,18 +790,9 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
 
         if (msg.isNoteOn())
         {
-            // Drive the JUCE ADSR so it doesn't stay idle and multiply the
-            // FluidSynth output by 0.  (Mirrors the sfizz branch above —
-            // juceAdsrNoteOn() is only invoked for UI-keyboard injections,
-            // so external MIDI must trigger the envelope here directly.)
-            juceAdsr.noteOn();
             previewPositionSample.store (0, std::memory_order_relaxed);
             lastTriggeredNote.store (juce::jlimit (0, 127, msg.getNoteNumber() + trans),
                                      std::memory_order_relaxed);
-        }
-        else if (msg.isNoteOff())
-        {
-            juceAdsr.noteOff();
         }
 
         // Determine the set of FluidSynth channels to address.

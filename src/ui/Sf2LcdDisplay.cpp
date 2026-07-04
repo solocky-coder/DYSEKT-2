@@ -83,9 +83,12 @@ void Sf2LcdDisplay::buildDisplayData()
     data.fileName = f.getFileNameWithoutExtension();
     data.filePath = f.getParentDirectory().getFullPathName();
 
-    // Preset info from the active preset index
-    const auto presets = processor.sfzPlayer.getPresetList();
-    const int  idx     = processor.sfzPlayer.getCurrentPresetIndex();
+    // Preset info: prefer whatever the user last selected in the program grid
+    // (preview or per-channel-FX-edit click); fall back to the engine's default
+    // index (0) before anything's been touched.
+    const auto presets  = processor.sfzPlayer.getPresetList();
+    const int  gridIdx  = processor.sfzPlayer.getDisplayPresetIndex();
+    const int  idx      = gridIdx >= 0 ? gridIdx : processor.sfzPlayer.getCurrentPresetIndex();
     if (idx >= 0 && idx < (int) presets.size())
     {
         data.bankNumber   = presets[(size_t) idx].bank;

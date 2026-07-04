@@ -60,13 +60,12 @@ class DysektProcessor;
 //  SfPlayer   — posts to the processor's completedLoadData3 atomic for the
 //                visual-only preview buffer (sampleData3) used by the
 //                SF2-PLAYER tab. Mirrors SfzPlayer2 exactly, including the
-//                pendingPreviewZones3 zone overlay. .sf2 files render via
-//                FluidSynth (the same engine sfzPlayer uses for live
-//                playback), selecting whichever bank/program is passed in
-//                (see presetBank/presetProgram below) so the preview matches
-//                the preset actually selected in the SF2-PLAYER's picker.
-//                .sfz files dropped into this same target still render via
-//                sfizz, unaffected by any of the above.
+//                pendingPreviewZones3 zone overlay. Note this still renders
+//                via sfizz (which can load .sf2 files directly) rather than
+//                the real FluidSynth engine sfzPlayer uses for live playback
+//                — a deliberate display-accuracy tradeoff, not a live-audio
+//                one; the waveform shown may not be bit-identical to what
+//                FluidSynth actually plays.
 // =============================================================================
 enum class SoundFontLoadTarget { Slicer = 0, SfzPlayer2 = 1, SfPlayer = 2 };
 
@@ -78,9 +77,13 @@ public:
 
     // ── Public API (call from UI thread) ─────────────────────────────────────
     // Queues a background job; returns immediately.
-    // presetBank/presetProgram only matter for .sf2 files rendered via
-    // FluidSynth; leave at -1 to preview the font's default program (bank
-    // offset + program 0), which is also what non-.sf2 loads ignore entirely.
+    //
+    // presetBank/presetProgram (SfPlayer target only): when presetProgram >= 0,
+    // the job sends a bank-select (CC0/CC32) + program-change to the sfizz
+    // synth right after sfizz_load_file(), BEFORE probing/rendering — so the
+    // resulting sampleData3/previewZones3 reflect that specific preset's
+    // regions rather than whatever preset sfizz defaults to on load. Leave
+    // both at -1 (the default) to render the file's default preset, as before.
     void load (const juce::File& file, SoundFontLoadTarget target = SoundFontLoadTarget::Slicer,
                int presetBank = -1, int presetProgram = -1);
 
@@ -175,4 +178,11 @@ private:
 struct SfzPreviewZonePayload
 {
     std::vector<SfzSliceDescriptor> slices;
+
+    // Which preset these zones/sampleData3 belong to (SfPlayer target only).
+    // -1/-1 means "the file's default preset" (SfzPlayer2 target, or an
+    // SfPlayer load that didn't request a specific preset). Consumed in
+    // processBlock to update DysektProcessor::sf2PreviewRenderedBank/Program.
+    int presetBank    = -1;
+    int presetProgram = -1;
 };
