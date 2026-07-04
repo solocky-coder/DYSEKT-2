@@ -603,7 +603,12 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     applyPendingLoad();
 
     if (! loaded.load (std::memory_order_relaxed))
+    {
+        if (! midiIn.isEmpty())
+            sf2DebugLog ("process(): loaded==false — bailing out at the very top with "
+                + juce::String (midiIn.getNumEvents()) + " MIDI event(s) discarded this block.");
         return;
+    }
 
     const int filterCh = midiChannel.load (std::memory_order_relaxed);
     const int trans    = transpose.load   (std::memory_order_relaxed);
@@ -825,10 +830,31 @@ void SfzPlayer::process (const juce::MidiBuffer& midiIn,
     const uint16_t liveMask = liveInputChannelMask.load (std::memory_order_relaxed);
     bool sf2DebugHadNoteOnThisBlock = false;   // TEMP diagnostic — see note below
 
+    if (! midiIn.isEmpty())
+        sf2DebugLog ("process(): FluidSynth branch reached with " + juce::String (midiIn.getNumEvents())
+            + " MIDI event(s) this block. loaded=" + juce::String ((int) loaded.load (std::memory_order_relaxed))
+            + " sfontId=" + juce::String (sfontId)
+            + " liveMask=0x" + juce::String::toHexString ((int) liveMask));
+
     for (const auto meta : midiIn)
     {
         const auto msg    = meta.getMessage();
         const int  midiCh = msg.getChannel();   // 1-16
+
+        // TEMP diagnostic: log every message unconditionally, before any
+        // channel/velocity filtering, so we can catch cases where isNoteOn()
+        // or the targetMask computation silently drops something.
+        {
+            const uint16_t previewTargetMask = (midiCh == 1 && liveMask != 0)
+                                              ? liveMask
+                                              : (uint16_t) (1u << (midiCh - 1));
+            sf2DebugLog ("  msg: ch=" + juce::String (midiCh)
+                + " desc=\"" + msg.getDescription() + "\""
+                + " isNoteOn(false)=" + juce::String ((int) msg.isNoteOn (false))
+                + " isNoteOn(true)=" + juce::String ((int) msg.isNoteOn (true))
+                + " vel=" + juce::String (msg.getVelocity())
+                + " targetMask=0x" + juce::String::toHexString ((int) previewTargetMask));
+        }
 
         if (msg.isNoteOn())
         {
