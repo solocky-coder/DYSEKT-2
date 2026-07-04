@@ -2561,6 +2561,24 @@ static inline float sanitiseSample (float x)
 void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                             juce::MidiBuffer& midi)
 {
+    // TEMP diagnostic — fires exactly once, completely unconditionally, the
+    // very first time processBlock() is called at all. If this line never
+    // appears in dysekt_crash.log, processBlock() itself is not being
+    // invoked for this plugin instance (bypass/mute at the host level,
+    // wrong instance, or the host never started the audio engine) — nothing
+    // inside processBlock, including the SF2/SFZ player, can matter until
+    // that's resolved.
+    {
+        static bool loggedProcessBlockEntryOnce = false;
+        if (! loggedProcessBlockEntryOnce)
+        {
+            loggedProcessBlockEntryOnce = true;
+            crashLogger.log ("processBlock() ENTRY — first call reached. numSamples="
+                + juce::String (buffer.getNumSamples())
+                + " midi.getNumEvents()=" + juce::String (midi.getNumEvents()));
+        }
+    }
+
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
@@ -3178,11 +3196,21 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         publishUiSliceSnapshot2();
     }
 
-    if (! sampleData.isLoaded())
+    // NOTE: previously this returned out of the ENTIRE processBlock() when
+    // the Slicer had no sample loaded — which silently skipped EVERYTHING
+    // downstream, including the SF2/SFZ live player's MIDI handling, audio
+    // rendering, and metering, even though that engine is fully independent
+    // of the Slicer and may have its own file loaded and ready to play.
+    // This was the root cause of SF2-PLAYER/SFZ-PLAYER being completely
+    // silent (no MIDI activity, no meters, no audio) whenever the Slicer tab
+    // simply had nothing loaded in it. The Slicer-only fast/multi-out
+    // rendering below is now gated on this flag directly, instead of
+    // bailing out of the whole function.
+    const bool slicerSampleLoaded = sampleData.isLoaded();
+    if (! slicerSampleLoaded)
     {
         if (! sampleMissing.load (std::memory_order_relaxed))
             sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
-        return;
     }
 
     // Collect write pointers for all enabled output buses
@@ -3209,6 +3237,8 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     buffer.clear();
 
+    if (slicerSampleLoaded)
+    {
     if (numActiveBuses <= 1)
     {
         // Fast path: single stereo output
@@ -3288,6 +3318,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     busR[b][i] = sanitiseSample (busR[b][i]);
         }
     }
+    }  // end if (slicerSampleLoaded)
 
 
     // ── SF2/SFZ live player — dedicated audio bus ("SF2 Player"), summed to main ──

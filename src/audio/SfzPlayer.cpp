@@ -600,6 +600,20 @@ void SfzPlayer::prepare (double sampleRate, int maxBlockSize)
 void SfzPlayer::process (const juce::MidiBuffer& midiIn,
                           float* outL, float* outR, int numSamples)
 {
+    // TEMP diagnostic — unconditional, no gating whatsoever. If this line
+    // never appears in sf2_player_debug.log, process() itself is not being
+    // invoked by the binary being tested (stale build / plugin caching /
+    // wrong instance), full stop — nothing past this point matters yet.
+    {
+        static bool loggedEntryOnce = false;
+        if (! loggedEntryOnce)
+        {
+            loggedEntryOnce = true;
+            sf2DebugLog ("process() ENTRY — first call reached. numSamples=" + juce::String (numSamples)
+                + " midiIn.getNumEvents()=" + juce::String (midiIn.getNumEvents()));
+        }
+    }
+
     applyPendingLoad();
 
     if (! loaded.load (std::memory_order_relaxed))
