@@ -2,7 +2,7 @@
 setlocal
 
 echo ============================================
-echo  DYSEKT-2 - Clean Configure + Build
+echo  DYSEKT-SF - Clean Configure + Build
 echo ============================================
 echo.
 

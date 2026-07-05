@@ -832,7 +832,7 @@ void FileBrowserPanel::detectCloudFolders()
 static juce::File getBookmarksFile()
 {
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-               .getChildFile ("DYSEKT/bookmarks.txt");
+               .getChildFile ("DYSEKT-SF/bookmarks.txt");
 }
 
 void FileBrowserPanel::loadCustomBookmarks()
@@ -920,7 +920,7 @@ void FileBrowserPanel::rebuildBookmarkBar()
 juce::File FileBrowserPanel::getArchiveBookmarksFile()
 {
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-               .getChildFile ("DYSEKT/archive_bookmarks.txt");
+               .getChildFile ("DYSEKT-SF/archive_bookmarks.txt");
 }
 
 void FileBrowserPanel::loadArchiveBookmarks()

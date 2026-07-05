@@ -50,9 +50,9 @@
  *
  *  Log location
  *  ------------
- *  Windows : %APPDATA%\DunSoft\DYSEKT\dysekt_crash.log
- *  macOS   : ~/Library/Logs/DunSoft/DYSEKT/dysekt_crash.log
- *  Linux   : ~/.config/DunSoft/DYSEKT/dysekt_crash.log
+ *  Windows : %APPDATA%\DunSoft\DYSEKT-SF\dysekt_crash.log
+ *  macOS   : ~/Library/Logs/DunSoft/DYSEKT-SF/dysekt_crash.log
+ *  Linux   : ~/.config/DunSoft/DYSEKT-SF/dysekt_crash.log
  *
  *  Thread safety
  *  -------------
@@ -89,7 +89,7 @@ public:
 
         // ── Open log (append mode) ────────────────────────────────────────────
         logger = std::make_unique<juce::FileLogger> (logFile,
-            "DYSEKT crash log — " + juce::Time::getCurrentTime().toString (true, true));
+            "DYSEKT-SF crash log — " + juce::Time::getCurrentTime().toString (true, true));
 
         if (previousCrash)
         {
@@ -150,13 +150,13 @@ private:
     {
 #if JUCE_WINDOWS
         return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                   .getChildFile ("DunSoft/DYSEKT");
+                   .getChildFile ("DunSoft/DYSEKT-SF");
 #elif JUCE_MAC
         return juce::File::getSpecialLocation (juce::File::userHomeDirectory)
-                   .getChildFile ("Library/Logs/DunSoft/DYSEKT");
+                   .getChildFile ("Library/Logs/DunSoft/DYSEKT-SF");
 #else
         return juce::File::getSpecialLocation (juce::File::userHomeDirectory)
-                   .getChildFile (".config/DunSoft/DYSEKT");
+                   .getChildFile (".config/DunSoft/DYSEKT-SF");
 #endif
     }
 

@@ -7,7 +7,7 @@
 // ──────────────
 // JUCE 8's AudioProcessor::processBlock() receives a single MidiBuffer.  When
 // we patch juce_audio_plugin_client_VST3.cpp to advertise two MIDI input buses
-// (Port 0 "DYSEKT" → Slicer, Port 1 "DY-SFP" → SF-Player), the DAW sends
+// (Port 0 "DYSEKT-SF" → Slicer, Port 1 "DY-SFP" → SF-Player), the DAW sends
 // events for each port with a different Steinberg::Vst::Event::busIndex value.
 // The wrapper must deliver Port-1 events to processBlock() without contaminating
 // the Port-0 MidiBuffer that drives the slicer.

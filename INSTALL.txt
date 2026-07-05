@@ -1,5 +1,5 @@
 ╔══════════════════════════════════════════════════════════════════╗
-║           DYSEKT — Complete Update Package                      ║
+║           DYSEKT-SF — Complete Update Package                      ║
 ║           Installation Guide (Windows / GitHub Desktop)         ║
 ╚══════════════════════════════════════════════════════════════════╝
 
@@ -7,21 +7,21 @@
 STEP 1 — Extract this zip
 ────────────────────────────────────────────────────────────────────
 Right-click the zip file → Extract All → choose any location,
-e.g. your Desktop. You will get a folder called DYSEKT_COMPLETE
+e.g. your Desktop. You will get a folder called DYSEKT-SF_COMPLETE
 containing a src\ folder.
 
 ────────────────────────────────────────────────────────────────────
 STEP 2 — Find your local repo folder
 ────────────────────────────────────────────────────────────────────
 Open GitHub Desktop.
-In the top-left, make sure DYSEKT is the selected repository.
+In the top-left, make sure DYSEKT-SF is the selected repository.
 Click Repository → Show in Explorer.
 A Windows Explorer window will open at the root of your repo.
 
 ────────────────────────────────────────────────────────────────────
 STEP 3 — Copy files into the repo
 ────────────────────────────────────────────────────────────────────
-From the extracted DYSEKT_COMPLETE folder, copy the entire src\
+From the extracted DYSEKT-SF_COMPLETE folder, copy the entire src\
 folder and paste it into your repo root, choosing
 "Replace the files in the destination" when prompted.
 

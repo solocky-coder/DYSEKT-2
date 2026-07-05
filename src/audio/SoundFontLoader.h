@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-//  SoundFontLoader.h  —  SF2 / SFZ → DYSEKT sample engine  (sfizz backend)
+//  SoundFontLoader.h  —  SF2 / SFZ → DYSEKT-SF sample engine  (sfizz backend)
 //  ─────────────────────────────────────────────────────────────────────────
 //  Requires: sfizz linked in CMakeLists.txt and DYSEKT_HAS_SFIZZ=1 defined.
 //

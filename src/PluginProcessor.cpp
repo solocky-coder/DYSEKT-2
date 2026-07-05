@@ -140,7 +140,7 @@ static bool isCriticalCommand (DysektProcessor::CommandType type)
 DysektProcessor::DysektProcessor()
     : AudioProcessor (BusesProperties()
                           // ── MIDI input buses ──────────────────────────────────────────────────
-                          // DYSEKT: main slicer MIDI (ch 1-15 by default)
+                          // DYSEKT-SF: main slicer MIDI (ch 1-15 by default)
                           // DY-SFP: dedicated SF2/SFZ player MIDI (ch 16 by default)
                           // Hosts that support multiple MIDI inputs (Reaper, Logic, Bitwig, etc.)
                           // can route separate tracks/clips to each port independently.
@@ -3339,7 +3339,7 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //
     // MIDI routing — two ports exposed via getNumMidiInputs() == 2:
     //
-    //   port 0 "DYSEKT"  → slicer / processMidi()
+    //   port 0 "DYSEKT-SF"  → slicer / processMidi()
     //   port 1 "DY-SFP"  → SF2/SFZ player
     //
     // IMPORTANT: JUCE 8's VST3 wrapper merges all MIDI event buses into the

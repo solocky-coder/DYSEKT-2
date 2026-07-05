@@ -417,7 +417,7 @@ void DysektLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWindow& aler
 }
 
 //==============================================================================
-//  DocumentWindow title bar — themed to match DYSEKT's dark palette
+//  DocumentWindow title bar — themed to match DYSEKT-SF's dark palette
 //==============================================================================
 
 void DysektLookAndFeel::drawDocumentWindowTitleBar (
@@ -449,7 +449,7 @@ void DysektLookAndFeel::drawDocumentWindowTitleBar (
 
 namespace
 {
-    // A simple flat button that draws an X, –, or □ in DYSEKT's colours.
+    // A simple flat button that draws an X, –, or □ in DYSEKT-SF's colours.
     class DysektTitleBarButton : public juce::Button
     {
     public:

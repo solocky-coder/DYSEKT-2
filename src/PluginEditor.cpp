@@ -16,7 +16,7 @@
 static juce::File getSettingsDir()
 {
  return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
- .getChildFile ("DYSEKT");
+ .getChildFile ("DYSEKT-SF");
 }
 static juce::File getUserSettingsFile() { return getSettingsDir().getChildFile ("settings.yaml"); }
 static juce::File getThemesDir() { return getSettingsDir().getChildFile ("themes"); }

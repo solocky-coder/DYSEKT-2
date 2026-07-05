@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 
-# ── DYSEKT: Apply patched JUCE VST3 wrapper (DY-SFP second MIDI input port) ──
+# ── DYSEKT-SF: Apply patched JUCE VST3 wrapper (DY-SFP second MIDI input port) ──
 # The patch survives CI re-clones of the JUCE submodule because it is stored
 # in juce_patches/ and copied here at configure time, before any compilation.
 set(_DYSEKT_VST3_PATCH
@@ -15,9 +15,9 @@ set(_DYSEKT_VST3_TARGET
     "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp")
 if(EXISTS "${_DYSEKT_VST3_PATCH}")
     configure_file("${_DYSEKT_VST3_PATCH}" "${_DYSEKT_VST3_TARGET}" COPYONLY)
-    message(STATUS "DYSEKT: applied juce_audio_plugin_client_VST3.cpp patch (DY-SFP MIDI port 1)")
+    message(STATUS "DYSEKT-SF: applied juce_audio_plugin_client_VST3.cpp patch (DY-SFP MIDI port 1)")
 else()
-    message(WARNING "DYSEKT: juce_patches/juce_audio_plugin_client_VST3.cpp not found — DY-SFP port 1 will be missing in DAWs")
+    message(WARNING "DYSEKT-SF: juce_patches/juce_audio_plugin_client_VST3.cpp not found — DY-SFP port 1 will be missing in DAWs")
 endif()
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ FetchContent_MakeAvailable(chowdsp_utils)
 # --- tracktion_engine REMOVED ---
 # tracktion_engine does not compile against JUCE 8.0.12
 # (tracktion_PluginWindowState.cpp references juce::Displays::Display::userBounds
-# which was removed in JUCE 7+). SequencerEngine.cpp now uses DYSEKT's own
+# which was removed in JUCE 7+). SequencerEngine.cpp now uses DYSEKT-SF's own
 # tick scheduler exclusively. MidiClip.cpp keeps the te::MidiList* hook as a
 # forward-declared pointer but all midiList calls are no-ops until tracktion
 # is re-enabled against a compatible JUCE version.
@@ -114,14 +114,14 @@ if(DYSEKT_HAS_SFIZZ)
 endif()
 
 # ────────────────────────────────────────────────────────────────────────────
-#  DYSEKT VST3 Plugin
+#  DYSEKT-SF VST3 Plugin
 # ────────────────────────────────────────────────────────────────────────────
 juce_add_plugin(Dysekt
     COMPANY_NAME "DunSoft"
     PLUGIN_MANUFACTURER_CODE Dnst
     PLUGIN_CODE Dysk
     FORMATS VST3
-    PRODUCT_NAME "DYSEKT"
+    PRODUCT_NAME "DYSEKT-SF"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT TRUE
@@ -135,7 +135,7 @@ juce_add_plugin(Dysekt
 #   /DEBUG                 — linker: produce .pdb alongside the binary
 if(MSVC)
     target_compile_options(Dysekt PRIVATE /source-charset:utf-8 /Zi)
-    target_link_options(Dysekt PRIVATE /DEBUG /PDB:DYSEKT.pdb)
+    target_link_options(Dysekt PRIVATE /DEBUG /PDB:DYSEKT-SF.pdb)
 endif()
 
 juce_add_binary_data(DysektFonts SOURCES
@@ -238,12 +238,12 @@ target_link_libraries(Dysekt
 )
 
 # ────────────────────────────────────────────────────────────────────────────
-#  DYSEKT Standalone App
+#  DYSEKT-SF Standalone App
 #  Same engine + UI as the plugin, plus piano roll, pattern manager,
 #  and audio device selection.
 # ────────────────────────────────────────────────────────────────────────────
 juce_add_gui_app(DysektStandalone
-    PRODUCT_NAME "DYSEKT"
+    PRODUCT_NAME "DYSEKT-SF"
 )
 
 # Same PDB flags for the Standalone target

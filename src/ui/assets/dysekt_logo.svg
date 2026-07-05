@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 48" width="240" height="48">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 48" width="240" height="48">
 
   <!-- Waveform group (left icon block) -->
   <g opacity="0.9">
@@ -36,6 +36,6 @@
         font-weight="700"
         font-size="36"
         letter-spacing="5"
-        fill="currentColor">DYSEKT</text>
+        fill="currentColor">DYSEKT-SF</text>
 
 </svg>

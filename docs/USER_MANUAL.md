@@ -1,7 +1,7 @@
-# DYSEKT User Manual
+# DYSEKT-SF User Manual
 
 ## Overview
-DYSEKT is a powerful tool designed for [describe the purpose of DYSEKT and its core functionalities].
+DYSEKT-SF is a powerful tool designed for [describe the purpose of DYSEKT and its core functionalities].
 
 ## Features
 - **Feature 1:** [description]

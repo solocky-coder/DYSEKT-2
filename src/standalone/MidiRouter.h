@@ -1,6 +1,6 @@
 #pragma once
 //==============================================================================
-//  MidiRouter.h  —  Cubase-style MIDI output routing for the DYSEKT standalone
+//  MidiRouter.h  —  Cubase-style MIDI output routing for the DYSEKT-SF standalone
 //
 //  Drop this file into  src/standalone/
 //
