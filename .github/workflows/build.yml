@@ -132,8 +132,19 @@ jobs:
             }
           }
 
-          # VST3 bundle (JUCE outputs a .vst3 folder, not a file)
-          $vst3s = Get-ChildItem -Recurse -Filter "DYSEKT.vst3" build/
+          # VST3 bundle (JUCE outputs a .vst3 folder, not a file).
+          # NOTE: matched by extension, not a hardcoded product name — the
+          # actual product name is "DYSEKT-SF" (see PluginEditor.cpp /
+          # SfzPlayer.cpp), not "DYSEKT". A literal "DYSEKT.vst3" filter here
+          # previously matched nothing, so this step silently copied zero
+          # files while the PDB loop above (which matches *.pdb generically)
+          # still populated the folder — masking the miss entirely, since
+          # "if-no-files-found: error" only trips on a fully empty folder.
+          $vst3s = Get-ChildItem -Recurse -Directory -Filter "*.vst3" build/
+          if ($vst3s.Count -eq 0) {
+            Write-Error "NO .vst3 BUNDLE FOUND under build/ — check the VST3 target's product name."
+            exit 1
+          }
           foreach ($v in $vst3s) {
             $dest = Join-Path "artifacts/VST3" $v.Name
             if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
