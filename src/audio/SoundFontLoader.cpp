@@ -570,7 +570,7 @@ private:
             // Kill remaining audio before next note (immediate cut, mirrors
             // sfizz_all_sound_off — a plain note-off would leave a release
             // tail bleeding into the next note's render).
-            fluid_synth_all_sound_off (synth, 0);
+            fluid_synth_all_sounds_off (synth, 0);
 
             // Silence-trim and check peak
             silenceTrim (nr.L, nr.R);
@@ -966,7 +966,7 @@ private:
 
             fluid_synth_noteon        (synth, 0, n, SfzConst::kVelocity);
             fluid_synth_process       (synth, SfzConst::kProbeSize, 0, nullptr, 2, planes);
-            fluid_synth_all_sound_off (synth, 0);
+            fluid_synth_all_sounds_off (synth, 0);
 
             float peak = 0.f;
             for (int i = 0; i < SfzConst::kProbeSize; ++i)
