@@ -380,7 +380,7 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
     processor.sf2PreviewRequestedBank.store    (-1, std::memory_order_relaxed);
     processor.sf2PreviewRequestedProgram.store (-1, std::memory_order_relaxed);
     processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
-    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed);
+    processor.sfPlayerChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
     openProgramGrid();
     repaint();
 

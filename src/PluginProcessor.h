@@ -485,10 +485,10 @@ public:
 
     MidiLearnManager midiLearn;
 
-    // ── SF2 player (SF-PLAYER, ch2 default) ──────────────────────────────────
+    // ── SF2 player (SF-PLAYER, ch3 default) ──────────────────────────────────
     SfzPlayer sfzPlayer;
 
-    // ── SFZ player (SFZ-PLAYER, ch3 default) ─────────────────────────────────
+    // ── SFZ player (SFZ-PLAYER, ch2 default) ─────────────────────────────────
     SfzPlayer sfzPlayer2;
 
     // ── Spectrum analyser (post-EQ FFT data, read by GlobalEqPanel timer) ────
@@ -632,7 +632,7 @@ public:
     // (sfPlayerChannelMask and savedSfPlayerChannelMask are restored from the saved
     //  lo/hi range in setStateInformation; chromaticSliceChannelMask from slice data).
     std::atomic<uint32_t> sfPlayerChannelMask      { 0u };       // disabled until user sets a range
-    std::atomic<uint32_t> savedSfPlayerChannelMask { 0x1FFFEu }; // user's last configured SF range
+    std::atomic<uint32_t> savedSfPlayerChannelMask { 1u << 3 };  // hardcoded ch3 default (unless preset overrides)
     std::atomic<uint32_t> chromaticSliceChannelMask { 0u };
 
     // SFZ-Player (sfzPlayer2) channel ownership — default ch2 (bit 2)

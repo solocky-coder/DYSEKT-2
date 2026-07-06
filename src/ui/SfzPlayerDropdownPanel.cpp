@@ -597,7 +597,7 @@ void SfzPlayerDropdownPanel::onFileChosen (const juce::File& f)
     }
 
     processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
-    processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
+    processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
     reloadZones (f);
     closeBrowser();
     repaint();
@@ -1354,7 +1354,7 @@ void SfzPlayerDropdownPanel::filesDropped (const juce::StringArray& files, int, 
         {
             juce::File file (f);
             processor.sfzPlayer2.loadFile (file, processor.fileLoadPool);
-            processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
+            processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
             reloadZones (file);
             closeBrowser();
             repaint();
@@ -1398,7 +1398,7 @@ void SfzPlayerDropdownPanel::initEmptySfz()
         sfz.replaceWithText ("// Custom SFZ — built with SF-Player\n\n");
 
     processor.sfzPlayer2.loadFile (sfz, processor.fileLoadPool);   // sfizz handles empty file gracefully (silence)
-    processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
+    processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
     reloadZones (sfz);                    // sets [+ ZONE] button visible + wires callback
 }
 
@@ -1895,7 +1895,7 @@ void SfzPlayerDropdownPanel::writeSfzZoneChange (const juce::File& f,
 
     // Hot-reload the SFZ player so changes take effect immediately
     processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
-    processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
+    processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
 }
 
 // =============================================================================
@@ -1963,7 +1963,7 @@ void SfzPlayerDropdownPanel::showAddZoneOverlay (const juce::File& sfzFile,
         }
 
         processor.sfzPlayer2.loadFile (sfzFile, processor.fileLoadPool);
-        processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
+        processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
         reloadZones (sfzFile);
         keysPanel.autoScrollToZones();
         repaint();
@@ -2025,7 +2025,7 @@ void SfzPlayerDropdownPanel::openSaveAsNewForZone (const juce::File& sampleFile)
         addZoneTargetSfz = dest;
 
         processor.sfzPlayer2.loadFile (dest, processor.fileLoadPool);
-        processor.sfzPlayer2ChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
+        processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
         reloadZones (dest);
         repaint();
 

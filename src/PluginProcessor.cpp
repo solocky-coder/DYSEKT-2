@@ -3948,14 +3948,14 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             else
             {
                 // v23/v24: single-channel value — map to one-channel mask,
-                // or channels 2–16 if it was 0 (old omni mode).
+                // or the hardcoded ch3 default if it was 0 (old omni mode).
                 // Channel 1 is hardwired to the slicer; never set bit 1.
                 const int oldCh = stream.readInt();
                 uint32_t mask = 0u;
                 if (oldCh >= 2 && oldCh <= 16)
                     mask = (1u << oldCh);
                 else if (oldCh == 0 || oldCh == 1)
-                    for (int c = 2; c <= 16; ++c) mask |= (1u << c);   // legacy omni → 2–16
+                    mask = (1u << 3);   // legacy omni → hardcoded ch3 default
                 sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
         }
