@@ -22,7 +22,7 @@ void LogoBar::paint (juce::Graphics& g)
     auto wordmarkFont = DysektLookAndFeel::makeFont (wordmarkSize, true);
 
     const juce::String dy   = "DY";
-    const juce::String sekt = "SEKT-SF";
+    const juce::String sekt = "SEKT";
     const int dyW   = juce::GlyphArrangement::getStringWidthInt(wordmarkFont, dy);
     const int sektW = juce::GlyphArrangement::getStringWidthInt(wordmarkFont, sekt);
     const int wordW = dyW + sektW;

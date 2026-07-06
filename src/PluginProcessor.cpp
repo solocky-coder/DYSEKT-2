@@ -140,7 +140,7 @@ static bool isCriticalCommand (DysektProcessor::CommandType type)
 DysektProcessor::DysektProcessor()
     : AudioProcessor (BusesProperties()
                           // ── MIDI input buses ──────────────────────────────────────────────────
-                          // DYSEKT-SF: main slicer MIDI (ch 1-15 by default)
+                          // DYSEKT: main slicer MIDI (ch 1-15 by default)
                           // DY-SFP: dedicated SF2/SFZ player MIDI (ch 16 by default)
                           // Hosts that support multiple MIDI inputs (Reaper, Logic, Bitwig, etc.)
                           // can route separate tracks/clips to each port independently.
@@ -201,9 +201,11 @@ DysektProcessor::DysektProcessor()
     sliceEndParam    = apvts.getRawParameterValue (ParamIds::sliceEnd);
     publishUiSliceSnapshot();
 
-    // SF2-Player defaults to MIDI channel 2, SFZ-Player to channel 3
-    sfzPlayer .setMidiChannel (3);   // SF2-PLAYER  → ch 3
-    sfzPlayer2.setMidiChannel (2);   // SFZ-PLAYER  → ch 2
+    // SF2-Player is fixed on MIDI channel 3; SFZ-Player defaults to channel 2.
+    // (Comment above previously had these backwards — the calls below are
+    // what actually take effect and are correct.)
+    sfzPlayer .setMidiChannel (3);   // SF2-PLAYER  → ch 3 (fixed)
+    sfzPlayer2.setMidiChannel (2);   // SFZ-PLAYER  → ch 2 (default; user-adjustable, see sfzPlayer2ChannelMask)
 }
 
 DysektProcessor::~DysektProcessor()
@@ -380,17 +382,15 @@ void DysektProcessor::applyTrimToCurrentSample (int trimStart, int trimEnd)
     pushCommand (c);
 }
 
-void DysektProcessor::loadSoundFontAsync (const juce::File& file, SoundFontLoadTarget target,
-                                           int presetBank, int presetProgram)
+void DysektProcessor::loadSoundFontAsync (const juce::File& file, SoundFontLoadTarget target)
 {
 #if DYSEKT_HAS_SFIZZ
     // Delegate to SoundFontLoader which uses sfizz to render all active notes
     // into a single stereo buffer and posts the result back via
     // completedLoadData (Slicer target) or completedLoadData2 (SFZ-PLAYER
-    // preview target) depending on `target`. presetBank/presetProgram are
-    // only meaningful for SfPlayer — see SoundFontLoader::load.
+    // preview target) depending on `target`.
     SoundFontLoader loader (*this);
-    loader.load (file, target, presetBank, presetProgram);
+    loader.load (file, target);
 #else
     // sfizz is not linked — SF2/SFZ files cannot be decoded.
     if (target == SoundFontLoadTarget::Slicer)
@@ -2561,38 +2561,6 @@ static inline float sanitiseSample (float x)
 void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                             juce::MidiBuffer& midi)
 {
-    // TEMP diagnostic — fires exactly once, completely unconditionally, the
-    // very first time processBlock() is called at all. If this line never
-    // appears in dysekt_crash.log, processBlock() itself is not being
-    // invoked for this plugin instance (bypass/mute at the host level,
-    // wrong instance, or the host never started the audio engine) — nothing
-    // inside processBlock, including the SF2/SFZ player, can matter until
-    // that's resolved.
-    {
-        static bool loggedProcessBlockEntryOnce = false;
-        if (! loggedProcessBlockEntryOnce)
-        {
-            loggedProcessBlockEntryOnce = true;
-            crashLogger.log ("processBlock() ENTRY — first call reached. numSamples="
-                + juce::String (buffer.getNumSamples())
-                + " midi.getNumEvents()=" + juce::String (midi.getNumEvents()));
-        }
-    }
-
-    // TEMP diagnostic — logs EVERY block where the raw incoming MIDI buffer
-    // (before any port/channel routing to Slicer/SFZ-PLAYER/SF2-PLAYER) has
-    // events, so we can confirm whether MIDI is reaching the plugin at the
-    // host level at all, independent of any downstream engine-specific logic.
-    if (! midi.isEmpty())
-    {
-        juce::String desc;
-        for (const auto meta : midi)
-            desc << "[ch=" << meta.getMessage().getChannel()
-                 << " " << meta.getMessage().getDescription() << "] ";
-        crashLogger.log ("processBlock(): raw midi buffer has " + juce::String (midi.getNumEvents())
-            + " event(s): " + desc);
-    }
-
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
@@ -2827,9 +2795,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (rawZones3 != nullptr)
         {
             std::unique_ptr<SfzPreviewZonePayload> zonesOwner3 (rawZones3);
-            sf2PreviewRenderedBank.store    (zonesOwner3->presetBank,    std::memory_order_relaxed);
-            sf2PreviewRenderedProgram.store (zonesOwner3->presetProgram, std::memory_order_relaxed);
-            sf2PreviewRenderInFlight.store  (false, std::memory_order_release);
             auto zoneList = std::make_unique<SfzPreviewZoneStore::ZoneList> (
                 std::move (zonesOwner3->slices));
             previewZones3.set (std::move (zoneList));
@@ -3210,21 +3175,11 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         publishUiSliceSnapshot2();
     }
 
-    // NOTE: previously this returned out of the ENTIRE processBlock() when
-    // the Slicer had no sample loaded — which silently skipped EVERYTHING
-    // downstream, including the SF2/SFZ live player's MIDI handling, audio
-    // rendering, and metering, even though that engine is fully independent
-    // of the Slicer and may have its own file loaded and ready to play.
-    // This was the root cause of SF2-PLAYER/SFZ-PLAYER being completely
-    // silent (no MIDI activity, no meters, no audio) whenever the Slicer tab
-    // simply had nothing loaded in it. The Slicer-only fast/multi-out
-    // rendering below is now gated on this flag directly, instead of
-    // bailing out of the whole function.
-    const bool slicerSampleLoaded = sampleData.isLoaded();
-    if (! slicerSampleLoaded)
+    if (! sampleData.isLoaded())
     {
         if (! sampleMissing.load (std::memory_order_relaxed))
             sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
+        return;
     }
 
     // Collect write pointers for all enabled output buses
@@ -3251,8 +3206,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     buffer.clear();
 
-    if (slicerSampleLoaded)
-    {
     if (numActiveBuses <= 1)
     {
         // Fast path: single stereo output
@@ -3332,14 +3285,13 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     busR[b][i] = sanitiseSample (busR[b][i]);
         }
     }
-    }  // end if (slicerSampleLoaded)
 
 
     // ── SF2/SFZ live player — dedicated audio bus ("SF2 Player"), summed to main ──
     //
     // MIDI routing — two ports exposed via getNumMidiInputs() == 2:
     //
-    //   port 0 "DYSEKT-SF"  → slicer / processMidi()
+    //   port 0 "DYSEKT"  → slicer / processMidi()
     //   port 1 "DY-SFP"  → SF2/SFZ player
     //
     // IMPORTANT: JUCE 8's VST3 wrapper merges all MIDI event buses into the
@@ -3367,8 +3319,8 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         //
         juce::MidiBuffer sfzMidiBuf;
         {
-            juce::MidiBuffer* port1 = dysektGetSfPlayerMidiPort();
-            if (port1 != nullptr && ! port1->isEmpty())
+            if (juce::MidiBuffer* port1 = dysektGetSfPlayerMidiPort();
+                port1 != nullptr && ! port1->isEmpty())
             {
                 // PATH A: dedicated port-1 buffer — use it as-is
                 sfzMidiBuf = *port1;
@@ -3397,18 +3349,6 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     }
                 }
             }
-        }
-
-        // TEMP diagnostic — shows which path was taken and what ended up in
-        // sfzMidiBuf whenever the raw midi buffer had anything in it.
-        if (! midi.isEmpty())
-        {
-            juce::MidiBuffer* dbgPort1 = dysektGetSfPlayerMidiPort();
-            crashLogger.log ("processBlock(): sf2/sfz split — rawMidi=" + juce::String (midi.getNumEvents())
-                + " port1=" + (dbgPort1 == nullptr ? juce::String ("null")
-                                                    : (juce::String ("nonnull,empty=") + juce::String ((int) dbgPort1->isEmpty())))
-                + " sfPlayerChannelMask=0x" + juce::String::toHexString ((int) sfPlayerChannelMask.load (std::memory_order_relaxed))
-                + " -> sfzMidiBuf=" + juce::String (sfzMidiBuf.getNumEvents()) + " event(s)");
         }
 
         // Render into a clean temp buffer — never overwrite main directly
@@ -3948,14 +3888,14 @@ void DysektProcessor::setStateInformation (const void* data, int sizeInBytes)
             else
             {
                 // v23/v24: single-channel value — map to one-channel mask,
-                // or the hardcoded ch3 default if it was 0 (old omni mode).
+                // or channels 2–16 if it was 0 (old omni mode).
                 // Channel 1 is hardwired to the slicer; never set bit 1.
                 const int oldCh = stream.readInt();
                 uint32_t mask = 0u;
                 if (oldCh >= 2 && oldCh <= 16)
                     mask = (1u << oldCh);
                 else if (oldCh == 0 || oldCh == 1)
-                    mask = (1u << 3);   // legacy omni → hardcoded ch3 default
+                    for (int c = 2; c <= 16; ++c) mask |= (1u << c);   // legacy omni → 2–16
                 sfPlayerChannelMask.store (mask, std::memory_order_relaxed);
             }
         }

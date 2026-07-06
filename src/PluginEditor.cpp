@@ -16,7 +16,7 @@
 static juce::File getSettingsDir()
 {
  return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
- .getChildFile ("DYSEKT-SF");
+ .getChildFile ("DYSEKT");
 }
 static juce::File getUserSettingsFile() { return getSettingsDir().getChildFile ("settings.yaml"); }
 static juce::File getThemesDir() { return getSettingsDir().getChildFile ("themes"); }
@@ -224,12 +224,12 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      }
      if (uiMode == 2)
      {
-        // SF2-PLAYER: SF2 files only. Routing through sfzDropdown.onFileChosen()
-        // (rather than duplicating the load logic here) keeps that as the single
-        // source of truth -- it also stores sfPlayerChannelMask, opens the SF2
-        // program grid, and fires onFileLoaded, matching the drag-and-drop path.
+        // SF2-PLAYER: SF2 files only, routed to sfzPlayer (FluidSynth)
          if (ext == ".sf2")
-             sfzDropdown.onFileChosen (f);
+         {
+             processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
+             processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
+         }
      }
  };
  waveformView.onLoadRequest = [this] (const juce::File& f)
@@ -597,7 +597,6 @@ void DysektEditor::toggleSoftWave()
  waveformMode = (waveformMode + 1) % 8;
  waveformView.setWaveformMode (waveformMode);
  waveformOverview.setWaveformMode (waveformMode);
- sf2WaveformLcd.setWaveformMode (waveformMode);
  headerBar.setBrowserActive (activeSlot == SlotContent::Browser);
  headerBar.setWaveMode (waveformMode);
  saveUserSettings (getTheme().name);
@@ -1805,7 +1804,6 @@ void DysektEditor::loadUserSettings()
 
  waveformView.setWaveformMode (waveformMode);
  waveformOverview.setWaveformMode (waveformMode);
- sf2WaveformLcd.setWaveformMode (waveformMode);
  headerBar.dualFrame().setPadGridActive (false);
  headerBar.setWaveMode (waveformMode);
  headerBar.setMidiFollowActive (processor.midiSelectsSlice.load());

@@ -170,7 +170,7 @@ public:
         }
         else  // Help
         {
-            menu.addItem (20, "About DYSEKT-SF");
+            menu.addItem (20, "About DYSEKT");
         }
 
         return menu;
@@ -217,7 +217,7 @@ private:
                     juce::MemoryBlock blank;
                     processor->setStateInformation (blank.getData(), (int) blank.getSize());
                     currentProjectFile = juce::File();
-                    setName ("DYSEKT-SF");
+                    setName ("DYSEKT");
                 }
             }));
     }
@@ -225,7 +225,7 @@ private:
     void openProject()
     {
         fileChooser = std::make_unique<juce::FileChooser> (
-            "Open DYSEKT-SF Project", juce::File::getSpecialLocation (
+            "Open DYSEKT Project", juce::File::getSpecialLocation (
                 juce::File::userDocumentsDirectory),
             "*.dysekt");
 
@@ -245,7 +245,7 @@ private:
                 processor->setStateInformation (block.getData(), (int) block.getSize());
 
                 currentProjectFile = result;
-                setName ("DYSEKT-SF  —  " + result.getFileNameWithoutExtension());
+                setName ("DYSEKT  —  " + result.getFileNameWithoutExtension());
             });
     }
 
@@ -268,7 +268,7 @@ private:
     void saveProjectAs()
     {
         fileChooser = std::make_unique<juce::FileChooser> (
-            "Save DYSEKT-SF Project", juce::File::getSpecialLocation (
+            "Save DYSEKT Project", juce::File::getSpecialLocation (
                 juce::File::userDocumentsDirectory).getChildFile ("Untitled.dysekt"),
             "*.dysekt");
 
@@ -280,7 +280,7 @@ private:
                 if (result == juce::File()) return;
                 currentProjectFile = result.withFileExtension ("dysekt");
                 saveProject();
-                setName ("DYSEKT-SF  —  " + currentProjectFile.getFileNameWithoutExtension());
+                setName ("DYSEKT  —  " + currentProjectFile.getFileNameWithoutExtension());
             });
     }
 
@@ -499,8 +499,8 @@ private:
     {
         juce::AlertWindow::showMessageBoxAsync (
             juce::AlertWindow::InfoIcon,
-            "DYSEKT-SF Standalone",
-            "DYSEKT-SF Sampler + Sequencer\nVersion 1.0\n\nPowered by JUCE.");
+            "DYSEKT Standalone",
+            "DYSEKT Sampler + Sequencer\nVersion 1.0\n\nPowered by JUCE.");
     }
 
     //==========================================================================

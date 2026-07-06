@@ -1,7 +1,7 @@
 //==============================================================================
-//  DYSEKT-SF Standalone — Main.cpp
+//  DYSEKT Standalone — Main.cpp
 //
-//  JUCE application entry point.  Only compiled into the DYSEKT-SF_Standalone
+//  JUCE application entry point.  Only compiled into the DYSEKT_Standalone
 //  target (guarded by DYSEKT_STANDALONE define in CMakeLists.txt).
 //
 //  Responsibilities:
@@ -21,7 +21,7 @@ class DysektApplication : public juce::JUCEApplication
 public:
     DysektApplication() = default;
 
-    const juce::String getApplicationName()    override { return "DYSEKT-SF"; }
+    const juce::String getApplicationName()    override { return "DYSEKT"; }
     const juce::String getApplicationVersion() override { return "1.0.0";  }
     bool moreThanOneInstanceAllowed()          override { return true;      }
 

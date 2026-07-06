@@ -1,6 +1,6 @@
 // SequencerEngine.cpp
 // tracktion Engine/Edit/Transport layer has been removed.
-// All note scheduling is done by DYSEKT-SF's own tick scheduler in processBlock().
+// All note scheduling is done by DYSEKT's own tick scheduler in processBlock().
 // MidiClip.cpp retains its tracktion hook (attachMidiList) for future use.
 
 #include "SequencerEngine.h"

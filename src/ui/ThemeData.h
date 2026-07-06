@@ -374,7 +374,7 @@ struct ThemeData
         return t;
     }
 
-    // ── DYSEKT-SF ────────────────────────────────────────────────────────────────
+    // ── DYSEKT ────────────────────────────────────────────────────────────────
     // The signature industrial skin: near-void black chassis, neon teal accent,
     // charcoal panel bars.  Only active / selected elements glow — everything
     // else stays dim.  Matches the dark-mode UI mockup shown in the design docs.

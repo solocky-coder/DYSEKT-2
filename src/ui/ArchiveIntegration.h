@@ -5,7 +5,7 @@
 #include <functional>
 
 /**
- * Utility class for Internet Archive (archive.org) integration in DYSEKT-SF.
+ * Utility class for Internet Archive (archive.org) integration in DYSEKT.
  *
  * All network operations run on a background ThreadPool and deliver results
  * on the JUCE message thread.  No UI dependencies — include freely from any

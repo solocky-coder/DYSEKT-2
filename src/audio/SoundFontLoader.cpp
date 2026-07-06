@@ -9,12 +9,6 @@
   // This avoids relying on target_include_directories propagation.
   #include "../../sfizz/src/sfizz.h"
 #endif
-#if DYSEKT_HAS_FLUIDSYNTH
-  // SfPlayer-target previews of .sf2 files render through FluidSynth (see
-  // runJobFluidSynth() below) so the waveform matches what SfzPlayer.cpp
-  // actually plays live, rather than through sfizz's SF2 support.
-  #include <fluidsynth.h>
-#endif
 #include <cmath>
 #include <algorithm>
 
@@ -310,46 +304,17 @@ static std::pair<int,int> parseSf2LoopPoints (const juce::File& sf2File)
 class SoundFontLoader::LoadJob final : public juce::ThreadPoolJob
 {
 public:
-    LoadJob (juce::File f, double sr, int tok, DysektProcessor& proc, SoundFontLoadTarget tgt,
-             int presetBankIn = -1, int presetProgramIn = -1)
+    LoadJob (juce::File f, double sr, int tok, DysektProcessor& proc, SoundFontLoadTarget tgt)
         : juce::ThreadPoolJob ("SfzLoadJob"),
           file (std::move (f)),
           sampleRate (sr),
           token (tok),
           processor (proc),
-          target (tgt),
-          presetBank (presetBankIn),
-          presetProgram (presetProgramIn)
+          target (tgt)
     {}
 
     // ── Main entry point ──────────────────────────────────────────────────────
     JobStatus runJob() override
-    {
-#if DYSEKT_HAS_FLUIDSYNTH
-        // SfPlayer previews of .sf2 files render via FluidSynth instead of
-        // sfizz, so the waveform shown matches what SfzPlayer.cpp actually
-        // plays live for SF2 (SfzPlayer routes .sfz through sfizz and .sf2
-        // through FluidSynth — see SfzPlayer.h). .sfz files stay on the
-        // sfizz path below, since that already matches live playback.
-        if (target == SoundFontLoadTarget::SfPlayer
-            && file.getFileExtension().toLowerCase() == ".sf2")
-        {
-            return runJobFluidSynth();
-        }
-#endif
-        return runJobSfizz();
-    }
-
-private:
-    // Per-note render captured during discovery+render, shared by both the
-    // sfizz and FluidSynth backends and consumed by finishAndPost().
-    struct NoteRender
-    {
-        int   midiNote;
-        std::vector<float> L, R;  // time-domain samples
-    };
-
-    JobStatus runJobSfizz()
     {
         using namespace SfzConst;
 
@@ -358,13 +323,6 @@ private:
         sfizz_set_samples_per_block (sfz, kBlockSize);
 
         const bool ok = sfizz_load_file (sfz, file.getFullPathName().toRawUTF8());
-
-        if (target == SoundFontLoadTarget::SfPlayer)
-            processor.crashLogger.log ("SF2 preview: sfizz_load_file(\"" + file.getFullPathName()
-                + "\") -> " + (ok ? "OK" : "FAILED")
-                + "  [preset override " + juce::String (presetBank) + "/" + juce::String (presetProgram) + "]"
-                + "  regions=" + juce::String (ok ? sfizz_get_num_regions (sfz) : -1));
-
         if (! ok || shouldExit())
         {
             sfizz_free (sfz);
@@ -372,38 +330,9 @@ private:
             return jobHasFinished;
         }
 
-        // ── Step 0b: select a specific preset before probing (SfPlayer only) ───
-        // sfizz_load_file() alone leaves the synth on whatever preset it
-        // defaults to (bank 0 / program 0). When the caller asked for a
-        // specific preset (SF2-PLAYER preset-grid click), send a standard
-        // MIDI bank-select (CC0 = bank MSB, CC32 = bank LSB) followed by a
-        // program change, then flush a small silent block so the change is
-        // fully applied before discoverActiveNotes()/rendering begin — every
-        // note probed/rendered below then belongs to THIS preset, not
-        // whatever the file defaulted to.
-        if (target == SoundFontLoadTarget::SfPlayer && presetProgram >= 0)
-        {
-            const int bankMsb = (presetBank >> 7) & 0x7F;
-            const int bankLsb = presetBank & 0x7F;
-            sfizz_send_cc (sfz, 0, 0,  bankMsb);
-            sfizz_send_cc (sfz, 0, 32, bankLsb);
-            sfizz_send_program_change (sfz, 0, presetProgram & 0x7F);
-
-            std::vector<float> flushL (kBlockSize, 0.f), flushR (kBlockSize, 0.f);
-            float* flushOuts[2] = { flushL.data(), flushR.data() };
-            sfizz_render_block (sfz, flushOuts, 2, kBlockSize);
-
-            if (shouldExit()) { sfizz_free (sfz); postFailure(); return jobHasFinished; }
-        }
-
         // ── Step 1: discover active notes ─────────────────────────────────────
         std::vector<int> activeNotes = discoverActiveNotes (sfz);
-        if (shouldExit()) { sfizz_free (sfz); postFailure(); return jobHasFinished; }
-
-        if (target == SoundFontLoadTarget::SfPlayer)
-            processor.crashLogger.log ("SF2 preview: discoverActiveNotes found "
-                + juce::String ((int) activeNotes.size()) + " responsive note(s)"
-                + (activeNotes.empty() ? " -> falling back to piano range 21-108" : ""));
+        if (shouldExit()) { sfizz_free (sfz); return jobHasFinished; }
 
         if (activeNotes.empty())
         {
@@ -413,7 +342,12 @@ private:
         }
 
         // ── Step 2: render each active note ───────────────────────────────────
-        // (NoteRender is declared at class scope — shared with runJobFluidSynth())
+        struct NoteRender
+        {
+            int   midiNote;
+            std::vector<float> L, R;  // time-domain samples
+        };
+
         const int sustainSamples = (int) (sampleRate * kNoteDurationSec);
         const int releaseSamples = (int) (sampleRate * kReleaseSec);
         const int totalPerNote   = sustainSamples + releaseSamples;
@@ -459,160 +393,6 @@ private:
 
         sfizz_free (sfz);
         sfz = nullptr;
-
-        return finishAndPost (std::move (renders), (int) activeNotes.size());
-    }
-
-#if DYSEKT_HAS_FLUIDSYNTH
-    // ── FluidSynth backend (SfPlayer target, .sf2 files only) ────────────────
-    // Mirrors runJobSfizz() step-for-step, but drives a throwaway FluidSynth
-    // instance instead of sfizz — matching the engine SfzPlayer.cpp actually
-    // uses for live .sf2 playback (see SfzPlayer.h / SfzPlayer::loadFile()).
-    // Since this runs on a background job with its own synth instance, it
-    // never touches the live sfzPlayer synth.
-    JobStatus runJobFluidSynth()
-    {
-        using namespace SfzConst;
-
-        fluid_settings_t* settings = new_fluid_settings();
-        // Deliberately dry: this is an offline, per-note probe+render pass on
-        // a shared synth instance, not the live playback path. Reverb/chorus
-        // tails are NOT flushed by fluid_synth_all_sounds_off() between notes,
-        // so leaving them on lets note N's reverb tail bleed into note N+1's
-        // silence probe — discoverActiveNotesFs() then mistakes that lingering
-        // tail for a genuine note-on, causing far more notes than are really
-        // responsive to be probed/rendered in full (slow preset switches),
-        // and dilutes the concatenated buffer's peak with quiet tail content
-        // instead of clean attacks (waveform reads as flat/dull). sfizz's
-        // preview path (used for .sfz) is dry for the same reason — matched
-        // here rather than mirroring SfzPlayer's live reverb/chorus settings.
-        fluid_settings_setint (settings, "synth.reverb.active", 0);
-        fluid_settings_setint (settings, "synth.chorus.active", 0);
-
-        fluid_synth_t* synth = new_fluid_synth (settings);
-        fluid_synth_set_sample_rate (synth, (float) sampleRate);
-        fluid_synth_set_gain        (synth, 2.0f);   // matches SfzPlayer's live gain
-
-        const int sfontId = fluid_synth_sfload (synth, file.getFullPathName().toRawUTF8(), 1);
-        const bool ok = (sfontId != FLUID_FAILED);
-
-        processor.crashLogger.log ("SF2 preview (FluidSynth): fluid_synth_sfload(\"" + file.getFullPathName()
-            + "\") -> " + (ok ? "OK" : "FAILED")
-            + "  [preset override " + juce::String (presetBank) + "/" + juce::String (presetProgram) + "]");
-
-        if (! ok || shouldExit())
-        {
-            delete_fluid_synth    (synth);
-            delete_fluid_settings (settings);
-            postFailure();
-            return jobHasFinished;
-        }
-
-        // ── Step 0b: select a specific preset before probing (mirrors sfizz
-        //    path's bank-select/program-change block above). FluidSynth's
-        //    program_select applies synchronously, so no flush render is
-        //    needed before discovery/rendering begin.
-        if (presetProgram >= 0)
-        {
-            const int offset = fluid_synth_get_bank_offset (synth, sfontId);
-            fluid_synth_program_select (synth, 0,
-                                        static_cast<unsigned int> (sfontId),
-                                        static_cast<unsigned int> (offset + presetBank),
-                                        static_cast<unsigned int> (presetProgram));
-
-            if (shouldExit())
-            {
-                delete_fluid_synth    (synth);
-                delete_fluid_settings (settings);
-                postFailure();
-                return jobHasFinished;
-            }
-        }
-
-        // ── Step 1: discover active notes ─────────────────────────────────────
-        std::vector<int> activeNotes = discoverActiveNotesFs (synth);
-        if (shouldExit())
-        {
-            delete_fluid_synth    (synth);
-            delete_fluid_settings (settings);
-            postFailure();
-            return jobHasFinished;
-        }
-
-        processor.crashLogger.log ("SF2 preview (FluidSynth): discoverActiveNotesFs found "
-            + juce::String ((int) activeNotes.size()) + " responsive note(s)"
-            + (activeNotes.empty() ? " -> falling back to piano range 21-108" : ""));
-
-        if (activeNotes.empty())
-        {
-            // Fallback: assume standard piano range
-            for (int n = 21; n <= 108; ++n)
-                activeNotes.push_back (n);
-        }
-
-        // ── Step 2: render each active note ───────────────────────────────────
-        const int sustainSamples = (int) (sampleRate * kNoteDurationSec);
-        const int releaseSamples = (int) (sampleRate * kReleaseSec);
-        const int totalPerNote   = sustainSamples + releaseSamples;
-
-        std::vector<NoteRender> renders;
-        renders.reserve (activeNotes.size());
-
-        std::vector<float> blockL (kBlockSize), blockR (kBlockSize);
-
-        for (int note : activeNotes)
-        {
-            if (shouldExit()) break;
-
-            fluid_synth_noteon (synth, 0, note, kVelocity);
-
-            NoteRender nr;
-            nr.midiNote = note;
-            nr.L.reserve ((size_t) totalPerNote);
-            nr.R.reserve ((size_t) totalPerNote);
-
-            // Sustain phase
-            renderPhaseFs (synth, sustainSamples, blockL, blockR, nr.L, nr.R);
-
-            // Note-off, then release tail
-            fluid_synth_noteoff (synth, 0, note);
-            renderPhaseFs (synth, releaseSamples, blockL, blockR, nr.L, nr.R);
-
-            // Kill remaining audio before next note (immediate cut, mirrors
-            // sfizz_all_sound_off — a plain note-off would leave a release
-            // tail bleeding into the next note's render).
-            fluid_synth_all_sounds_off (synth, 0);
-
-            // Silence-trim and check peak
-            silenceTrim (nr.L, nr.R);
-
-            float peak = 0.f;
-            for (size_t i = 0; i < nr.L.size(); ++i)
-                peak = std::max (peak, std::max (std::abs (nr.L[i]),
-                                                 std::abs (nr.R[i])));
-            if (peak < kSilenceThreshold)
-                continue;  // note produced no audio — skip
-
-            renders.push_back (std::move (nr));
-        }
-
-        delete_fluid_synth    (synth);
-        delete_fluid_settings (settings);
-
-        return finishAndPost (std::move (renders), (int) activeNotes.size());
-    }
-#endif // DYSEKT_HAS_FLUIDSYNTH
-
-    // ── Shared tail: concatenate note renders and post to the target's
-    //    completedLoadData*/pendingPreviewZones*/pendingSfzSlices atomics.
-    //    Backend-agnostic — used by both runJobSfizz() and runJobFluidSynth().
-    JobStatus finishAndPost (std::vector<NoteRender> renders, int numProbed)
-    {
-        if (target == SoundFontLoadTarget::SfPlayer)
-            processor.crashLogger.log ("SF2 preview: " + juce::String ((int) renders.size())
-                + " note(s) produced audio above silence threshold (of "
-                + juce::String (numProbed) + " probed)"
-                + (renders.empty() ? " -> ALL SILENT, render aborted" : ""));
 
         if (renders.empty() || shouldExit())
         {
@@ -842,14 +622,8 @@ private:
             // posting to the parallel completedLoadData3/pendingPreviewZones3
             // pipeline instead, so the two preview tabs never share a buffer.
             auto* zonePayload = new SfzPreviewZonePayload();
-            zonePayload->slices        = std::move (payload->slices);
-            zonePayload->presetBank    = presetBank;
-            zonePayload->presetProgram = presetProgram;
+            zonePayload->slices = std::move (payload->slices);
             delete payload;
-
-            processor.crashLogger.log ("SF2 preview: posting " + juce::String (decoded->buffer.getNumSamples())
-                + " frames, " + juce::String ((int) zonePayload->slices.size()) + " zone(s) to sampleData3/previewZones3"
-                + "  [preset " + juce::String (presetBank) + "/" + juce::String (presetProgram) + "]");
 
             auto* oldZones = processor.pendingPreviewZones3.exchange (zonePayload,
                                                                        std::memory_order_acq_rel);
@@ -940,68 +714,8 @@ private:
         return found;
     }
 
-#if DYSEKT_HAS_FLUIDSYNTH
-    // FluidSynth counterpart of renderPhase(). fluid_synth_process()
-    // ACCUMULATES into its output buffers, so they must be zeroed before
-    // every call (see the same note in SfzPlayer.cpp's live process()).
-    void renderPhaseFs (fluid_synth_t* synth, int numSamples,
-                        std::vector<float>& blockL, std::vector<float>& blockR,
-                        std::vector<float>& outL,   std::vector<float>& outR) const
-    {
-        int remaining = numSamples;
-        while (remaining > 0)
-        {
-            int block = std::min (remaining, SfzConst::kBlockSize);
-            std::fill (blockL.begin(), blockL.end(), 0.f);
-            std::fill (blockR.begin(), blockR.end(), 0.f);
-            float* planes[2] = { blockL.data(), blockR.data() };
-            fluid_synth_process (synth, block, 0, nullptr, 2, planes);
-            outL.insert (outL.end(), blockL.begin(), blockL.begin() + block);
-            outR.insert (outR.end(), blockR.begin(), blockR.begin() + block);
-            remaining -= block;
-        }
-    }
-
-    // FluidSynth counterpart of discoverActiveNotes().
-    static std::vector<int> discoverActiveNotesFs (fluid_synth_t* synth)
-    {
-        std::vector<int> found;
-        std::vector<float> probeL (SfzConst::kProbeSize, 0.f);
-        std::vector<float> probeR (SfzConst::kProbeSize, 0.f);
-        float* planes[2] = { probeL.data(), probeR.data() };
-
-        for (int n = 0; n <= 127; ++n)
-        {
-            std::fill (probeL.begin(), probeL.end(), 0.f);
-            std::fill (probeR.begin(), probeR.end(), 0.f);
-
-            fluid_synth_noteon        (synth, 0, n, SfzConst::kVelocity);
-            fluid_synth_process       (synth, SfzConst::kProbeSize, 0, nullptr, 2, planes);
-            fluid_synth_all_sounds_off (synth, 0);
-
-            float peak = 0.f;
-            for (int i = 0; i < SfzConst::kProbeSize; ++i)
-                peak = std::max (peak, std::max (std::abs (probeL[i]),
-                                                 std::abs (probeR[i])));
-            if (peak > SfzConst::kSilenceThreshold)
-                found.push_back (n);
-        }
-        return found;
-    }
-#endif // DYSEKT_HAS_FLUIDSYNTH
-
     void postFailure()
     {
-        // Any SfPlayer render (initial file-load OR a preset-scoped click
-        // re-render) can bail out here — bad file, silent preset, or
-        // shouldExit() mid-probe — every early "return jobHasFinished"
-        // upstream of the completedLoadData3/pendingPreviewZones3 post ends
-        // up here. Always clear the in-flight flag on that path, or
-        // Sf2WaveformLcd would show "rendering..." forever with no result
-        // ever arriving to clear it.
-        if (target == SoundFontLoadTarget::SfPlayer)
-            processor.sf2PreviewRenderInFlight.store (false, std::memory_order_release);
-
         // SFZ-PLAYER preview is visual-only and has no failure-state UI of its
         // own (sfzPlayer2's live engine handles its own failure reporting
         // separately) — so for that target we simply no-op rather than add a
@@ -1023,15 +737,12 @@ private:
     int                 token;
     DysektProcessor&    processor;
     SoundFontLoadTarget target;
-    int                 presetBank;
-    int                 presetProgram;
 };
 
 // =============================================================================
 //  SoundFontLoader::load  (public entry point — UI thread)
 // =============================================================================
-void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target,
-                             int presetBank, int presetProgram)
+void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
 {
     const double sr = processor.currentSampleRate > 0.0
                       ? processor.currentSampleRate : 44100.0;
@@ -1063,27 +774,14 @@ void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target,
         // SF2-PLAYER preview pipeline — mirrors SfzPlayer2 exactly, own buffer.
         delete processor.completedLoadData3.exchange (nullptr, std::memory_order_acq_rel);
         delete processor.pendingPreviewZones3.exchange (nullptr, std::memory_order_acq_rel);
-
-        // Flag ANY SfPlayer-target render as in-flight — the initial
-        // file-load render (presetProgram == -1) and a preset-scoped
-        // click-triggered render (presetProgram >= 0) both do the same
-        // 128-note probe+render pass and can take real time on a large
-        // soundfont (e.g. Arachno). Previously only click-triggered renders
-        // showed this, so the initial load looked indistinguishable from a
-        // broken/blank LCD while it was still running in the background.
-        // Cleared in processBlock once the result is consumed, or in
-        // postFailure() if the job bails out early.
-        processor.sf2PreviewRenderInFlight.store (true, std::memory_order_release);
     }
 
-    processor.fileLoadPool.addJob (
-        new LoadJob (file, sr, token, processor, target, presetBank, presetProgram), true);
+    processor.fileLoadPool.addJob (new LoadJob (file, sr, token, processor, target), true);
 }
 
 #else  // DYSEKT_HAS_SFIZZ not defined
 
-void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target,
-                             int /*presetBank*/, int /*presetProgram*/)
+void SoundFontLoader::load (const juce::File& file, SoundFontLoadTarget target)
 {
     // sfizz not linked — hand off to the regular audio file loader.
     // It will likely fail and show the normal "failed to load" UI.

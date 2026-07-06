@@ -6,7 +6,7 @@ class DysektProcessor;
 //==============================================================================
 /// Pad-grid alternate interface view.
 ///
-/// Shows DYSEKT-SF's 32 slices as two banks of 16 pads in a 4×4 grid.
+/// Shows DYSEKT's 32 slices as two banks of 16 pads in a 4×4 grid.
 /// Bank A = slices 1–16   Bank B = slices 17–32
 /// The user switches banks with the A / B buttons at the top of the component.
 /// No scrolling is required — the full bank always fits the visible area.
