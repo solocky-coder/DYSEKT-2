@@ -34,6 +34,9 @@ public:
 
     void repaintLcd();
 
+    void setWaveformMode (int mode) { waveformMode = juce::jlimit (0, 7, mode); repaint(); }
+    int  getWaveformMode () const   { return waveformMode; }
+
     static constexpr int kPreferredHeight = 136;
 
 private:
@@ -90,6 +93,8 @@ private:
     void buildWaveformPeaks();
     void drawWaveformBackdrop (juce::Graphics& g, const juce::Rectangle<float>& area);
     void drawLoopOverlay      (juce::Graphics& g, const juce::Rectangle<float>& area);
+
+    int waveformMode { 0 };
 
     NodeRole dragRole { NodeRole::None };
     NodeRole hovRole  { NodeRole::None };

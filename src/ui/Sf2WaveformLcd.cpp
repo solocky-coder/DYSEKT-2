@@ -257,27 +257,270 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
     const float cx = area.getX();
     const float cy = area.getY() + H * 0.5f;
 
-    const auto col = sf2Lcd2Phosphor().withAlpha (0.14f);
-
-    juce::Path top, bot;
-    top.startNewSubPath (cx, cy);
-    bot.startNewSubPath (cx, cy);
-
     const int n = peaks.size();
-    for (int i = 0; i < n; ++i)
-    {
-        const float x   = cx + ((float) i / (float) n) * W;
-        const float amp = juce::jlimit (0.0f, 1.0f, peaks[i]) * H * 0.45f;
-        top.lineTo (x, cy - amp);
-        bot.lineTo (x, cy + amp);
-    }
-    top.lineTo (cx + W, cy);
-    bot.lineTo (cx + W, cy);
-    bot.closeSubPath();
-    top.addPath (bot);
+    const float scale = H * 0.45f;
+    const juce::Colour waveCol = sf2Lcd2Phosphor();
 
-    g.setColour (col);
-    g.fillPath (top);
+    // ── Helpers — the backdrop only has a single (positive) amplitude per
+    //    peak slot, so top/bottom edges are mirrored around the centreline
+    //    rather than using independent max/min values like WaveformView.
+    auto xAt   = [&] (int i) { return cx + ((float) i / (float) n) * W; };
+    auto ampAt = [&] (int i) { return juce::jlimit (0.0f, 1.0f, peaks[i]); };
+
+    switch (waveformMode)
+    {
+        // ── Mode 0 : Hard ────────────────────────────────────────────────
+        default:
+        case 0:
+        {
+            juce::Path top, bot;
+            top.startNewSubPath (cx, cy);
+            bot.startNewSubPath (cx, cy);
+            for (int i = 0; i < n; ++i)
+            {
+                const float x   = xAt (i);
+                const float amp = ampAt (i) * scale;
+                top.lineTo (x, cy - amp);
+                bot.lineTo (x, cy + amp);
+            }
+            top.lineTo (cx + W, cy);
+            bot.lineTo (cx + W, cy);
+            bot.closeSubPath();
+            top.addPath (bot);
+
+            g.setColour (waveCol.withAlpha (0.14f));
+            g.fillPath (top);
+            break;
+        }
+
+        // ── Mode 1 : Soft ────────────────────────────────────────────────
+        case 1:
+        {
+            juce::ColourGradient grad (
+                waveCol.withAlpha (0.0f), 0.0f, area.getY(),
+                waveCol.withAlpha (0.0f), 0.0f, area.getBottom(),
+                false);
+            grad.addColour (0.35, waveCol.withAlpha (0.05f));
+            grad.addColour (0.5,  waveCol.withAlpha (0.09f));
+            grad.addColour (0.65, waveCol.withAlpha (0.05f));
+
+            juce::Path top, bot;
+            top.startNewSubPath (cx, cy);
+            bot.startNewSubPath (cx, cy);
+            for (int i = 0; i < n; ++i)
+            {
+                const float x   = xAt (i);
+                const float amp = ampAt (i) * scale;
+                top.lineTo (x, cy - amp);
+                bot.lineTo (x, cy + amp);
+            }
+            top.lineTo (cx + W, cy);
+            bot.lineTo (cx + W, cy);
+            bot.closeSubPath();
+            top.addPath (bot);
+
+            g.setGradientFill (grad);
+            g.fillPath (top);
+
+            juce::Path topLine, botLine;
+            topLine.startNewSubPath (cx, cy - ampAt (0) * scale);
+            botLine.startNewSubPath (cx, cy + ampAt (0) * scale);
+            for (int i = 1; i < n; ++i)
+            {
+                const float x = xAt (i);
+                topLine.lineTo (x, cy - ampAt (i) * scale);
+                botLine.lineTo (x, cy + ampAt (i) * scale);
+            }
+            g.setColour (waveCol.withAlpha (0.30f));
+            g.strokePath (topLine, juce::PathStrokeType (1.2f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (botLine, juce::PathStrokeType (1.2f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            break;
+        }
+
+        // ── Mode 2 : Outline ─────────────────────────────────────────────
+        case 2:
+        {
+            juce::Path top, bot;
+            top.startNewSubPath (cx, cy - ampAt (0) * scale);
+            bot.startNewSubPath (cx, cy + ampAt (0) * scale);
+            for (int i = 1; i < n; ++i)
+            {
+                const float x = xAt (i);
+                top.lineTo (x, cy - ampAt (i) * scale);
+                bot.lineTo (x, cy + ampAt (i) * scale);
+            }
+            g.setColour (waveCol.withAlpha (0.20f));
+            g.strokePath (top, juce::PathStrokeType (2.2f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (bot, juce::PathStrokeType (2.2f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour (waveCol.withAlpha (0.45f));
+            g.strokePath (top, juce::PathStrokeType (1.0f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (bot, juce::PathStrokeType (1.0f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            break;
+        }
+
+        // ── Mode 3 : Rectified ───────────────────────────────────────────
+        case 3:
+        {
+            const float baseline = area.getBottom() - 4.0f;
+            const float rectScale = scale * 1.6f;
+            juce::Path rectPath;
+            rectPath.startNewSubPath (cx, baseline - ampAt (0) * rectScale);
+            for (int i = 1; i < n; ++i)
+                rectPath.lineTo (xAt (i), baseline - ampAt (i) * rectScale);
+            rectPath.lineTo (cx + W, baseline);
+            rectPath.lineTo (cx, baseline);
+            rectPath.closeSubPath();
+
+            juce::ColourGradient grad (waveCol.withAlpha (0.20f), 0.0f, area.getY(),
+                                        waveCol.withAlpha (0.02f), 0.0f, baseline, false);
+            g.setGradientFill (grad);
+            g.fillPath (rectPath);
+
+            juce::Path topLine;
+            topLine.startNewSubPath (cx, baseline - ampAt (0) * rectScale);
+            for (int i = 1; i < n; ++i)
+                topLine.lineTo (xAt (i), baseline - ampAt (i) * rectScale);
+            g.setColour (waveCol.withAlpha (0.35f));
+            g.strokePath (topLine, juce::PathStrokeType (1.2f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            break;
+        }
+
+        // ── Mode 4 : Mirrored ────────────────────────────────────────────
+        case 4:
+        {
+            juce::Path upper;
+            upper.startNewSubPath (cx, cy);
+            for (int i = 0; i < n; ++i)
+                upper.lineTo (xAt (i), cy - ampAt (i) * scale);
+            upper.lineTo (cx + W, cy);
+            upper.closeSubPath();
+
+            juce::Path lower;
+            lower.startNewSubPath (cx, cy);
+            for (int i = 0; i < n; ++i)
+                lower.lineTo (xAt (i), cy + ampAt (i) * scale);
+            lower.lineTo (cx + W, cy);
+            lower.closeSubPath();
+
+            g.setColour (waveCol.withAlpha (0.16f));
+            g.fillPath (upper);
+            g.setColour (waveCol.withAlpha (0.08f));
+            g.fillPath (lower);
+
+            juce::Path edge;
+            edge.startNewSubPath (cx, cy - ampAt (0) * scale);
+            for (int i = 1; i < n; ++i)
+                edge.lineTo (xAt (i), cy - ampAt (i) * scale);
+            g.setColour (waveCol.withAlpha (0.35f));
+            g.strokePath (edge, juce::PathStrokeType (1.0f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            break;
+        }
+
+        // ── Mode 5 : Bars ────────────────────────────────────────────────
+        case 5:
+        {
+            const float barW = juce::jmax (1.0f, W / (float) n);
+            for (int i = 0; i < n; ++i)
+            {
+                const float amp  = ampAt (i) * scale;
+                const float topY = cy - amp;
+                float barH = amp * 2.0f;
+                if (barH < 1.0f) barH = 1.0f;
+                const float alpha = 0.08f + ampAt (i) * 0.16f;
+                g.setColour (waveCol.withAlpha (alpha));
+                g.fillRect (xAt (i), topY, barW, barH);
+            }
+            break;
+        }
+
+        // ── Mode 6 : RMS ─────────────────────────────────────────────────
+        case 6:
+        {
+            juce::Path rmsPath;
+            rmsPath.startNewSubPath (cx, cy - ampAt (0) * scale);
+            for (int i = 1; i < n; ++i)
+                rmsPath.lineTo (xAt (i), cy - ampAt (i) * scale);
+            for (int i = n - 1; i >= 0; --i)
+                rmsPath.lineTo (xAt (i), cy + ampAt (i) * scale);
+            rmsPath.closeSubPath();
+
+            juce::ColourGradient grad (
+                waveCol.withAlpha (0.0f), 0.0f, area.getY(),
+                waveCol.withAlpha (0.0f), 0.0f, area.getBottom(), false);
+            grad.addColour (0.35, waveCol.withAlpha (0.10f));
+            grad.addColour (0.5,  waveCol.withAlpha (0.17f));
+            grad.addColour (0.65, waveCol.withAlpha (0.10f));
+            g.setGradientFill (grad);
+            g.fillPath (rmsPath);
+
+            juce::Path rmsLine;
+            rmsLine.startNewSubPath (cx, cy - ampAt (0) * scale);
+            for (int i = 1; i < n; ++i)
+                rmsLine.lineTo (xAt (i), cy - ampAt (i) * scale);
+            g.setColour (waveCol.withAlpha (0.40f));
+            g.strokePath (rmsLine, juce::PathStrokeType (1.2f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            break;
+        }
+
+        // ── Mode 7 : Stepped ─────────────────────────────────────────────
+        case 7:
+        {
+            const int stepEvery = juce::jmax (1, n / juce::jmax (1, (int) (W / 4.0f)));
+            juce::Path stepTop, stepBot;
+            bool started = false;
+            for (int i = 0; i < n; i += stepEvery)
+            {
+                const float x = xAt (i);
+                const float yTop = cy - ampAt (i) * scale;
+                const float yBot = cy + ampAt (i) * scale;
+                if (! started)
+                {
+                    stepTop.startNewSubPath (x, yTop);
+                    stepBot.startNewSubPath (x, yBot);
+                    started = true;
+                }
+                else
+                {
+                    stepTop.lineTo (x, stepTop.getCurrentPosition().y);
+                    stepTop.lineTo (x, yTop);
+                    stepBot.lineTo (x, stepBot.getCurrentPosition().y);
+                    stepBot.lineTo (x, yBot);
+                }
+                const int xEndIdx = juce::jmin (i + stepEvery, n - 1);
+                stepTop.lineTo (xAt (xEndIdx), yTop);
+                stepBot.lineTo (xAt (xEndIdx), yBot);
+            }
+
+            juce::Path fillTop = stepTop;
+            fillTop.lineTo (cx + W, cy);
+            fillTop.lineTo (cx, cy);
+            fillTop.closeSubPath();
+
+            juce::Path fillBot = stepBot;
+            fillBot.lineTo (cx + W, cy);
+            fillBot.lineTo (cx, cy);
+            fillBot.closeSubPath();
+
+            g.setColour (waveCol.withAlpha (0.14f));
+            g.fillPath (fillTop);
+            g.setColour (waveCol.withAlpha (0.07f));
+            g.fillPath (fillBot);
+
+            g.setColour (waveCol.withAlpha (0.35f));
+            g.strokePath (stepTop, juce::PathStrokeType (1.0f));
+            g.strokePath (stepBot, juce::PathStrokeType (1.0f));
+            break;
+        }
+    }
 
     if (cachedZoom > 1.01f)
     {
