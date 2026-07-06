@@ -477,7 +477,7 @@ private:
         fluid_settings_t* settings = new_fluid_settings();
         // Deliberately dry: this is an offline, per-note probe+render pass on
         // a shared synth instance, not the live playback path. Reverb/chorus
-        // tails are NOT flushed by fluid_synth_all_sound_off() between notes,
+        // tails are NOT flushed by fluid_synth_all_sounds_off() between notes,
         // so leaving them on lets note N's reverb tail bleed into note N+1's
         // silence probe — discoverActiveNotesFs() then mistakes that lingering
         // tail for a genuine note-on, causing far more notes than are really
@@ -581,7 +581,7 @@ private:
             // Kill remaining audio before next note (immediate cut, mirrors
             // sfizz_all_sound_off — a plain note-off would leave a release
             // tail bleeding into the next note's render).
-            fluid_synth_all_sound_off (synth, 0);
+            fluid_synth_all_sounds_off (synth, 0);
 
             // Silence-trim and check peak
             silenceTrim (nr.L, nr.R);
@@ -977,7 +977,7 @@ private:
 
             fluid_synth_noteon        (synth, 0, n, SfzConst::kVelocity);
             fluid_synth_process       (synth, SfzConst::kProbeSize, 0, nullptr, 2, planes);
-            fluid_synth_all_sound_off (synth, 0);
+            fluid_synth_all_sounds_off (synth, 0);
 
             float peak = 0.f;
             for (int i = 0; i < SfzConst::kProbeSize; ++i)
