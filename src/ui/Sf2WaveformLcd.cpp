@@ -1,4 +1,5 @@
 #include "Sf2WaveformLcd.h"
+#include "UIHelpers.h"
 #include "DysektLookAndFeel.h"
 #include "../PluginProcessor.h"
 
@@ -258,7 +259,7 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
     const float cy = area.getY() + H * 0.5f;
 
     const int n = peaks.size();
-    const float scale = H * 0.45f;
+    const float scale = H * UILayout::waveformVerticalScale;
     const juce::Colour waveCol = sf2Lcd2Phosphor();
 
     // ── Helpers — the backdrop only has a single (positive) amplitude per
@@ -288,8 +289,23 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
             bot.closeSubPath();
             top.addPath (bot);
 
-            g.setColour (waveCol.withAlpha (0.14f));
+            g.setColour (waveCol.withAlpha (0.22f));
             g.fillPath (top);
+
+            juce::Path topLine, botLine;
+            topLine.startNewSubPath (cx, cy - ampAt (0) * scale);
+            botLine.startNewSubPath (cx, cy + ampAt (0) * scale);
+            for (int i = 1; i < n; ++i)
+            {
+                const float x = xAt (i);
+                topLine.lineTo (x, cy - ampAt (i) * scale);
+                botLine.lineTo (x, cy + ampAt (i) * scale);
+            }
+            g.setColour (waveCol.withAlpha (0.90f));
+            g.strokePath (topLine, juce::PathStrokeType (1.4f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (botLine, juce::PathStrokeType (1.4f,
+                juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             break;
         }
 
@@ -300,9 +316,9 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
                 waveCol.withAlpha (0.0f), 0.0f, area.getY(),
                 waveCol.withAlpha (0.0f), 0.0f, area.getBottom(),
                 false);
-            grad.addColour (0.35, waveCol.withAlpha (0.05f));
-            grad.addColour (0.5,  waveCol.withAlpha (0.09f));
-            grad.addColour (0.65, waveCol.withAlpha (0.05f));
+            grad.addColour (0.35, waveCol.withAlpha (0.12f));
+            grad.addColour (0.5,  waveCol.withAlpha (0.20f));
+            grad.addColour (0.65, waveCol.withAlpha (0.12f));
 
             juce::Path top, bot;
             top.startNewSubPath (cx, cy);
@@ -331,7 +347,7 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
                 topLine.lineTo (x, cy - ampAt (i) * scale);
                 botLine.lineTo (x, cy + ampAt (i) * scale);
             }
-            g.setColour (waveCol.withAlpha (0.30f));
+            g.setColour (waveCol.withAlpha (0.75f));
             g.strokePath (topLine, juce::PathStrokeType (1.2f,
                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.strokePath (botLine, juce::PathStrokeType (1.2f,
@@ -351,12 +367,12 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
                 top.lineTo (x, cy - ampAt (i) * scale);
                 bot.lineTo (x, cy + ampAt (i) * scale);
             }
-            g.setColour (waveCol.withAlpha (0.20f));
+            g.setColour (waveCol.withAlpha (0.35f));
             g.strokePath (top, juce::PathStrokeType (2.2f,
                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.strokePath (bot, juce::PathStrokeType (2.2f,
                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            g.setColour (waveCol.withAlpha (0.45f));
+            g.setColour (waveCol.withAlpha (0.90f));
             g.strokePath (top, juce::PathStrokeType (1.0f,
                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.strokePath (bot, juce::PathStrokeType (1.0f,
@@ -377,8 +393,8 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
             rectPath.lineTo (cx, baseline);
             rectPath.closeSubPath();
 
-            juce::ColourGradient grad (waveCol.withAlpha (0.20f), 0.0f, area.getY(),
-                                        waveCol.withAlpha (0.02f), 0.0f, baseline, false);
+            juce::ColourGradient grad (waveCol.withAlpha (0.32f), 0.0f, area.getY(),
+                                        waveCol.withAlpha (0.04f), 0.0f, baseline, false);
             g.setGradientFill (grad);
             g.fillPath (rectPath);
 
@@ -386,7 +402,7 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
             topLine.startNewSubPath (cx, baseline - ampAt (0) * rectScale);
             for (int i = 1; i < n; ++i)
                 topLine.lineTo (xAt (i), baseline - ampAt (i) * rectScale);
-            g.setColour (waveCol.withAlpha (0.35f));
+            g.setColour (waveCol.withAlpha (0.85f));
             g.strokePath (topLine, juce::PathStrokeType (1.2f,
                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             break;
@@ -409,16 +425,16 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
             lower.lineTo (cx + W, cy);
             lower.closeSubPath();
 
-            g.setColour (waveCol.withAlpha (0.16f));
+            g.setColour (waveCol.withAlpha (0.28f));
             g.fillPath (upper);
-            g.setColour (waveCol.withAlpha (0.08f));
+            g.setColour (waveCol.withAlpha (0.15f));
             g.fillPath (lower);
 
             juce::Path edge;
             edge.startNewSubPath (cx, cy - ampAt (0) * scale);
             for (int i = 1; i < n; ++i)
                 edge.lineTo (xAt (i), cy - ampAt (i) * scale);
-            g.setColour (waveCol.withAlpha (0.35f));
+            g.setColour (waveCol.withAlpha (0.85f));
             g.strokePath (edge, juce::PathStrokeType (1.0f,
                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             break;
@@ -434,7 +450,7 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
                 const float topY = cy - amp;
                 float barH = amp * 2.0f;
                 if (barH < 1.0f) barH = 1.0f;
-                const float alpha = 0.08f + ampAt (i) * 0.16f;
+                const float alpha = 0.20f + ampAt (i) * 0.55f;
                 g.setColour (waveCol.withAlpha (alpha));
                 g.fillRect (xAt (i), topY, barW, barH);
             }
@@ -455,9 +471,9 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
             juce::ColourGradient grad (
                 waveCol.withAlpha (0.0f), 0.0f, area.getY(),
                 waveCol.withAlpha (0.0f), 0.0f, area.getBottom(), false);
-            grad.addColour (0.35, waveCol.withAlpha (0.10f));
-            grad.addColour (0.5,  waveCol.withAlpha (0.17f));
-            grad.addColour (0.65, waveCol.withAlpha (0.10f));
+            grad.addColour (0.35, waveCol.withAlpha (0.18f));
+            grad.addColour (0.5,  waveCol.withAlpha (0.28f));
+            grad.addColour (0.65, waveCol.withAlpha (0.18f));
             g.setGradientFill (grad);
             g.fillPath (rmsPath);
 
@@ -465,7 +481,7 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
             rmsLine.startNewSubPath (cx, cy - ampAt (0) * scale);
             for (int i = 1; i < n; ++i)
                 rmsLine.lineTo (xAt (i), cy - ampAt (i) * scale);
-            g.setColour (waveCol.withAlpha (0.40f));
+            g.setColour (waveCol.withAlpha (0.85f));
             g.strokePath (rmsLine, juce::PathStrokeType (1.2f,
                 juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             break;
@@ -510,12 +526,12 @@ void Sf2WaveformLcd::drawWaveformBackdrop (juce::Graphics& g,
             fillBot.lineTo (cx, cy);
             fillBot.closeSubPath();
 
-            g.setColour (waveCol.withAlpha (0.14f));
+            g.setColour (waveCol.withAlpha (0.24f));
             g.fillPath (fillTop);
-            g.setColour (waveCol.withAlpha (0.07f));
+            g.setColour (waveCol.withAlpha (0.13f));
             g.fillPath (fillBot);
 
-            g.setColour (waveCol.withAlpha (0.35f));
+            g.setColour (waveCol.withAlpha (0.80f));
             g.strokePath (stepTop, juce::PathStrokeType (1.0f));
             g.strokePath (stepBot, juce::PathStrokeType (1.0f));
             break;
