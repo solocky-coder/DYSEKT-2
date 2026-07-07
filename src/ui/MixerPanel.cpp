@@ -2,6 +2,7 @@
 #include "../PluginProcessor.h"
 static constexpr int kMaxMeterSlices = DysektProcessor::kMaxMeterSlices;
 #include "DysektLookAndFeel.h"
+#include "IconManager.h"
 #include "../audio/Slice.h"
 #include "../params/ParamIds.h"
 #include <cmath>
@@ -236,6 +237,23 @@ void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
 {
     const auto& theme = getTheme();
     const float r = (float) kKnobR;
+    const float normC0 = juce::jlimit (0.f, 1.f, norm);
+
+    // ── Modern knob face — draw the rotated sprite frame underneath the
+    //    existing procedural progress arc (see IconManager::getKnobSpriteFrame).
+    //    Falls back silently to the plain arc-only look if the sprite sheet
+    //    binary isn't available (e.g. mid-migration builds).
+    {
+        constexpr int kSpriteFrameCount = 64;
+        const int frameIndex = juce::roundToInt (normC0 * (float) (kSpriteFrameCount - 1));
+        auto knobImg = IconManager::getKnobSpriteFrame (frameIndex, kSpriteFrameCount);
+        if (knobImg.isValid())
+        {
+            const float d = r * 2.4f; // slightly larger than the arc radius so the face reads clearly
+            juce::Rectangle<float> imgBounds ((float)cx - d * 0.5f, (float)cy - d * 0.5f, d, d);
+            g.drawImage (knobImg, imgBounds, juce::RectanglePlacement::centred, false);
+        }
+    }
 
     // Track arc (background) — 270° sweep, 7 o'clock → 5 o'clock
     const float startA  = juce::MathConstants<float>::pi * 0.75f;

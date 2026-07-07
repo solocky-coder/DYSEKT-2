@@ -1,5 +1,6 @@
 #include "DysektLookAndFeel.h"
 #include "BinaryData.h"
+#include "IconManager.h"
 
 static ThemeData globalTheme = ThemeData::opendawTheme();
 
@@ -78,15 +79,27 @@ void DysektLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b
 
     const bool toggled = button.getToggleState();
 
-    // ── NO glow halo — crisp borders only ────────────────────────────────────
-
-    // ── Flat fill — minimal gradient, OpenDAW-style ───────────────────────────
+    // ── Modern asset base layer ────────────────────────────────────────────
+    // Draw the idle/hover/active sprite from IconManager as the button base.
+    // NOTE: these ship as flat concept art without per-theme tinting yet —
+    // see PRODUCTION_READINESS.md ("Theme tinting strategy") for the follow-up
+    // work needed to recolour them per active ThemeData. For now they render
+    // as-is and we still draw the theme-coloured border/text on top so
+    // toggled/locked state remains legible in every theme.
     auto fillCol = isDown        ? baseBg.brighter (0.20f)
                  : isHighlighted ? baseBg.brighter (0.10f)
                  : toggled       ? baseBg.interpolatedWith (getTheme().accent, 0.18f)
                                  : baseBg;
 
-    if (getTheme().name == "serum")
+    auto stateDrawable = isDown        ? IconManager::getButtonActive()
+                       : isHighlighted ? IconManager::getButtonHover()
+                                       : IconManager::getButtonIdle();
+
+    if (stateDrawable != nullptr)
+    {
+        stateDrawable->drawWithin (g, bounds, juce::RectanglePlacement::stretchToFit, 1.0f);
+    }
+    else if (getTheme().name == "serum")
     {
         // Metallic steel gradient — lighter top edge, darker mid, slight lift at bottom
         auto top    = fillCol.brighter (0.18f);
@@ -96,12 +109,13 @@ void DysektLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b
                                    mid, bounds.getX(), bounds.getBottom(), false);
         grad.addColour (0.60, bot);
         g.setGradientFill (grad);
+        g.fillRoundedRectangle (bounds, r);
     }
     else
     {
         g.setColour (fillCol);
+        g.fillRoundedRectangle (bounds, r);
     }
-    g.fillRoundedRectangle (bounds, r);
 
     // ── Border — accent on active, subtle otherwise ───────────────────────────
     auto borderCol = toggled      ? getTheme().accent.withAlpha (0.70f)
