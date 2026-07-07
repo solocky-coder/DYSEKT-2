@@ -263,17 +263,17 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 }
                 else
                 {
-                    g.setColour (juce::Colour (0xff16161F));
+                    g.setColour (juce::Colours::black);
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
-                    g.setColour (juce::Colour (0xff222230));
+                    g.setColour (theme.accent.withAlpha (0.18f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
 
                 // Preset number badge (top-left)
                 {
-                    const auto badge = cell.withWidth (22).withHeight (10)
+                    const auto badge = cell.withWidth (28).withHeight (14)
                                            .withX (cell.getX() + 2).withY (cell.getY() + 2);
-                    g.setFont (DysektLookAndFeel::makeFont (9.5f));
+                    g.setFont (DysektLookAndFeel::makeFont (11.5f));
                     g.setColour (isPreviewing ? theme.accent.brighter (0.3f)
                                  : isEditing  ? theme.accent.brighter (0.3f)
                                  : isAssigned ? theme.accent.brighter (0.1f)
@@ -287,26 +287,26 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 if (isAssigned)
                 {
                     const juce::String chLabel = "ch" + juce::String (assignedCh);
-                    const int bw = 22, bh = 11;
+                    const int bw = 26, bh = 14;
                     const auto badgeR = juce::Rectangle<int> (
                         cell.getRight() - bw - 2, cell.getBottom() - bh - 2, bw, bh);
                     g.setColour (isEditing ? theme.accent : theme.accent.withAlpha (0.85f));
                     g.fillRoundedRectangle (badgeR.toFloat(), 2.f);
-                    g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
+                    g.setFont (DysektLookAndFeel::makeFont (10.0f, true));
                     g.setColour (theme.darkBar);
                     g.drawText (chLabel, badgeR, juce::Justification::centred, false);
                 }
 
                 // Preset name (centred)
                 {
-                    g.setFont (DysektLookAndFeel::makeFont (13.0f));
+                    g.setFont (DysektLookAndFeel::makeFont (15.0f));
                     g.setColour (isPreviewing ? theme.foreground.brighter (0.2f).withAlpha (0.95f)
                                  : isEditing  ? theme.foreground.brighter (0.2f)
                                  : isAssigned ? theme.foreground.brighter (0.05f).withAlpha (0.90f)
                                  : isSelected ? theme.foreground.brighter (0.1f)
                                              : theme.foreground.withAlpha (0.78f));
                     // Shrink name area if channel badge is showing
-                    const auto nameRect = isAssigned ? cell.reduced (3, 0).withTrimmedBottom (12)
+                    const auto nameRect = isAssigned ? cell.reduced (3, 0).withTrimmedBottom (15)
                                                      : cell.reduced (3, 0);
                     g.drawText (info.name, nameRect, juce::Justification::centred, true);
                 }
@@ -464,15 +464,14 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
             if (kv.first != presetIdx && kv.second == ch)
                 usedByOther = true;
 
-        // Channels owned by chromatic slices, or currently occupied by the
-        // SFZ-Player (sfzPlayer2), are never available to the SF2 player.
-        const bool reserved = (blockedMask & (1u << ch)) != 0u;
-        const bool inRange  = (ch >= rangeLow && ch <= rangeHigh) && ! reserved;
+        // Channels owned by chromatic slices are never available to the SF player.
+        const bool chromaBlocked = (blockedMask & (1u << ch)) != 0u;
+        const bool inRange       = (ch >= rangeLow && ch <= rangeHigh) && ! chromaBlocked;
 
         const juce::String label = "Channel " + juce::String (ch)
-                                   + (usedByOther ? "  [in use]"   : "")
-                                   + (reserved    ? "  [reserved]" : "")
-                                   + (! inRange && ! reserved ? "  [out of range]" : "");
+                                   + (usedByOther  ? "  [in use]"     : "")
+                                   + (chromaBlocked ? "  [chromatic]" : "")
+                                   + (! inRange && ! chromaBlocked ? "  [out of range]" : "");
         menu.addItem (100 + ch, label, /*isEnabled=*/ inRange, current == ch);
     }
 
@@ -504,6 +503,33 @@ void Sf2ProgramGrid::showChannelMenu (int presetIdx, juce::Point<int> screenPos)
             else if (result >= 101 && result <= 116)
             {
                 const int ch = result - 100;
+
+                // A MIDI channel can only drive one preset at a time. If another
+                // preset already holds this channel, its assignment is now stale
+                // (the engine will only honour the newest one) and must be
+                // cleared, or that cell would keep showing an "assigned" highlight
+                // and channel badge for a channel it no longer actually owns.
+                for (auto it = presetChannels.begin(); it != presetChannels.end(); )
+                {
+                    if (it->first != presetIdx && it->second == ch)
+                    {
+                        const int staleIdx = it->first;
+                        it = presetChannels.erase (it);
+                        if (onChannelChanged) onChannelChanged (staleIdx, 0);
+                        if (this->previewIdx == staleIdx)
+                        {
+                            this->previewIdx = -1;
+                            if (onPreviewToggled) onPreviewToggled (-1);
+                        }
+                        if (this->editingIdx == staleIdx)
+                            this->editingIdx = -1;
+                    }
+                    else
+                    {
+                        ++it;
+                    }
+                }
+
                 presetChannels[presetIdx] = ch;
                 if (onChannelChanged) onChannelChanged (presetIdx, ch);
 

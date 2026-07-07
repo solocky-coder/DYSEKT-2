@@ -1612,11 +1612,13 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
      const int      cur    = sl.chromaticChannel;
      const uint32_t sfMask = processor.savedSfPlayerChannelMask.load (std::memory_order_relaxed);
 
-     // Omni mode (0x1FFFE, all 16 channels) means the SF player accepts every
-     // channel for a single SFZ/SF2 preset — it does NOT reserve individual channels
-     // for specific instruments.  Excluding all 16 in this state leaves the
-     // chromatic-channel menu empty.  Only exclude channels when the SF player is
-     // in explicit per-channel SF2 multitimbral mode (fewer than all 15 channels set).
+     // The SF2-Player defaults to hardcoded channel 3 (single bit) — that
+     // channel is excluded below like any other SF-owned channel. Omni mode
+     // (0x1FFFE, all 16 channels) is the rare edge case where the user has
+     // explicitly assigned every channel individually via multitimbral preset
+     // mapping; treat that as "no exclusive ownership" so the chromatic-channel
+     // menu isn't left empty. Only exclude channels when the SF player owns a
+     // specific subset (the ch3 default, or an explicit partial multitimbral range).
      constexpr uint32_t kOmniMask = 0x1FFFEu;  // bits 1-16 all set (ch 1-16)
      const bool sfIsOmni = ((sfMask & kOmniMask) == kOmniMask);
      const uint32_t excludeMask = (sfIsOmni || sfMask == 0) ? 0u : sfMask;

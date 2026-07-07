@@ -60,11 +60,9 @@ public:
         rangeHigh = juce::jlimit (1, 16, high);
     }
 
-    /** Called by SfzDropdownPanel whenever chromaticSliceChannelMask and/or
-     *  sfzPlayer2ChannelMask change. mask should be the bitwise-OR of both:
-     *  channels reserved by chromatic slices and channels currently occupied
-     *  by the SFZ-Player (sfzPlayer2). Channels whose bit is set are disabled
-     *  (and labelled [reserved]) in the right-click channel-picker menu. */
+    /** Called by SfzDropdownPanel whenever chromaticSliceChannelMask changes.
+     *  Channels whose bit is set are owned by chromatic slices and are disabled
+     *  (and labelled [chromatic]) in the right-click channel-picker menu. */
     void setBlockedChannels (uint32_t mask) noexcept { blockedMask = mask; }
 
     void setPresetChannels (const std::unordered_map<int,int>& channels)
@@ -121,7 +119,7 @@ private:
     std::unordered_map<int,int> presetChannels;
     int      rangeLow    { 1 };    ///< lowest channel in sfPlayerChannelMask  — set by SfzDropdownPanel
     int      rangeHigh   { 16 };   ///< highest channel in sfPlayerChannelMask — set by SfzDropdownPanel
-    uint32_t blockedMask { 0u };   ///< chromaticSliceChannelMask | sfzPlayer2ChannelMask — channels reserved/occupied and unavailable for SF2 assignment
+    uint32_t blockedMask { 0u };   ///< chromaticSliceChannelMask — channels owned by chromatic slices
     int   hoveredCell    { -1 };
     int   previewIdx     { -1 };  ///< index of currently-previewing preset, or -1
 

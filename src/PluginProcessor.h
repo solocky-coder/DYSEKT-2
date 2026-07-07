@@ -283,7 +283,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override              { return true; }
 
-    const juce::String getName() const override  { return "DYSEKT"; }
+    const juce::String getName() const override  { return "DYSEKT-SF"; }
     bool acceptsMidi()  const override           { return true; }
     bool producesMidi() const override           { return false; }
     bool isMidiEffect() const override           { return false; }
@@ -325,7 +325,8 @@ public:
     std::atomic<float>* releaseParam      { nullptr };
     std::atomic<float>* holdParam         { nullptr };
     void loadSoundFontAsync (const juce::File& file,
-                              SoundFontLoadTarget target = SoundFontLoadTarget::Slicer);
+                              SoundFontLoadTarget target = SoundFontLoadTarget::Slicer,
+                              int presetBank = -1, int presetProgram = -1);
     void relinkFileAsync    (const juce::File& file);
     void applyTrimToCurrentSample (int trimStart, int trimEnd);
 
@@ -484,10 +485,10 @@ public:
 
     MidiLearnManager midiLearn;
 
-    // ── SF2 player (SF-PLAYER, ch2 default) ──────────────────────────────────
+    // ── SF2 player (SF-PLAYER, ch3 default) ──────────────────────────────────
     SfzPlayer sfzPlayer;
 
-    // ── SFZ player (SFZ-PLAYER, ch3 default) ─────────────────────────────────
+    // ── SFZ player (SFZ-PLAYER, ch2 default) ─────────────────────────────────
     SfzPlayer sfzPlayer2;
 
     // ── Spectrum analyser (post-EQ FFT data, read by GlobalEqPanel timer) ────
@@ -631,7 +632,7 @@ public:
     // (sfPlayerChannelMask and savedSfPlayerChannelMask are restored from the saved
     //  lo/hi range in setStateInformation; chromaticSliceChannelMask from slice data).
     std::atomic<uint32_t> sfPlayerChannelMask      { 0u };       // disabled until user sets a range
-    std::atomic<uint32_t> savedSfPlayerChannelMask { 0x1FFFEu }; // user's last configured SF range
+    std::atomic<uint32_t> savedSfPlayerChannelMask { 1u << 3 };  // hardcoded ch3 default (unless preset overrides)
     std::atomic<uint32_t> chromaticSliceChannelMask { 0u };
 
     // SFZ-Player (sfzPlayer2) channel ownership — default ch2 (bit 2)
@@ -806,6 +807,18 @@ public:
      *  completedLoadData2/pendingPreviewZones2 exactly. */
     std::atomic<SampleData::DecodedSample*> completedLoadData3  { nullptr };
     std::atomic<SfzPreviewZonePayload*>     pendingPreviewZones3 { nullptr };
+
+    /** SF2-PLAYER per-preset waveform preview state. sampleData3/previewZones3
+     *  used to be locked to whichever preset the .sf2 file defaulted to at
+     *  load time; these track which preset they now reflect so a preset-grid
+     *  click can request a scoped re-render (see SoundFontLoader::load's
+     *  presetBank/presetProgram params) and the UI can dedupe/show progress.
+     *  -1/-1 means "the file's default preset" (nothing requested yet). */
+    std::atomic<int>  sf2PreviewRenderedBank     { -1 };
+    std::atomic<int>  sf2PreviewRenderedProgram  { -1 };
+    std::atomic<int>  sf2PreviewRequestedBank    { -1 };
+    std::atomic<int>  sf2PreviewRequestedProgram { -1 };
+    std::atomic<bool> sf2PreviewRenderInFlight   { false };
 
 
     // =========================================================================

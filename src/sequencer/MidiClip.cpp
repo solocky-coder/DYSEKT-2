@@ -3,7 +3,7 @@
 // tracktion_engine header removed. The midiList pointer and attachMidiList()
 // are kept as a future hook (see MidiClip.h) but all midiList->... calls are
 // now guarded by (midiList != nullptr), which is always false until something
-// calls attachMidiList() again.  No functional change to DYSEKT's own sequencer.
+// calls attachMidiList() again.  No functional change to DYSEKT-SF's own sequencer.
 
 #include "MidiClip.h"
 

@@ -9,11 +9,8 @@
 #include <algorithm>
 
 // ── Layout constants (header strip) ──────────────────────────────────────────
-static constexpr int kPickerW      = 160;   // narrowed to fit ADSR knobs in strip
 static constexpr int kKnobW        = 52;
 static constexpr int kMeterW       = 60;
-static constexpr int kPresetArrowW = 18;
-static constexpr int kFolderIconW  = 20;
 static constexpr int kPad          = 6;
 static constexpr int kKnobGap      = 4;
 
@@ -24,15 +21,6 @@ static constexpr int kKnobGap      = 4;
 SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     : processor (p)
 {
-    // ── Inline file browser ───────────────────────────────────────────────────
-    fileBrowser.onFileChosen = [this] (const juce::File& f) { onFileChosen (f); };
-    fileBrowser.onDismiss = [this]
-    {
-        fileBrowser.setMode (SfzFileBrowser::Mode::kSf2);
-        closeBrowser();
-    };
-    addChildComponent (fileBrowser);
-
     // ── SF2 program grid ──────────────────────────────────────────────────────
     // Left-click in the grid auditions the preset (handled by onPreviewToggled).
     // It must NOT close the grid — the grid stays open until the user explicitly
@@ -51,14 +39,12 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
         if (presetIdx < 0 || presetIdx >= (int) presetList.size()) return;
         const auto& info = presetList[(size_t) presetIdx];
 
-        // Collision check: refuse to assign a channel already owned by a chromatic
-        // slice, or currently occupied by the SFZ-Player (sfzPlayer2).
+        // Collision check: refuse to assign a channel already owned by a chromatic slice.
         if (ch >= 1 && ch <= 16)
         {
             const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
-            const uint32_t sfz2Mask   = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-            if ((chromaMask | sfz2Mask) & (1u << ch))
-                return;   // channel is slicer-owned or sfzPlayer2-owned — silently reject
+            if (chromaMask & (1u << ch))
+                return;   // channel is slicer-owned — silently reject
         }
 
         if (ch == 0)
@@ -135,6 +121,25 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
         if (idx >= (int) presetList.size()) return;
         const auto& info = presetList[(size_t) idx];
 
+        processor.sfzPlayer.setDisplayPresetIndex (idx);
+
+        // Waveform LCD: sampleData3/previewZones3 only ever hold ONE preset's
+        // rendered audio, and that used to always be whatever preset sfizz
+        // defaulted to at file-load — never the preset actually clicked here.
+        // Kick off a scoped re-render for THIS preset so Sf2WaveformLcd shows
+        // the right waveform, regardless of whether it also gets a real MIDI
+        // channel below. Dedupe against the last-requested preset so rapid
+        // re-clicks on the same cell don't spam the background render pool.
+        if (processor.sf2PreviewRequestedBank.load (std::memory_order_relaxed)    != info.bank ||
+            processor.sf2PreviewRequestedProgram.load (std::memory_order_relaxed) != info.preset)
+        {
+            processor.sf2PreviewRequestedBank.store    (info.bank,   std::memory_order_relaxed);
+            processor.sf2PreviewRequestedProgram.store (info.preset, std::memory_order_relaxed);
+            processor.loadSoundFontAsync (processor.sfzPlayer.getLoadedFile(),
+                                           SoundFontLoadTarget::SfPlayer,
+                                           info.bank, info.preset);
+        }
+
         // If this preset already has a real MIDI channel assigned, the audio
         // routing is already correct — just highlight it visually.
         const auto& chMap = programGrid.getPresetChannels();
@@ -149,6 +154,7 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
     {
         // Sync combo selection to the channel of the clicked preset
         if (idx < 0 || idx >= (int) presetList.size()) return;
+        processor.sfzPlayer.setDisplayPresetIndex (idx);
         const auto& chMap = programGrid.getPresetChannels();
         if (! chMap.count (idx)) return;
         const int ch = chMap.at (idx);
@@ -173,14 +179,9 @@ void SfzDropdownPanel::resized()
     const int h = getHeight();
 
     // Strip order (left → right):
-    // [picker 310] [gap] [TRN] [FINE] [REV] [CHO] [PAN] [VOL] [METER]
+    // [CH range + FX knobs, spans full freed width] [REV] [PAN] [VOL] [METER]
     auto strip = juce::Rectangle<int> (0, 0, w, kStripH).reduced (kPad, 0);
     strip.removeFromLeft (4);   // left margin
-
-    // Preset picker (wider, no LOAD button)
-    auto pickerSlot = strip.removeFromLeft (kPickerW);
-    nameZone = pickerSlot.withSizeKeepingCentre (kPickerW, kStripH - 6);
-    strip.removeFromLeft (kPad * 2);
 
     // Right-side knobs
     meterZone   = strip.removeFromRight (kMeterW);
@@ -209,32 +210,14 @@ void SfzDropdownPanel::resized()
     transZone  = strip.removeFromRight (kKnobW);
     strip.removeFromRight (kPad);
 
-    // Ch-FX knobs reuse the knob slots vacated by ADSR/TRN/FINE (hidden for SF2)
-    chComboZone = transZone
-                      .getUnion (fineZone)
-                      .expanded (kKnobGap / 2, 0);
-
-    // Sub-divide nameZone:
-    //   [< arrow] [folder icon] [label] [> arrow]
-    {
-        auto z = nameZone;
-        presetDecBtn  = z.removeFromLeft  (kPresetArrowW);
-        presetIncBtn  = z.removeFromRight (kPresetArrowW);
-        folderIconZone = z.removeFromRight (kFolderIconW);
-        presetLabel   = z;
-    }
-
-    // ── Inline browser overlay ────────────────────────────────────────────────
-    if (browserOpen)
-    {
-        fileBrowser.setBounds (kPad, kStripH + 1, w - kPad * 2, h - kStripH - 1);
-        fileBrowser.setVisible (true);
-    }
-    else
-    {
-        fileBrowser.setVisible (false);
-        fileBrowser.setBounds ({});
-    }
+    // The preset-picker label was removed (redundant with the LCD readout, and
+    // its stepper wrote to a channel reserved for the Slicer). Whatever's left
+    // of `strip` now runs all the way to the left margin, so the CH-range
+    // spinner gets that whole freed span instead of being squeezed into just
+    // the TRN+FINE slot.
+    chComboZone = strip.getUnion (transZone)
+                        .getUnion (fineZone)
+                        .expanded (kKnobGap / 2, 0);
 
     // ── SF2 program grid overlay ──────────────────────────────────────────────
     if (programPickerOpen)
@@ -277,56 +260,6 @@ void SfzDropdownPanel::resized()
         chHighLabel = z.removeFromLeft (numW);
         chHighInc   = z.removeFromLeft (btnW);
     }
-}
-
-// =============================================================================
-//  Browser open / close
-// =============================================================================
-
-void SfzDropdownPanel::openBrowser()
-{
-    if (browserOpen) return;
-    browserOpen = true;
-
-    fileBrowser.setMode (SfzFileBrowser::Mode::kSf2);   // SF2-PLAYER: .sf2 files only
-
-    if (processor.sfzPlayer.isLoaded())
-    {
-        fileBrowser.setRootDirectory (
-            processor.sfzPlayer.getLoadedFile().getParentDirectory());
-    }
-    else if (! fileBrowser.hasNavigated())
-    {
-        // First-ever open with nothing loaded — pick the best default directory
-        const juce::File::SpecialLocationType candidates[] = {
-            juce::File::userMusicDirectory,
-            juce::File::userDocumentsDirectory,
-            juce::File::userDesktopDirectory,
-            juce::File::userHomeDirectory,
-        };
-        juce::File startDir;
-        for (auto loc : candidates)
-        {
-            auto d = juce::File::getSpecialLocation (loc);
-            if (d.isDirectory()) { startDir = d; break; }
-        }
-        if (startDir.isDirectory())
-            fileBrowser.setRootDirectory (startDir);
-        else
-            fileBrowser.showDrives();
-    }
-    // else: browser has been used before — leave it where the user left it
-
-    resized();
-    repaint();
-}
-
-void SfzDropdownPanel::closeBrowser()
-{
-    if (! browserOpen) return;
-    browserOpen = false;
-    resized();
-    repaint();
 }
 
 // =============================================================================
@@ -438,9 +371,16 @@ void SfzDropdownPanel::onFileChosen (const juce::File& f)
         return;   // SF2-PLAYER only accepts .sf2 — silently ignore anything else
 
     processor.sfzPlayer.loadFile (f, processor.fileLoadPool);
+
+    // New file — any previously-requested/rendered preset bank/program is
+    // now meaningless (could coincidentally match a preset number in THIS
+    // file and wrongly skip a needed re-render below). Reset the dedupe
+    // state; the load below (no preset override) renders this file's
+    // default preset, same as -1/-1 always meant.
+    processor.sf2PreviewRequestedBank.store    (-1, std::memory_order_relaxed);
+    processor.sf2PreviewRequestedProgram.store (-1, std::memory_order_relaxed);
     processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
-    processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed);
-    closeBrowser();
+    processor.sfPlayerChannelMask.store (1u << 3, std::memory_order_relaxed); // ch3 default
     openProgramGrid();
     repaint();
 
@@ -551,7 +491,6 @@ void SfzDropdownPanel::drawSf2ChStrip (juce::Graphics& g) const
 void SfzDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
 {
     const auto& theme = getTheme();
-    drawPresetPicker (g);
 
     const auto& f = processor.sfzPlayer.getLoadedFile();
     const bool isSf2 = f.existsAsFile() && f.hasFileExtension (".sf2");
@@ -619,113 +558,6 @@ void SfzDropdownPanel::drawHeaderStrip (juce::Graphics& g) const
         g.setFont (juce::Font (7.0f));
         g.drawText ("M", midiLedZone.translated (0, midiLedZone.getHeight() + 1),
                     juce::Justification::centredTop, false);
-    }
-}
-
-// =============================================================================
-//  drawPresetPicker
-// =============================================================================
-
-void SfzDropdownPanel::drawPresetPicker (juce::Graphics& g) const
-{
-    const auto& theme    = getTheme();
-    const bool  isLoaded = processor.sfzPlayer.isLoaded();
-
-    // Background
-    {
-        auto bg = nameZone.toFloat();
-        const bool anyOpen = browserOpen || programPickerOpen;
-        g.setColour (anyOpen ? theme.accent.withAlpha (0.10f)
-                             : theme.darkBar.darker (0.12f));
-        g.fillRoundedRectangle (bg, 3.0f);
-        g.setColour (anyOpen ? theme.accent.withAlpha (0.55f)
-                             : theme.accent.withAlpha (0.20f));
-        g.drawRoundedRectangle (bg.reduced (0.5f), 3.0f, 1.0f);
-    }
-
-    // Folder icon (always visible — this is the open/close toggle)
-    {
-        const bool hover = folderIconZone.contains (getMouseXYRelative());
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
-        g.setColour (browserOpen
-                     ? theme.accent.withAlpha (0.90f)
-                     : hover ? theme.accent.withAlpha (0.70f)
-                             : theme.foreground.withAlpha (0.35f));
-        g.drawText (u8"\U0001F4C1", folderIconZone, juce::Justification::centred, false);
-    }
-
-    // Arrow buttons (only useful when loaded + presets exist)
-    auto drawArrow = [&] (juce::Rectangle<int> zone, const juce::String& sym)
-    {
-        const bool active = isLoaded && ! presetList.empty() && ! browserOpen;
-        const bool hover  = zone.contains (getMouseXYRelative()) && active;
-        g.setColour (hover ? theme.accent.withAlpha (0.30f) : juce::Colours::transparentBlack);
-        g.fillRoundedRectangle (zone.toFloat(), 2.0f);
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
-        g.setColour (active ? theme.accent.withAlpha (0.75f)
-                            : theme.foreground.withAlpha (0.20f));
-        g.drawText (sym, zone, juce::Justification::centred, false);
-    };
-    drawArrow (presetDecBtn, "<");
-    drawArrow (presetIncBtn, ">");
-
-    // Label area
-    {
-        auto lbl = presetLabel;
-
-        if (browserOpen)
-        {
-            // Browser is open — show a hint
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.accent.withAlpha (0.70f));
-            g.drawText ("browsing files \u2014 double-click to load", lbl,
-                        juce::Justification::centred, true);
-        }
-        else if (programPickerOpen)
-        {
-            // Program grid is open
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.accent.withAlpha (0.70f));
-            g.drawText ("select a preset \u2014 right-click for MIDI ch", lbl,
-                        juce::Justification::centred, true);
-        }
-        else if (! isLoaded)
-        {
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.foreground.withAlpha (0.38f));
-            g.drawText ("click \U0001F4C1 or drop a file", lbl,
-                        juce::Justification::centred, false);
-        }
-        else if (presetList.empty())
-        {
-            g.setFont (DysektLookAndFeel::makeFont (12.0f));
-            g.setColour (theme.foreground.withAlpha (0.75f));
-            g.drawText (processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension(),
-                        lbl, juce::Justification::centred, true);
-        }
-        else
-        {
-            const int idx = juce::jlimit (0, (int) presetList.size() - 1,
-                                          processor.sfzPlayer.getCurrentPresetIndex());
-            const auto& info = presetList[(size_t) idx];
-
-            // Top mini-label
-            {
-                auto topLine = lbl.removeFromTop (lbl.getHeight() / 2);
-                g.setFont (DysektLookAndFeel::makeFont (10.5f));
-                g.setColour (theme.foreground.withAlpha (0.38f));
-                const auto caption =
-                    processor.sfzPlayer.getLoadedFile().getFileNameWithoutExtension()
-                    + "  B:" + juce::String (info.bank)
-                    + " P:" + juce::String (info.preset);
-                g.drawText (caption, topLine, juce::Justification::centred, true);
-            }
-
-            // Preset name
-            g.setFont (DysektLookAndFeel::makeFont (13.0f));
-            g.setColour (theme.foreground);
-            g.drawText (info.name, lbl, juce::Justification::centred, true);
-        }
     }
 }
 
@@ -845,6 +677,19 @@ void SfzDropdownPanel::timerCallback()
 
     presetList = processor.sfzPlayer.getPresetList();
 
+    // onFileChosen() opens the program grid immediately after kicking off the
+    // async SF2 load, so the grid can end up open with zero presets if
+    // FluidSynth hasn't finished parsing the file yet. Catch it up here the
+    // moment presets become available -- mirrors the retry logic already used
+    // in panelDidShow().
+    if (programPickerOpen && programGrid.getPresets().empty() && ! presetList.empty())
+    {
+        programGrid.setPresets (presetList,
+                                processor.sfzPlayer.getCurrentPresetIndex(),
+                                processor.sfzPlayer.getMidiChannel());
+        restoreGridChannelAssignments();
+    }
+
     // Poll sfPlayerChannelMask from processor for paint (avoids atomic reads in paint).
     // Derive lo/hi as the lowest and highest set channel bits for spinner display.
     // Channel 1 is hardwired to the slicer and never appears in sfPlayerChannelMask.
@@ -860,33 +705,12 @@ void SfzDropdownPanel::timerCallback()
     }
 
     // Keep the program grid's range and blocked-channel set in sync so the
-    // channel picker menu shows correct availability. Channels are blocked
-    // if owned by a chromatic slice OR currently occupied by sfzPlayer2 —
-    // both pools must stay mutually exclusive from SF2 assignment.
+    // channel picker menu shows correct availability.
     programGrid.setChannelRange    (cachedChLow, cachedChHigh);
     programGrid.setBlockedChannels (
-        processor.chromaticSliceChannelMask.load (std::memory_order_relaxed)
-        | processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed));
+        processor.chromaticSliceChannelMask.load (std::memory_order_relaxed));
 
     repaint();
-}
-
-// =============================================================================
-//  Preset navigation
-// =============================================================================
-
-void SfzDropdownPanel::selectPreset (int delta)
-{
-    if (presetList.empty()) return;
-
-    const int cur  = processor.sfzPlayer.getCurrentPresetIndex();
-    const int next = juce::jlimit (0, (int) presetList.size() - 1, cur + delta);
-
-    if (next != cur)
-    {
-        processor.sfzPlayer.setPresetByIndex (next);
-        repaint();
-    }
 }
 
 // =============================================================================
@@ -944,16 +768,13 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
         if (lo == 0) lo = 2;   // channel 1 is hardwired to the slicer; SF player starts at 2
         if (hi == 0) hi = lo;
 
-        // Channels owned by chromatic slices, or currently occupied by the
-        // SFZ-Player (sfzPlayer2), are not available to the SF2 player.
+        // Channels owned by chromatic slices are not available to the SF player.
         const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
-        const uint32_t sfz2Mask   = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
-        const uint32_t reservedMask = chromaMask | sfz2Mask;
         // Channel 1 is also never available to the SF player.
         auto isFree = [&](int ch) -> bool
         {
             if (ch < 2 || ch > 16) return false;
-            return ! (reservedMask & (1u << ch));
+            return ! (chromaMask & (1u << ch));
         };
 
         if (isLow)
@@ -997,104 +818,9 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
     if (chHighDec.contains (pos)) { adjustChannel (false, -1); return; }
     if (chHighInc.contains (pos)) { adjustChannel (false, +1); return; }
 
-    // ── Folder icon — toggle browser ─────────────────────────────────────────
-    if (folderIconZone.contains (pos))
-    {
-        // Close grid if open before opening browser
-        if (programPickerOpen) closeProgramGrid();
-        if (browserOpen) closeBrowser();
-        else             openBrowser();
-        return;
-    }
-
-    // ── Clicking the label area when browser is closed and no file loaded ─────
-    if (presetLabel.contains (pos) && ! browserOpen && ! programPickerOpen
-        && ! processor.sfzPlayer.isLoaded())
-    {
-        openBrowser();
-        return;
-    }
-
-    // ── Clicking label when the program grid is open — close it ──────────────
-    if (nameZone.contains (pos) && programPickerOpen)
-    {
-        closeProgramGrid();
-        return;
-    }
-
-    // ── Clicking label when browser is open — close it ────────────────────────
-    if (nameZone.contains (pos) && browserOpen)
-    {
-        closeBrowser();
-        return;
-    }
-
-    // ── Left-click preset label when SF2 is loaded — open program grid ────────
-    if (presetLabel.contains (pos) && ! browserOpen && ! programPickerOpen
-        && processor.sfzPlayer.isLoaded()
-        && ! presetList.empty()
-        && ! e.mods.isRightButtonDown())
-    {
-        openProgramGrid();
-        return;
-    }
-
-    // ── Right-click — MIDI Learn menu, Save SFZ As, or SFZ MIDI channel ──────
+    // ── Right-click — MIDI Learn menu on knobs ────────────────────────────────
     if (e.mods.isRightButtonDown())
     {
-        if (nameZone.contains (pos) || folderIconZone.contains (pos))
-        {
-            if (processor.sfzPlayer.isLoaded())
-            {
-                const auto ext = processor.sfzPlayer.getLoadedFile()
-                                     .getFileExtension().toLowerCase();
-
-                if (ext == ".sfz")
-                {
-                    // SFZ: channel picker + Save As in the same menu
-                    const int curCh = processor.sfzPlayer.getMidiChannel();
-                    juce::PopupMenu menu;
-                    menu.addSectionHeader ("MIDI Input Channel");
-                    menu.addItem (200, "Omni (all channels)", true, curCh == 0);
-                    menu.addSeparator();
-                    for (int ch = 1; ch <= 16; ++ch)
-                        menu.addItem (200 + ch, "Channel " + juce::String (ch), true, curCh == ch);
-                    menu.addSeparator();
-                    menu.addItem (300, "Save SFZ As\u2026");
-
-                    auto* topLvl = getTopLevelComponent();
-                    float ms = DysektLookAndFeel::getMenuScale();
-                    menu.showMenuAsync (
-                        juce::PopupMenu::Options()
-                            .withTargetScreenArea (juce::Rectangle<int> (
-                                e.getScreenPosition().x, e.getScreenPosition().y, 1, 1))
-                            .withParentComponent (topLvl)
-                            .withStandardItemHeight ((int)(22 * ms)),
-                        [this] (int result)
-                        {
-                            if (result == 200)
-                            {
-                                processor.sfzPlayer.setMidiChannel (0);
-                            }
-                            else if (result > 200 && result <= 216)
-                            {
-                                const int ch = result - 200;
-                                processor.sfzPlayer.setMidiChannel (ch);
-                                if (onPresetChannelAssigned && ! presetList.empty())
-                                {
-                                    const int idx = juce::jlimit (0, (int) presetList.size() - 1,
-                                                                  processor.sfzPlayer.getCurrentPresetIndex());
-                                    onPresetChannelAssigned (presetList[(size_t) idx], ch);
-                                }
-                            }
-                        });
-                    return;
-                }
-                // SF2: no Save As, fall through to nothing (grid handles its own right-click)
-            }
-            return;
-        }
-
         // Right-click on any knob → MIDI Learn menu
         using F = DysektProcessor::SliceParamField;
         struct { juce::Rectangle<int>& zone; int fieldId; } knobFields[] =
@@ -1115,13 +841,6 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
             }
         }
         return;
-    }
-
-    // ── Preset arrows ─────────────────────────────────────────────────────────
-    if (! browserOpen)
-    {
-        if (presetDecBtn.contains (pos)) { selectPreset (-1); return; }
-        if (presetIncBtn.contains (pos)) { selectPreset (+1); return; }
     }
 
     // ── Knob drag start ───────────────────────────────────────────────────────
@@ -1219,17 +938,10 @@ void SfzDropdownPanel::mouseDoubleClick (const juce::MouseEvent& e)
 void SfzDropdownPanel::mouseWheelMove (const juce::MouseEvent& e,
                                         const juce::MouseWheelDetails& w)
 {
-    if (browserOpen || programPickerOpen) return;
+    if (programPickerOpen) return;
 
     const auto  pos  = e.getPosition();
     const float step = w.deltaY * (e.mods.isShiftDown() ? 0.01f : 0.05f);
-
-    if (nameZone.contains (pos))
-    {
-        if (w.deltaY > 0.05f)       selectPreset (+1);
-        else if (w.deltaY < -0.05f) selectPreset (-1);
-        return;
-    }
 
     auto adjustNorm = [&] (float current, float s) {
         return juce::jlimit (0.f, 1.f, current + s);
@@ -1270,12 +982,7 @@ void SfzDropdownPanel::filesDropped (const juce::StringArray& files, int, int)
         juce::File file (f);
         if (file.getFileExtension().toLowerCase() == ".sf2")
         {
-            processor.sfzPlayer.loadFile (file, processor.fileLoadPool);
-            processor.loadSoundFontAsync (file, SoundFontLoadTarget::SfPlayer);   // waveform preview -> sampleData3
-            processor.sfPlayerChannelMask.store (0x1FFFEu, std::memory_order_relaxed);
-            closeBrowser();
-            openProgramGrid();
-            repaint();
+            onFileChosen (file);
             return;
         }
     }

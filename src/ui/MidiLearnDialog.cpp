@@ -370,7 +370,7 @@ void MidiLearnDialog::saveToFile()
     juce::MemoryOutputStream stream;
     // Write a simple text format: one line per slot
     // slot|cc|channel|encoderMode|directionFlip
-    stream.writeText ("# DYSEKT MIDI Learn Preset v1\n", false, false, nullptr);
+    stream.writeText ("# DYSEKT-SF MIDI Learn Preset v1\n", false, false, nullptr);
     for (int i = 0; i < kMidiLearnNumSlots; ++i)
     {
         const int  cc      = midiLearn.getMappedCC      (i);

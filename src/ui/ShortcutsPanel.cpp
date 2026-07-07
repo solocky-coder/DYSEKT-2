@@ -73,7 +73,7 @@ void ShortcutsPanel::openManualPdf()
 
     if (! tmp.startAsProcess())
     {
-        juce::URL ("https://github.com/solocky-coder/DYSEKT/releases")
+        juce::URL ("https://github.com/solocky-coder/DYSEKT-2/releases")
             .launchInDefaultBrowser();
     }
 }
