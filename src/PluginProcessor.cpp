@@ -3257,31 +3257,48 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
     if (numActiveBuses <= 1)
     {
-        // Fast path: single stereo output
+        // Fast path: single stereo output. Loop per-voice (instead of the
+        // batched processSample()) so each voice's real rendered sample is
+        // available for per-slice metering — mirrors the multi-out path
+        // below, which already does this. Replaces the previous approach of
+        // approximating peaks from volume × pan after the fact.
+        constexpr int previewIdx = VoicePool::kPreviewVoiceIndex;
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
             float sL = 0.0f, sR = 0.0f;
-            voicePool.processSample (sampleData, currentSampleRate, sL, sR);
+
+            for (int vi = 0; vi < voicePool.getMaxActiveVoices(); ++vi)
+            {
+                float vL = 0.0f, vR = 0.0f;
+                voicePool.processVoiceSample (vi, sampleData, currentSampleRate, vL, vR);
+                sL += vL;
+                sR += vR;
+
+                // Real per-slice peak (max abs sample over the block).
+                const int si = voicePool.getVoice (vi).sliceIdx;
+                if (si >= 0 && si < kMaxMeterSlices)
+                {
+                    const float pkL = std::abs (vL);
+                    const float pkR = std::abs (vR);
+                    float curL = slicePeakL[si].load (std::memory_order_relaxed);
+                    float curR = slicePeakR[si].load (std::memory_order_relaxed);
+                    if (pkL > curL) slicePeakL[si].store (pkL, std::memory_order_relaxed);
+                    if (pkR > curR) slicePeakR[si].store (pkR, std::memory_order_relaxed);
+                }
+            }
+
+            // Always process the preview voice (used by LazyChopEngine), same
+            // as processSample() did internally — not included in metering.
+            if (previewIdx >= voicePool.getMaxActiveVoices() && voicePool.getVoice (previewIdx).active)
+            {
+                float vL = 0.0f, vR = 0.0f;
+                voicePool.processVoiceSample (previewIdx, sampleData, currentSampleRate, vL, vR);
+                sL += vL;
+                sR += vR;
+            }
+
             if (busL[0]) busL[0][i] = sanitiseSample (sL);
             if (busR[0]) busR[0][i] = sanitiseSample (sR);
-        }
-
-        // Per-slice peaks from fast path — scan active voices
-        for (int vi = 0; vi < voicePool.getMaxActiveVoices(); ++vi)
-        {
-            const auto& v = voicePool.getVoice (vi);
-            if (! v.active) continue;
-            const int si = v.sliceIdx;
-            if (si < 0 || si >= kMaxMeterSlices) continue;
-            // Approximate L/R peaks by applying the voice pan coefficients to
-            // the linear volume — accurate enough for a meter display.
-            const float vol = juce::jlimit (0.0f, 1.0f, v.volume);
-            const float pkL = vol * v.panL;
-            const float pkR = vol * v.panR;
-            float curL = slicePeakL[si].load (std::memory_order_relaxed);
-            float curR = slicePeakR[si].load (std::memory_order_relaxed);
-            if (pkL > curL) slicePeakL[si].store (pkL, std::memory_order_relaxed);
-            if (pkR > curR) slicePeakR[si].store (pkR, std::memory_order_relaxed);
         }
     }
     else
@@ -3529,47 +3546,64 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // audio and updates peak meters.
     {
         const int numSamples = buffer.getNumSamples();
+        constexpr int previewIdx2 = VoicePool::kPreviewVoiceIndex;
+        float pk2L = 0.0f, pk2R = 0.0f;   // block-max, for the overall SFZ-Player meter
 
+        // Loop per-voice (instead of the batched processSample()) so each
+        // voice's real rendered sample is available for metering — mirrors
+        // the Slicer's mono-bus fast path above. Feeds both the overall
+        // sfz2PeakL/R meter and the per-slice slicePeak2L/R (SCB) meters from
+        // real audio instead of the volume × pan approximation.
         for (int i = 0; i < numSamples; ++i)
         {
             float sL = 0.0f, sR = 0.0f;
-            voicePool2.processSample (sampleData2, currentSampleRate, sL, sR, &sliceManager2);
+
+            for (int vi = 0; vi < voicePool2.getMaxActiveVoices(); ++vi)
+            {
+                float vL = 0.0f, vR = 0.0f;
+                voicePool2.processVoiceSample (vi, sampleData2, currentSampleRate, vL, vR, &sliceManager2);
+                sL += vL;
+                sR += vR;
+
+                const float aL = std::abs (vL);
+                const float aR = std::abs (vR);
+                pk2L = std::max (pk2L, aL);
+                pk2R = std::max (pk2R, aR);
+
+                // Real per-slice peak (max abs sample over the block),
+                // written straight to slicePeak2L/R so main-slicer meters
+                // stay unaffected.
+                const int si = voicePool2.getVoice (vi).sliceIdx;
+                if (si >= 0 && si < kMaxMeterSlices)
+                {
+                    float curL = slicePeak2L[si].load (std::memory_order_relaxed);
+                    float curR = slicePeak2R[si].load (std::memory_order_relaxed);
+                    if (aL > curL) slicePeak2L[si].store (aL, std::memory_order_relaxed);
+                    if (aR > curR) slicePeak2R[si].store (aR, std::memory_order_relaxed);
+                }
+            }
+
+            // Always process the preview voice, same as processSample() did
+            // internally — not included in metering.
+            if (previewIdx2 >= voicePool2.getMaxActiveVoices() && voicePool2.getVoice (previewIdx2).active)
+            {
+                float vL = 0.0f, vR = 0.0f;
+                voicePool2.processVoiceSample (previewIdx2, sampleData2, currentSampleRate, vL, vR, &sliceManager2);
+                sL += vL;
+                sR += vR;
+            }
+
             if (busL[0]) busL[0][i] += sanitiseSample (sL);
             if (busR[0]) busR[0][i] += sanitiseSample (sR);
         }
 
-        // Update SFZ-PLAYER peak meters for UI -- scan active voicePool2 voices
-        float pk2L = 0.f, pk2R = 0.f;
-        for (int vi = 0; vi < voicePool2.getMaxActiveVoices(); ++vi)
-        {
-            const auto& v = voicePool2.getVoice (vi);
-            if (! v.active) continue;
-            const float vol = juce::jlimit (0.0f, 1.0f, v.volume);
-            pk2L = std::max (pk2L, vol * v.panL);
-            pk2R = std::max (pk2R, vol * v.panR);
-        }
+        // Update SFZ-PLAYER overall meter for UI, with decay against the
+        // previous value (same ballistics as before, now fed real peaks).
         const float decaySFZ2 = 0.85f;
         sfz2PeakL.store (std::max (sfz2PeakL.load (std::memory_order_relaxed) * decaySFZ2, pk2L),
                          std::memory_order_relaxed);
         sfz2PeakR.store (std::max (sfz2PeakR.load (std::memory_order_relaxed) * decaySFZ2, pk2R),
                          std::memory_order_relaxed);
-
-        // Per-slice peaks for SCB meter (SFZ-Player tab) -- written to the
-        // dedicated slicePeak2L/R array so main-slicer meters are unaffected.
-        for (int vi = 0; vi < voicePool2.getMaxActiveVoices(); ++vi)
-        {
-            const auto& v = voicePool2.getVoice (vi);
-            if (! v.active) continue;
-            const int si = v.sliceIdx;
-            if (si < 0 || si >= kMaxMeterSlices) continue;
-            const float vol = juce::jlimit (0.0f, 1.0f, v.volume);
-            const float pkL = vol * v.panL;
-            const float pkR = vol * v.panR;
-            float curL = slicePeak2L[si].load (std::memory_order_relaxed);
-            float curR = slicePeak2R[si].load (std::memory_order_relaxed);
-            if (pkL > curL) slicePeak2L[si].store (pkL, std::memory_order_relaxed);
-            if (pkR > curR) slicePeak2R[si].store (pkR, std::memory_order_relaxed);
-        }
     }   // end SFZ-PLAYER block
 
     // ---- Compute master output peak (sum across all output buses) ----
