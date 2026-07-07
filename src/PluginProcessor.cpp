@@ -201,9 +201,11 @@ DysektProcessor::DysektProcessor()
     sliceEndParam    = apvts.getRawParameterValue (ParamIds::sliceEnd);
     publishUiSliceSnapshot();
 
-    // SF2-Player defaults to MIDI channel 2, SFZ-Player to channel 3
-    sfzPlayer .setMidiChannel (3);   // SF2-PLAYER  → ch 3
-    sfzPlayer2.setMidiChannel (2);   // SFZ-PLAYER  → ch 2
+    // SF2-Player is fixed on MIDI channel 3; SFZ-Player defaults to channel 2.
+    // (Comment above previously had these backwards — the calls below are
+    // what actually take effect and are correct.)
+    sfzPlayer .setMidiChannel (3);   // SF2-PLAYER  → ch 3 (fixed)
+    sfzPlayer2.setMidiChannel (2);   // SFZ-PLAYER  → ch 2 (default; user-adjustable, see sfzPlayer2ChannelMask)
 }
 
 DysektProcessor::~DysektProcessor()

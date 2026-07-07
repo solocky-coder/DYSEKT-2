@@ -39,12 +39,14 @@ SfzDropdownPanel::SfzDropdownPanel (DysektProcessor& p)
         if (presetIdx < 0 || presetIdx >= (int) presetList.size()) return;
         const auto& info = presetList[(size_t) presetIdx];
 
-        // Collision check: refuse to assign a channel already owned by a chromatic slice.
+        // Collision check: refuse to assign a channel already owned by a chromatic
+        // slice, or currently occupied by the SFZ-Player (sfzPlayer2).
         if (ch >= 1 && ch <= 16)
         {
             const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
-            if (chromaMask & (1u << ch))
-                return;   // channel is slicer-owned — silently reject
+            const uint32_t sfz2Mask   = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+            if ((chromaMask | sfz2Mask) & (1u << ch))
+                return;   // channel is slicer-owned or sfzPlayer2-owned — silently reject
         }
 
         if (ch == 0)
@@ -705,10 +707,13 @@ void SfzDropdownPanel::timerCallback()
     }
 
     // Keep the program grid's range and blocked-channel set in sync so the
-    // channel picker menu shows correct availability.
+    // channel picker menu shows correct availability. Channels are blocked
+    // if owned by a chromatic slice OR currently occupied by sfzPlayer2 —
+    // both pools must stay mutually exclusive from SF2 assignment.
     programGrid.setChannelRange    (cachedChLow, cachedChHigh);
     programGrid.setBlockedChannels (
-        processor.chromaticSliceChannelMask.load (std::memory_order_relaxed));
+        processor.chromaticSliceChannelMask.load (std::memory_order_relaxed)
+        | processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed));
 
     repaint();
 }
@@ -768,13 +773,16 @@ void SfzDropdownPanel::mouseDown (const juce::MouseEvent& e)
         if (lo == 0) lo = 2;   // channel 1 is hardwired to the slicer; SF player starts at 2
         if (hi == 0) hi = lo;
 
-        // Channels owned by chromatic slices are not available to the SF player.
+        // Channels owned by chromatic slices, or currently occupied by the
+        // SFZ-Player (sfzPlayer2), are not available to the SF2 player.
         const uint32_t chromaMask = processor.chromaticSliceChannelMask.load (std::memory_order_relaxed);
+        const uint32_t sfz2Mask   = processor.sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+        const uint32_t reservedMask = chromaMask | sfz2Mask;
         // Channel 1 is also never available to the SF player.
         auto isFree = [&](int ch) -> bool
         {
             if (ch < 2 || ch > 16) return false;
-            return ! (chromaMask & (1u << ch));
+            return ! (reservedMask & (1u << ch));
         };
 
         if (isLow)
