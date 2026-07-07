@@ -6,21 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 
-# ── DYSEKT-SF: Apply patched JUCE VST3 wrapper (DY-SFP second MIDI input port) ──
-# The patch survives CI re-clones of the JUCE submodule because it is stored
-# in juce_patches/ and copied here at configure time, before any compilation.
-set(_DYSEKT_VST3_PATCH
-    "${CMAKE_CURRENT_SOURCE_DIR}/juce_patches/juce_audio_plugin_client_VST3.cpp")
-set(_DYSEKT_VST3_TARGET
-    "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp")
-if(EXISTS "${_DYSEKT_VST3_PATCH}")
-    configure_file("${_DYSEKT_VST3_PATCH}" "${_DYSEKT_VST3_TARGET}" COPYONLY)
-    message(STATUS "DYSEKT-SF: applied juce_audio_plugin_client_VST3.cpp patch (DY-SFP MIDI port 1)")
-else()
-    message(WARNING "DYSEKT-SF: juce_patches/juce_audio_plugin_client_VST3.cpp not found — DY-SFP port 1 will be missing in DAWs")
-endif()
-# ────────────────────────────────────────────────────────────────────────────
-
 # --- chowdsp_utils (SVF EQ filters — used by VoicePool per-slice EQ) ---
 include(FetchContent)
 FetchContent_Declare(

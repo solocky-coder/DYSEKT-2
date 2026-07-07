@@ -6,26 +6,6 @@
 #include <BinaryData.h>
 #include <functional>
 #include <memory>
-#include "DysektMidi2Port.h"
-
-// ── DY-SFP MIDI port-1 thread_local bridge ───────────────────────────────────
-// The patched juce_audio_plugin_client_VST3.cpp sets s_sfPlayerMidiPort to a
-// MidiBuffer containing only busIndex-1 events immediately before processBlock(),
-// then clears it immediately after.  thread_local gives full isolation between
-// two plugin instances running on different audio threads — no mutex needed.
-// dysektGetSfPlayerMidiPort() is called in processBlock() (Path A routing).
-static thread_local juce::MidiBuffer* s_sfPlayerMidiPort = nullptr;
-
-extern "C" void dysektSetSfPlayerMidiPort (juce::MidiBuffer* buf) noexcept
-{
-    s_sfPlayerMidiPort = buf;
-}
-
-extern "C" juce::MidiBuffer* dysektGetSfPlayerMidiPort() noexcept
-{
-    return s_sfPlayerMidiPort;
-}
-// ─────────────────────────────────────────────────────────────────────────────
 
 namespace
 {
@@ -139,17 +119,12 @@ static bool isCriticalCommand (DysektProcessor::CommandType type)
 
 DysektProcessor::DysektProcessor()
     : AudioProcessor (BusesProperties()
-                          // ── MIDI input buses ──────────────────────────────────────────────────
-                          // DYSEKT-SF: main slicer MIDI (ch 1-15 by default)
-                          // DY-SFP: dedicated SF2/SFZ player MIDI (ch 16 by default)
-                          // Hosts that support multiple MIDI inputs (Reaper, Logic, Bitwig, etc.)
-                          // can route separate tracks/clips to each port independently.
-                          // Hosts that don't support multiple MIDI inputs merge everything onto the
-                          // first port; channel-based routing acts as the fallback in that case.
-                          // NOTE: JUCE 8 does not expose a getNumMidiInputs() API.
+                          // ── MIDI input bus ────────────────────────────────────────────────────
+                          // NOTE: JUCE does not expose a getNumMidiInputs() API.
                           // A single MIDI input port is created by NEEDS_MIDI_INPUT=TRUE
-                          // in CMakeLists.txt. Channel-based routing (sf2Ch / processMidi)
-                          // is the split between the slicer and SFZ player at runtime.
+                          // in CMakeLists.txt. Channel-based routing (sfPlayerChannelMask /
+                          // processMidi) is the split between the slicer and SFZ player
+                          // at runtime, on this one merged port.
                           // Do NOT add withInput(disabled) buses — they are audio buses
                           // and DAWs correctly ignore them as MIDI ports.
                           // ── Audio output buses ────────────────────────────────────────────────
@@ -201,10 +176,12 @@ DysektProcessor::DysektProcessor()
     sliceEndParam    = apvts.getRawParameterValue (ParamIds::sliceEnd);
     publishUiSliceSnapshot();
 
-    // SF2-Player is fixed on MIDI channel 3; SFZ-Player defaults to channel 2.
-    // (Comment above previously had these backwards — the calls below are
-    // what actually take effect and are correct.)
-    sfzPlayer .setMidiChannel (3);   // SF2-PLAYER  → ch 3 (fixed)
+    // SF2-PLAYER (sfzPlayer) is multi-timbral: per-preset channel routing is
+    // handled entirely via setPresetOnChannel()/sfPlayerChannelMask, and its
+    // FluidSynth MIDI branch never consults SfzPlayer::midiChannel — so no
+    // setMidiChannel() call belongs here. (A previous single-channel-filter
+    // call, setMidiChannel(3), was dead code: it only affects the sfizz/.sfz
+    // branch of SfzPlayer::process(), which sfzPlayer never takes.)
     sfzPlayer2.setMidiChannel (2);   // SFZ-PLAYER  → ch 2 (default; user-adjustable, see sfzPlayer2ChannelMask)
 }
 
@@ -3356,76 +3333,44 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // ── SF2/SFZ live player — dedicated audio bus ("SF2 Player"), summed to main ──
     //
-    // MIDI routing — two ports exposed via getNumMidiInputs() == 2:
-    //
-    //   port 0 "DYSEKT-SF"  → slicer / processMidi()
-    //   port 1 "DY-SFP"  → SF2/SFZ player
-    //
-    // IMPORTANT: JUCE 8's VST3 wrapper merges all MIDI event buses into the
-    // single MidiBuffer that arrives here — there is no per-bus split in
-    // processBlock.  Channel-based routing (sf2Ch / processMidi) is therefore
-    // the runtime split point for both the dedicated-port path AND the
-    // single-port fallback (hosts that route everything to port 0).
+    // MIDI routing — single MIDI input port (NEEDS_MIDI_INPUT=TRUE in
+    // CMakeLists.txt). The slicer and the SF2/SFZ player both read from the
+    // same merged `midi` buffer; channel-based routing (sfPlayerChannelMask /
+    // processMidi) is the runtime split between them.
     if (buffer.getNumSamples() > 0)
     {
         const int numSamples = buffer.getNumSamples();
 
-        // ── Build sfzMidiBuf ─────────────────────────────────────────────────
-        //
-        // PATH A — Multi-port VST3 (Reaper, Cubase, Nuendo, Bitwig, etc.)
-        //   The patched JUCE VST3 wrapper sets a thread_local pointer to a
-        //   MidiBuffer containing only busIndex-1 (DY-SFP) events before
-        //   processBlock().  If non-null, use it directly — no channel filtering
-        //   needed; the DAW has already done the port split.  The slicer's
-        //   `midi` buffer already contains only busIndex-0 events.
-        //
-        // PATH B — Single-port fallback (Ableton Live, older hosts, MIDI-over-ch)
-        //   No thread_local pointer was set (non-VST3 path, or host that merges
-        //   all ports into one bus).  Fall back to the original channel-mask
-        //   split from the merged `midi` buffer.
-        //
+        // ── Build sfzMidiBuf — channel-mask split from the merged `midi` buffer ──
         juce::MidiBuffer sfzMidiBuf;
         {
-            juce::MidiBuffer* port1 = dysektGetSfPlayerMidiPort();
-            if (port1 != nullptr && ! port1->isEmpty())
-            {
-                // PATH A: dedicated port-1 buffer — use it as-is
-                sfzMidiBuf = *port1;
-            }
-            else
-            {
-                // PATH B: channel-mask split (single-port or non-VST3 host)
-                const uint32_t sfMaskBuild = sfPlayerChannelMask.load (std::memory_order_relaxed);
+            const uint32_t sfMaskBuild = sfPlayerChannelMask.load (std::memory_order_relaxed);
 
-                if (sfMaskBuild != 0)
+            if (sfMaskBuild != 0)
+            {
+                const bool allChannels = ((sfMaskBuild & 0x1FFFEu) == 0x1FFFEu); // bits 1-16 all set
+                if (allChannels)
                 {
-                    const bool allChannels = ((sfMaskBuild & 0x1FFFEu) == 0x1FFFEu); // bits 1-16 all set
-                    if (allChannels)
+                    sfzMidiBuf = midi;
+                }
+                else
+                {
+                    for (const auto meta : midi)
                     {
-                        sfzMidiBuf = midi;
-                    }
-                    else
-                    {
-                        for (const auto meta : midi)
-                        {
-                            const auto& msg = meta.getMessage();
-                            const int ch = msg.getChannel();   // 1-based
-                            if (ch >= 1 && ch <= 16 && (sfMaskBuild & (1u << ch)))
-                                sfzMidiBuf.addEvent (msg, meta.samplePosition);
-                        }
+                        const auto& msg = meta.getMessage();
+                        const int ch = msg.getChannel();   // 1-based
+                        if (ch >= 1 && ch <= 16 && (sfMaskBuild & (1u << ch)))
+                            sfzMidiBuf.addEvent (msg, meta.samplePosition);
                     }
                 }
             }
         }
 
-        // TEMP diagnostic — shows which path was taken and what ended up in
-        // sfzMidiBuf whenever the raw midi buffer had anything in it.
+        // TEMP diagnostic — shows what ended up in sfzMidiBuf whenever the
+        // raw midi buffer had anything in it.
         if (! midi.isEmpty())
         {
-            juce::MidiBuffer* dbgPort1 = dysektGetSfPlayerMidiPort();
             crashLogger.log ("processBlock(): sf2/sfz split — rawMidi=" + juce::String (midi.getNumEvents())
-                + " port1=" + (dbgPort1 == nullptr ? juce::String ("null")
-                                                    : (juce::String ("nonnull,empty=") + juce::String ((int) dbgPort1->isEmpty())))
                 + " sfPlayerChannelMask=0x" + juce::String::toHexString ((int) sfPlayerChannelMask.load (std::memory_order_relaxed))
                 + " -> sfzMidiBuf=" + juce::String (sfzMidiBuf.getNumEvents()) + " event(s)");
         }
