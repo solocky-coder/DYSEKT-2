@@ -458,6 +458,12 @@ void DysektEditor::setUiMode (int mode)
  {
      // SF2-PLAYER: show sfzDropdown (SF2 program grid)
      sfzDropdown.setVisible (true);
+     // Re-sync presetList from the processor and restore/reopen the program
+     // grid. Without this, switching away to Slicer/SFZ-PLAYER and back left
+     // the grid's own cached state stale — it never got a chance to refresh
+     // between setVisible(false) and setVisible(true), so it came back empty
+     // even though the file was still loaded the whole time.
+     sfzDropdown.panelDidShow();
  }
  else
  {
