@@ -118,8 +118,10 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  // per-preset channels by right-clicking preset rows in the program grid.
 #endif
 
-#if DYSEKT_STANDALONE
  // SF2 preset right-clicked → user assigned a MIDI channel → create track.
+ // NOTE: must run in BOTH standalone and plugin builds — mixerPanel is an
+ // unconditional member (see PluginEditor.h), not standalone-only.
+ // Only the sequencer piano-roll track is standalone-specific.
  sfzDropdown.onPresetChannelAssigned = [this] (const Sf2PresetInfo& preset, int midiChannel1Based)
  {
      // Keep the inline channel-FX panel in sync
@@ -130,6 +132,7 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      mixerPanel.setActiveChannels (sfzDropdown.getProgramGrid().getPresets(),
                                    sfzDropdown.getProgramGrid().getPresetChannels());
 
+#if DYSEKT_STANDALONE
      // Pick a colour based on the preset number (bank*128 + program).
      static const juce::Colour kPalette[] = {
          juce::Colour (0xFF4060A0), juce::Colour (0xFF60A040),
@@ -138,8 +141,10 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      };
      const int colIdx = (preset.bank * 128 + preset.preset) % 6;
      pianoRollPanel.addOrUpdateSfPresetTrack (preset, midiChannel1Based, kPalette[colIdx]);
+#endif
  };
 
+#if DYSEKT_STANDALONE
  // Track-header right-click on an SF track → change MIDI channel.
  pianoRollPanel.onSfTrackChannelChanged = [this] (int trackIndex, int midiChannel1Based)
  {
