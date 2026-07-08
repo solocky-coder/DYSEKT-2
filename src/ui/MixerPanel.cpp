@@ -507,15 +507,7 @@ void MixerPanel::drawMeter (juce::Graphics& g,
     auto drawBar = [&] (int barY, float pk, float hold)
     {
         const float fill = toFill (pk);
-        int         litW = juce::roundToInt (fill * (float)(w - holdW - 2));
-
-        // Guarantee a minimum visible sliver for any non-zero signal so quiet
-        // or very short transients don't round down to a fully invisible bar
-        // (previously only the peak-hold marker would be visible in that case).
-        static constexpr float kMinVisiblePeak = 0.0008f; // ~ -62 dBFS
-        static constexpr int   kMinFillPx      = 2;
-        if (pk > kMinVisiblePeak)
-            litW = juce::jmax (litW, kMinFillPx);
+        const int   litW = juce::roundToInt (fill * (float)(w - holdW - 2));
 
         // Dark background track
         g.setColour (juce::Colour (0xFF0A0A0A));
@@ -546,18 +538,16 @@ void MixerPanel::drawMeter (juce::Graphics& g,
             g.fillRect (glowX, barY + 1, 3, barH - 2);
         }
 
-        // Hold marker — rendered in flat white (rather than the phosphor tint
-        // used for the live fill) so it reads unambiguously as a hold marker
-        // rather than being mistaken for a live signal sliver or a gridline.
+        // Hold marker — bright hairline with soft glow
         const float hFill = toFill (hold);
         const int   hx    = x + 1 + juce::roundToInt (hFill * (float)(w - holdW - 2));
         if (hFill > 0.01f && hx < x + w - 1)
         {
             // Outer glow
-            g.setColour (juce::Colour (0xFFFFFFFF).withAlpha (0.30f));
+            g.setColour (phosphorCol (hFill, hold).withAlpha (0.25f));
             g.fillRect  (hx - 1, barY + 1, holdW + 2, barH - 2);
             // Core bright line
-            g.setColour (juce::Colour (0xFFFFFFFF).withAlpha (0.95f));
+            g.setColour (phosphorCol (hFill, hold).withAlpha (0.95f));
             g.fillRect  (hx, barY + 1, holdW, barH - 2);
         }
     };
@@ -579,13 +569,13 @@ void MixerPanel::drawMeter (juce::Graphics& g,
         if (tx <= x || tx >= x + w) continue;
 
         // Tick line spanning both bars + gap
-        g.setColour (juce::Colour (0xFFFFFFFF).withAlpha (0.22f));
+        g.setColour (juce::Colour (0xFFFFFFFF).withAlpha (0.10f));
         g.drawVerticalLine (tx, (float) y, (float)(y + barH + gap + barH));
 
         // Label below bottom bar — only if there's enough horizontal space
         if (tx - x > 14)
         {
-            g.setColour (juce::Colour (0xFFFFFFFF).withAlpha (0.32f));
+            g.setColour (juce::Colour (0xFFFFFFFF).withAlpha (0.18f));
             g.drawText (tick.label, tx - 10, y + barH + gap + barH + 1, 20, 6,
                         juce::Justification::centred);
         }

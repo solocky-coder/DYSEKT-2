@@ -1,4 +1,5 @@
 #pragma once
+#include "UIHelpers.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "DysektLookAndFeel.h"
 
@@ -17,10 +18,8 @@ public:
         noBtn .setButtonText (noText);
 
         const auto& T = getTheme();
-        yesBtn.setColour (juce::TextButton::buttonColourId,  T.accent.withAlpha (0.85f));
-        yesBtn.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
-        noBtn .setColour (juce::TextButton::buttonColourId,  T.button);
-        noBtn .setColour (juce::TextButton::textColourOffId, T.foreground);
+        UIHelpers::stylePrimaryPopupButton   (yesBtn, T);
+        UIHelpers::styleSecondaryPopupButton (noBtn,  T);
 
         yesBtn.onClick = [this] { if (onResult) onResult (true);  };
         noBtn .onClick = [this] { if (onResult) onResult (false); };
@@ -35,14 +34,10 @@ public:
     {
         const auto& T = getTheme();
 
-        g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.fillRect (getLocalBounds());
+        UIHelpers::drawPopupBackdrop (g, getLocalBounds());
 
         const auto box = dialogBox();
-        g.setColour (T.header);
-        g.fillRoundedRectangle (box.toFloat(), 5.0f);
-        g.setColour (T.accent.withAlpha (0.7f));
-        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 5.0f, 1.5f);
+        UIHelpers::drawPopupBox (g, box, T);
 
         const int padX = 18;
         g.setFont (DysektLookAndFeel::makeFont (15.0f, true));
@@ -51,9 +46,6 @@ public:
                     box.getX() + padX, box.getY() + 14,
                     box.getWidth() - padX * 2, 20,
                     juce::Justification::centredLeft, false);
-
-        g.setColour (T.accent.withAlpha (0.4f));
-        g.drawHorizontalLine (box.getY() + 38, (float)(box.getX() + padX), (float)(box.getRight() - padX));
 
         g.setFont (DysektLookAndFeel::makeFont (12.0f));
         g.setColour (T.foreground.withAlpha (0.85f));

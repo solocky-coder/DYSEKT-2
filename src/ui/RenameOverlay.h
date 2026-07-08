@@ -1,4 +1,5 @@
 #pragma once
+#include "UIHelpers.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "DysektLookAndFeel.h"
 
@@ -27,20 +28,17 @@ public:
         addAndMakeVisible (editor);
 
         okBtn.setButtonText ("OK");
-        okBtn.setColour (juce::TextButton::buttonColourId,  T.accent.withAlpha (0.85f));
-        okBtn.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+        UIHelpers::stylePrimaryPopupButton (okBtn, T);
         okBtn.onClick = [this] { commit (true); };
         addAndMakeVisible (okBtn);
 
         clearBtn.setButtonText ("CLEAR");
-        clearBtn.setColour (juce::TextButton::buttonColourId,  T.button);
-        clearBtn.setColour (juce::TextButton::textColourOffId, T.foreground);
+        UIHelpers::styleSecondaryPopupButton (clearBtn, T);
         clearBtn.onClick = [this] { commit (false); };
         addAndMakeVisible (clearBtn);
 
         cancelBtn.setButtonText ("CANCEL");
-        cancelBtn.setColour (juce::TextButton::buttonColourId,  T.button);
-        cancelBtn.setColour (juce::TextButton::textColourOffId, T.foreground);
+        UIHelpers::styleSecondaryPopupButton (cancelBtn, T);
         cancelBtn.onClick = [this] { cancel(); };
         addAndMakeVisible (cancelBtn);
 
@@ -59,16 +57,12 @@ public:
         const auto& T = getTheme();
 
         // Dim background
-        g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.fillRect (getLocalBounds());
+        UIHelpers::drawPopupBackdrop (g, getLocalBounds());
 
         const auto box = dialogBox();
 
         // Card background + border
-        g.setColour (T.header);
-        g.fillRoundedRectangle (box.toFloat(), 5.0f);
-        g.setColour (T.accent.withAlpha (0.7f));
-        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 5.0f, 1.5f);
+        UIHelpers::drawPopupBox (g, box, T);
 
         const int padX = 18;
 
@@ -79,12 +73,6 @@ public:
                     box.getX() + padX, box.getY() + 14,
                     box.getWidth() - padX * 2, 20,
                     juce::Justification::centredLeft, false);
-
-        // Divider
-        g.setColour (T.accent.withAlpha (0.4f));
-        g.drawHorizontalLine (box.getY() + 38,
-                              (float)(box.getX() + padX),
-                              (float)(box.getRight() - padX));
 
         // Sub-label above text field
         g.setFont (DysektLookAndFeel::makeFont (11.0f));

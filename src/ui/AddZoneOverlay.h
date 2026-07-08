@@ -1,4 +1,5 @@
 #pragma once
+#include "UIHelpers.h"
 // =============================================================================
 //  AddZoneOverlay.h  —  In-plugin dialog: configure a new SFZ zone
 // =============================================================================
@@ -35,15 +36,9 @@ public:
         auto styleBtn = [&] (juce::TextButton& b, bool accent)
         {
             if (accent)
-            {
-                b.setColour (juce::TextButton::buttonColourId,  T.accent.withAlpha (0.85f));
-                b.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
-            }
+                UIHelpers::stylePrimaryPopupButton (b, T);
             else
-            {
-                b.setColour (juce::TextButton::buttonColourId,  T.button);
-                b.setColour (juce::TextButton::textColourOffId, T.foreground);
-            }
+                UIHelpers::styleSecondaryPopupButton (b, T);
             addAndMakeVisible (b);
         };
 
@@ -95,17 +90,12 @@ public:
     {
         const auto& T = getTheme();
 
-        // Dim scrim
-        g.setColour (juce::Colours::black.withAlpha (0.60f));
-        g.fillRect (getLocalBounds());
+        UIHelpers::drawPopupBackdrop (g, getLocalBounds());
 
         const auto box = dialogBox();
 
         // Card
-        g.setColour (T.header);
-        g.fillRoundedRectangle (box.toFloat(), 5.0f);
-        g.setColour (T.accent.withAlpha (0.7f));
-        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 5.0f, 1.5f);
+        UIHelpers::drawPopupBox (g, box, T);
 
         const int padX = 18;
 
@@ -117,11 +107,6 @@ public:
                     box.getWidth() - padX * 2, 20,
                     juce::Justification::centredLeft, true);
 
-        // Divider
-        g.setColour (T.accent.withAlpha (0.35f));
-        g.drawHorizontalLine (box.getY() + 38,
-                              (float)(box.getX() + padX),
-                              (float)(box.getRight() - padX));
 
         // Row labels + note readouts
         g.setFont (DysektLookAndFeel::makeFont (10.5f));

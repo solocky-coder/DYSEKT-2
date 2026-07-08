@@ -1,4 +1,5 @@
 #pragma once
+#include "UIHelpers.h"
 // =============================================================================
 //  SaveSfzOverlay.h  —  In-plugin "Save SFZ As…" dialog
 // =============================================================================
@@ -49,14 +50,12 @@ public:
 
         // ── Save / Cancel ─────────────────────────────────────────────────────
         saveBtn.setButtonText ("SAVE");
-        saveBtn.setColour (juce::TextButton::buttonColourId,  T.accent.withAlpha (0.85f));
-        saveBtn.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+        UIHelpers::stylePrimaryPopupButton (saveBtn, T);
         saveBtn.onClick = [this] { commit(); };
         addAndMakeVisible (saveBtn);
 
         cancelBtn.setButtonText ("CANCEL");
-        cancelBtn.setColour (juce::TextButton::buttonColourId,  T.button);
-        cancelBtn.setColour (juce::TextButton::textColourOffId, T.foreground);
+        UIHelpers::styleSecondaryPopupButton (cancelBtn, T);
         cancelBtn.onClick = [this] { fire (false); };
         addAndMakeVisible (cancelBtn);
 
@@ -78,16 +77,12 @@ public:
     {
         const auto& T = getTheme();
 
-        g.setColour (juce::Colours::black.withAlpha (0.60f));
-        g.fillRect (getLocalBounds());
+        UIHelpers::drawPopupBackdrop (g, getLocalBounds());
 
         const auto box  = dialogBox();
         const int  padX = 18;
 
-        g.setColour (T.header);
-        g.fillRoundedRectangle (box.toFloat(), 5.0f);
-        g.setColour (T.accent.withAlpha (0.7f));
-        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 5.0f, 1.5f);
+        UIHelpers::drawPopupBox (g, box, T);
 
         g.setFont (DysektLookAndFeel::makeFont (15.0f, true));
         g.setColour (T.accent);
@@ -96,10 +91,6 @@ public:
                     box.getWidth() - padX * 2, 20,
                     juce::Justification::centredLeft, false);
 
-        g.setColour (T.accent.withAlpha (0.35f));
-        g.drawHorizontalLine (box.getY() + 38,
-                              (float)(box.getX() + padX),
-                              (float)(box.getRight() - padX));
 
         // Sub-labels
         g.setFont (DysektLookAndFeel::makeFont (10.0f));

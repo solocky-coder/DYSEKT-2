@@ -1,4 +1,5 @@
 #pragma once
+#include "UIHelpers.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "DysektLookAndFeel.h"
 
@@ -16,8 +17,7 @@ public:
         const auto& T = getTheme();
 
         okBtn.setButtonText ("OK");
-        okBtn.setColour (juce::TextButton::buttonColourId,  T.accent.withAlpha (0.85f));
-        okBtn.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+        UIHelpers::stylePrimaryPopupButton (okBtn, T);
         okBtn.setMouseCursor (juce::MouseCursor::NormalCursor);
         okBtn.onClick = [this] { dismiss(); };
         addAndMakeVisible (okBtn);
@@ -29,14 +29,10 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto& T = getTheme();
-        g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.fillRect (getLocalBounds());
+        UIHelpers::drawPopupBackdrop (g, getLocalBounds());
 
         const auto box = dialogBox();
-        g.setColour (T.header);
-        g.fillRoundedRectangle (box.toFloat(), 5.0f);
-        g.setColour (T.accent.withAlpha (0.7f));
-        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 5.0f, 1.5f);
+        UIHelpers::drawPopupBox (g, box, T);
 
         const int padX = 18;
         g.setFont (DysektLookAndFeel::makeFont (14.0f, true));
@@ -44,11 +40,6 @@ public:
         g.drawText (titleText, box.getX() + padX, box.getY() + 14,
                     box.getWidth() - padX * 2, 20,
                     juce::Justification::centredLeft, false);
-
-        g.setColour (T.accent.withAlpha (0.4f));
-        g.drawHorizontalLine (box.getY() + 38,
-                              (float)(box.getX() + padX),
-                              (float)(box.getRight() - padX));
 
         g.setFont (DysektLookAndFeel::makeFont (11.5f));
         g.setColour (T.foreground.withAlpha (0.85f));
@@ -116,15 +107,13 @@ public:
         addAndMakeVisible (editor);
 
         addBtn.setButtonText ("ADD");
-        addBtn.setColour (juce::TextButton::buttonColourId,  T.accent.withAlpha (0.85f));
-        addBtn.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+        UIHelpers::stylePrimaryPopupButton (addBtn, T);
         addBtn.setMouseCursor (juce::MouseCursor::NormalCursor);
         addBtn.onClick = [this] { commit(); };
         addAndMakeVisible (addBtn);
 
         cancelBtn.setButtonText ("CANCEL");
-        cancelBtn.setColour (juce::TextButton::buttonColourId,  T.button);
-        cancelBtn.setColour (juce::TextButton::textColourOffId, T.foreground);
+        UIHelpers::styleSecondaryPopupButton (cancelBtn, T);
         cancelBtn.setMouseCursor (juce::MouseCursor::NormalCursor);
         cancelBtn.onClick = [this] { cancel(); };
         addAndMakeVisible (cancelBtn);
@@ -143,15 +132,11 @@ public:
     {
         const auto& T = getTheme();
 
-        g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.fillRect (getLocalBounds());
+        UIHelpers::drawPopupBackdrop (g, getLocalBounds());
 
         const auto box = dialogBox();
 
-        g.setColour (T.header);
-        g.fillRoundedRectangle (box.toFloat(), 5.0f);
-        g.setColour (T.accent.withAlpha (0.7f));
-        g.drawRoundedRectangle (box.toFloat().reduced (0.5f), 5.0f, 1.5f);
+        UIHelpers::drawPopupBox (g, box, T);
 
         const int padX = 18;
 
@@ -161,11 +146,6 @@ public:
                     box.getX() + padX, box.getY() + 14,
                     box.getWidth() - padX * 2, 20,
                     juce::Justification::centredLeft, false);
-
-        g.setColour (T.accent.withAlpha (0.4f));
-        g.drawHorizontalLine (box.getY() + 38,
-                              (float)(box.getX() + padX),
-                              (float)(box.getRight() - padX));
 
         g.setFont (DysektLookAndFeel::makeFont (11.0f));
         g.setColour (T.foreground.withAlpha (0.65f));
