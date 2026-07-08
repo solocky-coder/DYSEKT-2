@@ -1,6 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" rx="4">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40">
   <defs>
-    <style>rect { fill: #1c2028; stroke: #505060; stroke-width: 1; }</style>
+    <linearGradient id="idleBody" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  stop-color="#3c4453"/>
+      <stop offset="12%" stop-color="#2c323e"/>
+      <stop offset="60%" stop-color="#1a1e26"/>
+      <stop offset="100%" stop-color="#101319"/>
+    </linearGradient>
+    <linearGradient id="idleShadow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  stop-color="#000000" stop-opacity="0"/>
+      <stop offset="82%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.35"/>
+    </linearGradient>
   </defs>
-  <rect width="120" height="40" rx="4"/>
+  <rect x="0.5" y="0.5" width="119" height="39" rx="4" fill="url(#idleBody)"/>
+  <!-- top bevel highlight -->
+  <rect x="1.5" y="1.5" width="117" height="6" rx="3" fill="#ffffff" opacity="0.10"/>
+  <!-- bottom inner shadow for depth -->
+  <rect x="0.5" y="0.5" width="119" height="39" rx="4" fill="url(#idleShadow)"/>
+  <!-- crisp outer edge -->
+  <rect x="0.5" y="0.5" width="119" height="39" rx="4" fill="none" stroke="#05060a" stroke-width="1"/>
 </svg>
