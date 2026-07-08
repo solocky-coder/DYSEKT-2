@@ -256,16 +256,21 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 }
                 else if (isHovered)
                 {
-                    g.setColour (theme.accent.withAlpha (0.12f));
+                    // Match HeaderBar button hover treatment (see
+                    // DysektLookAndFeel::drawButtonBackground): brightened
+                    // button fill + brightened separator border.
+                    g.setColour (theme.button.brighter (0.10f));
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
-                    g.setColour (theme.accent.withAlpha (0.25f));
+                    g.setColour (theme.separator.brighter (0.30f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
                 else
                 {
-                    g.setColour (juce::Colours::black);
+                    // Match HeaderBar button idle treatment: same fill/border
+                    // colours as UNDO/REDO/PANIC/cog, cell shape unchanged.
+                    g.setColour (theme.button);
                     g.fillRoundedRectangle (cell.toFloat(), 3.0f);
-                    g.setColour (theme.accent.withAlpha (0.18f));
+                    g.setColour (theme.separator.withAlpha (0.60f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
 
