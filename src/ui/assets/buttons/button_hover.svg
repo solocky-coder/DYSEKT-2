@@ -1,6 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" rx="4">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40">
   <defs>
-    <style>rect { fill: #2a3040; stroke: #608090; stroke-width: 1; }</style>
+    <linearGradient id="hoverBody" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  stop-color="#4c5768"/>
+      <stop offset="12%" stop-color="#38414f"/>
+      <stop offset="60%" stop-color="#232a35"/>
+      <stop offset="100%" stop-color="#161b23"/>
+    </linearGradient>
+    <linearGradient id="hoverShadow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  stop-color="#000000" stop-opacity="0"/>
+      <stop offset="82%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.30"/>
+    </linearGradient>
   </defs>
-  <rect width="120" height="40" rx="4"/>
+  <rect x="0.5" y="0.5" width="119" height="39" rx="4" fill="url(#hoverBody)"/>
+  <!-- brighter top bevel highlight -->
+  <rect x="1.5" y="1.5" width="117" height="7" rx="3" fill="#ffffff" opacity="0.16"/>
+  <rect x="0.5" y="0.5" width="119" height="39" rx="4" fill="url(#hoverShadow)"/>
+  <!-- soft accent-tinted outer edge to signal interactivity -->
+  <rect x="0.5" y="0.5" width="119" height="39" rx="4" fill="none" stroke="#5fd9e8" stroke-width="1" opacity="0.55"/>
 </svg>

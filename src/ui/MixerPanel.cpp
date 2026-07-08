@@ -229,7 +229,8 @@ float MixerPanel::fromNormFcut (float n) const
 // ─────────────────────────────────────────────────────────────────────────────
 //  Drawing
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr int kKnobR = 7;   // knob radius (px) — slightly smaller than SCB
+static constexpr int kKnobR = 9;   // knob radius (px) — bumped up slightly so the
+                                    // vector face/pointer asset has room to read clearly
 
 void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
                                  float norm, bool locked, bool isMaster,
@@ -239,19 +240,30 @@ void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
     const float r = (float) kKnobR;
     const float normC0 = juce::jlimit (0.f, 1.f, norm);
 
-    // ── Modern knob face — draw the rotated sprite frame underneath the
-    //    existing procedural progress arc (see IconManager::getKnobSpriteFrame).
-    //    Falls back silently to the plain arc-only look if the sprite sheet
-    //    binary isn't available (e.g. mid-migration builds).
+    // ── Modern knob face — draw the vector face + rotated pointer assets
+    //    underneath the existing procedural progress arc. Vector art stays
+    //    crisp at this knob's small on-screen size, unlike the bitmap sprite
+    //    sheet (which needed ~40px+ to show any frame detail and just looked
+    //    like noise at the ~17px this control renders at). Falls back
+    //    silently to the plain arc-only look if the assets aren't available.
     {
-        constexpr int kSpriteFrameCount = 64;
-        const int frameIndex = juce::roundToInt (normC0 * (float) (kSpriteFrameCount - 1));
-        auto knobImg = IconManager::getKnobSpriteFrame (frameIndex, kSpriteFrameCount);
-        if (knobImg.isValid())
+        const float d = r * 2.6f; // face diameter — slightly larger than the arc radius
+        juce::Rectangle<float> imgBounds ((float)cx - d * 0.5f, (float)cy - d * 0.5f, d, d);
+
+        if (auto face = IconManager::getKnobFace())
+            face->drawWithin (g, imgBounds, juce::RectanglePlacement::centred, 1.0f);
+
+        if (auto pointer = IconManager::getKnobPointer())
         {
-            const float d = r * 2.4f; // slightly larger than the arc radius so the face reads clearly
-            juce::Rectangle<float> imgBounds ((float)cx - d * 0.5f, (float)cy - d * 0.5f, d, d);
-            g.drawImage (knobImg, imgBounds, juce::RectanglePlacement::centred, false);
+            // Pointer art is authored pointing at 12 o'clock (0°). Rotate it to match
+            // the same 270° sweep (-135°..+135°) used by the progress arc below.
+            const float angle = juce::jmap (normC0, 0.0f, 1.0f,
+                                             juce::degreesToRadians (-135.0f),
+                                             juce::degreesToRadians (135.0f));
+            g.saveState();
+            g.addTransform (juce::AffineTransform::rotation (angle, (float) cx, (float) cy));
+            pointer->drawWithin (g, imgBounds, juce::RectanglePlacement::centred, 1.0f);
+            g.restoreState();
         }
     }
 
