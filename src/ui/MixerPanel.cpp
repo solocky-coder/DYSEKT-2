@@ -240,37 +240,30 @@ void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
     const float r = (float) kKnobR;
     const float normC0 = juce::jlimit (0.f, 1.f, norm);
 
-    // ── Modern knob face — draw the vector face + rotated pointer assets
-    //    underneath the existing procedural progress arc. Vector art stays
-    //    crisp at this knob's small on-screen size, unlike the bitmap sprite
-    //    sheet (which needed ~40px+ to show any frame detail and just looked
-    //    like noise at the ~17px this control renders at). Falls back
-    //    silently to the plain arc-only look if the assets aren't available.
+    // ── Modern knob face — draw the vector face asset underneath the
+    //    existing procedural progress arc. Vector art stays crisp at this
+    //    knob's small on-screen size, unlike the bitmap sprite sheet (which
+    //    needed ~40px+ to show any frame detail and just looked like noise
+    //    at the ~17px this control renders at). Falls back silently to the
+    //    plain arc-only look if the asset isn't available.
+    //
+    //    NOTE: the rotated pointer asset that used to be drawn here was
+    //    dropped. At r=9 it had no arc fill to give it context at idle
+    //    values (0 dB / 0%), so it read as a stray diagonal or vertical
+    //    line rather than "a knob" — see the fixed-size rim dot below for
+    //    its replacement, which stays legible at any value including idle.
     {
         const float d = r * 2.6f; // face diameter — slightly larger than the arc radius
         juce::Rectangle<float> imgBounds ((float)cx - d * 0.5f, (float)cy - d * 0.5f, d, d);
 
         if (auto face = IconManager::getKnobFace())
             face->drawWithin (g, imgBounds, juce::RectanglePlacement::centred, 1.0f);
-
-        if (auto pointer = IconManager::getKnobPointer())
-        {
-            // Pointer art is authored pointing at 12 o'clock (0°). Rotate it to match
-            // the same 270° sweep (-135°..+135°) used by the progress arc below.
-            const float angle = juce::jmap (normC0, 0.0f, 1.0f,
-                                             juce::degreesToRadians (-135.0f),
-                                             juce::degreesToRadians (135.0f));
-            g.saveState();
-            g.addTransform (juce::AffineTransform::rotation (angle, (float) cx, (float) cy));
-            pointer->drawWithin (g, imgBounds, juce::RectanglePlacement::centred, 1.0f);
-            g.restoreState();
-        }
     }
 
-    // Faint decorative guide ring behind the track — echoes the concentric-circle
-    // motif from the reference (a wider, dimmer ring sitting just outside the
-    // active arc) so the knob reads as part of the same "lit dial" family.
-    g.setColour (theme.accent.withAlpha (0.06f));
+    // Guide ring behind the track — always visible (not just a faint hint)
+    // so a knob at idle (no fill arc drawn) still reads clearly as a dial
+    // rather than empty space with a dot in the middle.
+    g.setColour (theme.accent.withAlpha (0.16f));
     g.drawEllipse ((float)cx - (r + 3.5f), (float)cy - (r + 3.5f), (r + 3.5f) * 2.f, (r + 3.5f) * 2.f, 1.0f);
 
     // Track arc (background) — 270° sweep, 7 o'clock → 5 o'clock
@@ -341,6 +334,18 @@ void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
             g.setColour (fillCol);
             g.strokePath (fill, juce::PathStrokeType (1.5f));
         }
+    }
+
+    // Rim indicator — small fixed-size dot at the current position, drawn
+    // regardless of fill amount. This is what actually replaces the old
+    // rotated pointer: it gives clear position feedback at idle values
+    // (0 dB / 0%) without becoming a stray line at this knob's small size.
+    {
+        const float indAngle = startA + arcLen * normC0;
+        const float ix = (float)cx + r * std::cos (indAngle);
+        const float iy = (float)cy + r * std::sin (indAngle);
+        g.setColour (locked ? theme.lockActive : theme.foreground.withAlpha (0.85f));
+        g.fillEllipse (ix - 1.5f, iy - 1.5f, 3.f, 3.f);
     }
 
     // Centre dot
