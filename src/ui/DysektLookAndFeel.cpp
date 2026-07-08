@@ -255,20 +255,43 @@ juce::Font DysektLookAndFeel::getPopupMenuFont()
 
 // ── ComboBox ──────────────────────────────────────────────────────────────────
 void DysektLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
-                                      bool /*isButtonDown*/, int buttonX, int /*buttonY*/,
+                                      bool isButtonDown, int buttonX, int /*buttonY*/,
                                       int /*buttonW*/, int /*buttonH*/, juce::ComboBox& box)
 {
     const auto& t = getTheme();
     const float cbR = 2.0f;   // Midnight — tight radius
     auto cbBounds = juce::Rectangle<float> (0, 0, (float)width, (float)height).reduced (0.5f);
 
-    // Flat fill
-    g.setColour (t.button);
+    // ── Gradient body — subtle vertical bevel instead of a flat fill ──────
+    // Lighter top edge fading to the base colour then a faint lift near the
+    // bottom, matching the button/knob art's raised-surface language.
+    auto baseCol = isButtonDown ? t.button.darker (0.10f) : t.button;
+    auto topCol  = baseCol.brighter (0.14f);
+    auto midCol  = baseCol.darker   (0.05f);
+    auto botCol  = baseCol.brighter (0.04f);
+
+    juce::ColourGradient grad (topCol, cbBounds.getX(), cbBounds.getY(),
+                               midCol, cbBounds.getX(), cbBounds.getBottom(), false);
+    grad.addColour (0.65, botCol);
+    g.setGradientFill (grad);
     g.fillRoundedRectangle (cbBounds, cbR);
 
+    // Inner top highlight — thin 1px sheen just inside the top edge
+    g.setColour (juce::Colours::white.withAlpha (0.06f));
+    g.drawLine (cbBounds.getX() + cbR, cbBounds.getY() + 1.0f,
+                cbBounds.getRight() - cbR, cbBounds.getY() + 1.0f, 1.0f);
+
     // Border — accent when focused, separator otherwise
-    g.setColour (box.hasKeyboardFocus (false) ? t.accent : t.separator);
+    const bool focused = box.hasKeyboardFocus (false);
+    g.setColour (focused ? t.accent : t.separator);
     g.drawRoundedRectangle (cbBounds, cbR, 1.0f);
+
+    if (focused)
+    {
+        // Soft accent glow around the focused border
+        g.setColour (t.accent.withAlpha (0.18f));
+        g.drawRoundedRectangle (cbBounds.expanded (0.75f), cbR + 0.75f, 1.5f);
+    }
 
     // Dropdown arrow — clean chevron
     const int arrowCX = buttonX + (width - buttonX) / 2;
@@ -372,15 +395,116 @@ void DysektLookAndFeel::drawScrollbar (juce::Graphics& g,
         else
             thumb = { x + thumbStartPosition, y + 1, thumbSize, height - 2 };
 
-        // Pill thumb — accent color, no glow
+        // Pill thumb — layered gradient so it reads as a raised control,
+        // matching the button/knob/slider bevel language, with a brighter
+        // fill + glow when hovered/dragged.
         auto thumbF = thumb.toFloat().reduced (1.0f);
         const float thumbR = isScrollbarVertical ? (float)(thumb.getWidth() - 2) * 0.5f
                                                  : (float)(thumb.getHeight() - 2) * 0.5f;
-        g.setColour (t.accent.withAlpha (0.55f));
+
+        const float baseAlpha = isMouseDown ? 0.85f : isMouseOver ? 0.70f : 0.55f;
+        auto accentBase = t.accent.withAlpha (baseAlpha);
+
+        if (isMouseOver || isMouseDown)
+        {
+            // Subtle glow behind the thumb on interaction
+            g.setColour (t.accent.withAlpha (isMouseDown ? 0.22f : 0.14f));
+            g.fillRoundedRectangle (thumbF.expanded (1.5f), thumbR + 1.5f);
+        }
+
+        juce::ColourGradient thumbGrad (accentBase.brighter (0.25f),
+                                        thumbF.getX(), thumbF.getY(),
+                                        accentBase.darker (0.10f),
+                                        isScrollbarVertical ? thumbF.getX() + thumbF.getWidth()
+                                                             : thumbF.getX(),
+                                        isScrollbarVertical ? thumbF.getY()
+                                                             : thumbF.getY() + thumbF.getHeight(),
+                                        false);
+        g.setGradientFill (thumbGrad);
         g.fillRoundedRectangle (thumbF, thumbR);
-        g.setColour (t.accent.withAlpha (0.35f));
+
+        g.setColour (t.accent.withAlpha (0.40f));
         g.drawRoundedRectangle (thumbF, thumbR, 1.0f);
     }
+}
+
+// ── Linear slider ─────────────────────────────────────────────────────────────
+// Used by the file-browser preview volume slider (LinearHorizontal). Gives it
+// the same recessed-track / raised-thumb bevel language as the buttons and
+// knob art rather than falling back to stock LookAndFeel_V4 styling.
+void DysektLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
+                                          float sliderPos, float minSliderPos, float maxSliderPos,
+                                          const juce::Slider::SliderStyle style, juce::Slider& slider)
+{
+    const auto& t = getTheme();
+    auto bounds = juce::Rectangle<float> ((float)x, (float)y, (float)width, (float)height);
+
+    if (style == juce::Slider::LinearVertical)
+    {
+        // Not currently used anywhere in the plugin, but keep a sane vertical
+        // fallback to stock drawing rather than mis-rendering a horizontal bar.
+        juce::LookAndFeel_V4::drawLinearSlider (g, x, y, width, height, sliderPos,
+                                                minSliderPos, maxSliderPos, style, slider);
+        return;
+    }
+
+    const float trackH = juce::jmin (6.0f, bounds.getHeight() * 0.5f);
+    auto track = bounds.withSizeKeepingCentre (bounds.getWidth(), trackH);
+    const float trackR = trackH * 0.5f;
+
+    // ── Recessed track — inner shadow via a dark-to-slightly-lighter gradient
+    auto trackTop = t.darkBar.darker (0.35f);
+    auto trackBot = t.darkBar.brighter (0.04f);
+    juce::ColourGradient trackGrad (trackTop, track.getX(), track.getY(),
+                                    trackBot, track.getX(), track.getBottom(), false);
+    g.setGradientFill (trackGrad);
+    g.fillRoundedRectangle (track, trackR);
+    g.setColour (t.separator.withAlpha (0.7f));
+    g.drawRoundedRectangle (track, trackR, 1.0f);
+
+    // ── Filled portion — accent gradient with a soft glow, from the track's
+    // left edge up to the thumb position (matches bipolar/unipolar feel used
+    // elsewhere in the plugin's LCD-style sliders).
+    const float fillLeft  = track.getX() + trackR;
+    const float fillRight = juce::jlimit (fillLeft, track.getRight() - trackR, sliderPos);
+    if (fillRight > fillLeft)
+    {
+        auto fillArea = juce::Rectangle<float> (fillLeft, track.getY(), fillRight - fillLeft, track.getHeight());
+
+        g.setColour (t.accent.withAlpha (0.20f));
+        g.fillRoundedRectangle (fillArea.expanded (0.0f, 1.5f), trackR);
+
+        juce::ColourGradient fillGrad (t.accent.brighter (0.20f), fillArea.getX(), fillArea.getY(),
+                                       t.accent.darker (0.10f), fillArea.getX(), fillArea.getBottom(), false);
+        g.setGradientFill (fillGrad);
+        g.fillRoundedRectangle (fillArea, trackR);
+    }
+
+    // ── Thumb — raised bevel knob, brighter when dragged/hovered ──────────
+    const float thumbD = juce::jmin (bounds.getHeight(), 16.0f);
+    auto thumb = juce::Rectangle<float> (thumbD, thumbD).withCentre ({ sliderPos, bounds.getCentreY() });
+
+    const bool isDown  = slider.isMouseButtonDown();
+    const bool isOver  = slider.isMouseOverOrDragging();
+    auto thumbBase = t.button.brighter (isDown ? 0.30f : isOver ? 0.18f : 0.10f);
+
+    if (isOver || isDown)
+    {
+        g.setColour (t.accent.withAlpha (isDown ? 0.30f : 0.18f));
+        g.fillEllipse (thumb.expanded (2.0f));
+    }
+
+    juce::ColourGradient thumbGrad (thumbBase.brighter (0.25f), thumb.getX(), thumb.getY(),
+                                    thumbBase.darker (0.15f), thumb.getX(), thumb.getBottom(), false);
+    g.setGradientFill (thumbGrad);
+    g.fillEllipse (thumb);
+
+    g.setColour (t.accent.withAlpha (0.75f));
+    g.drawEllipse (thumb, 1.2f);
+
+    // Tiny top-left specular highlight for a glassy, raised feel
+    g.setColour (juce::Colours::white.withAlpha (0.18f));
+    g.fillEllipse (thumb.reduced (thumb.getWidth() * 0.32f).translated (-thumb.getWidth() * 0.10f, -thumb.getHeight() * 0.12f));
 }
 
 //==============================================================================

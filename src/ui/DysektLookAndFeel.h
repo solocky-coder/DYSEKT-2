@@ -42,6 +42,10 @@ public:
                         int thumbStartPosition, int thumbSize,
                         bool isMouseOver, bool isMouseDown) override;
 
+    void drawLinearSlider (juce::Graphics&, int x, int y, int width, int height,
+                           float sliderPos, float minSliderPos, float maxSliderPos,
+                           const juce::Slider::SliderStyle, juce::Slider&) override;
+
     void drawTooltip (juce::Graphics&, const juce::String& text, int width, int height) override;
     juce::Rectangle<int> getTooltipBounds (const juce::String& text, juce::Point<int> screenPos,
                                            juce::Rectangle<int> parentArea) override;
