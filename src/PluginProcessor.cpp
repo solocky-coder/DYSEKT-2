@@ -2395,9 +2395,13 @@ void DysektProcessor::processMidi (const juce::MidiBuffer& midi)
                         break; // first matching slice wins
                     }
 
-                    if (! handled)
+                    if (! handled && inChannel == 1)
                     {
                     // ── Standard: one slice per note ──────────────────────────
+                    // Non-chromatic slices only ever trigger on MIDI channel 1.
+                    // Chromatic slices are handled above and can listen on any
+                    // channel via cs.chromaticChannel — this gate only applies
+                    // to the plain "one slice per note" fallback path.
                     const int sliceIdx = sliceManager.midiNoteToSlice (note);
                     if (sliceIdx >= 0)
                     {
