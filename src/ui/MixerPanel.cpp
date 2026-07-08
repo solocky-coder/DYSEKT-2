@@ -846,7 +846,7 @@ void MixerPanel::drawSf2Row (juce::Graphics& g, int ry) const
     // Label
     g.setFont (DysektLookAndFeel::makeFont (11.0f, true));
     g.setColour (theme.accent.withAlpha (0.75f));
-    g.drawText ("SF-PLAYER", 10, ry, kNameColW - 10, kSf2RowH, juce::Justification::centredLeft);
+    g.drawText ("SFZ-PLAYER", 10, ry, kNameColW - 10, kSf2RowH, juce::Justification::centredLeft);
 
     const int kcy    = ry + kSf2RowH / 2;
     const float volLin = processor.sfzPlayer.getVolume();
