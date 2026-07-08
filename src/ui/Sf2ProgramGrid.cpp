@@ -3,6 +3,7 @@
 // =============================================================================
 #include "Sf2ProgramGrid.h"
 #include "DysektLookAndFeel.h"
+#include "IconManager.h"
 
 // ── Helper: theme access (same pattern used throughout the codebase) ──────────
 static const ThemeData& gridTheme() { return getTheme(); }
@@ -175,6 +176,12 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
     g.saveState();
     g.reduceClipRegion (0, 0, getWidth() - (scrollBar.isVisible() ? kScrollW : 0), getHeight());
 
+    // Load once per paint — same sprites HeaderBar buttons use, cached here
+    // instead of reloaded per-cell (grid can have far more cells than the
+    // 4 header buttons that each call these per paint).
+    const auto idleSprite  = IconManager::getButtonIdle();
+    const auto hoverSprite = IconManager::getButtonHover();
+
     int y = kPad - scrollY;
 
     const int ch = cellH();
@@ -256,20 +263,40 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                 }
                 else if (isHovered)
                 {
-                    // Match HeaderBar button hover treatment (see
-                    // DysektLookAndFeel::drawButtonBackground): brightened
-                    // button fill + brightened separator border.
-                    g.setColour (theme.button.brighter (0.10f));
-                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    // Same treatment as HeaderBar buttons (see
+                    // DysektLookAndFeel::drawButtonBackground): the hover
+                    // sprite as base layer, theme-tinted border on top so it
+                    // still follows the active theme like every other button.
+                    if (hoverSprite != nullptr)
+                    {
+                        hoverSprite->drawWithin (g, cell.toFloat(),
+                                                  juce::RectanglePlacement::stretchToFit, 1.0f);
+                    }
+                    else
+                    {
+                        g.setColour (theme.button.brighter (0.10f));
+                        g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    }
+
                     g.setColour (theme.separator.brighter (0.30f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
                 else
                 {
-                    // Match HeaderBar button idle treatment: same fill/border
-                    // colours as UNDO/REDO/PANIC/cog, cell shape unchanged.
-                    g.setColour (theme.button);
-                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    // Idle: button_idle.svg base layer, same as UNDO/REDO/
+                    // PANIC/cog, with the theme's separator colour as the
+                    // border so it still reads as "this theme" per-preset.
+                    if (idleSprite != nullptr)
+                    {
+                        idleSprite->drawWithin (g, cell.toFloat(),
+                                                 juce::RectanglePlacement::stretchToFit, 1.0f);
+                    }
+                    else
+                    {
+                        g.setColour (theme.button);
+                        g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    }
+
                     g.setColour (theme.separator.withAlpha (0.60f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
