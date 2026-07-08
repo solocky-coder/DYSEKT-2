@@ -376,8 +376,8 @@ void DysektLookAndFeel::drawScrollbar (juce::Graphics& g,
                                        bool isScrollbarVertical,
                                        int thumbStartPosition,
                                        int thumbSize,
-                                       bool /*isMouseOver*/,
-                                       bool /*isMouseDown*/)
+                                       bool isMouseOver,
+                                       bool isMouseDown)
 {
     const auto& t = getTheme();
 
