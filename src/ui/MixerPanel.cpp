@@ -267,6 +267,12 @@ void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
         }
     }
 
+    // Faint decorative guide ring behind the track — echoes the concentric-circle
+    // motif from the reference (a wider, dimmer ring sitting just outside the
+    // active arc) so the knob reads as part of the same "lit dial" family.
+    g.setColour (theme.accent.withAlpha (0.06f));
+    g.drawEllipse ((float)cx - (r + 3.5f), (float)cy - (r + 3.5f), (r + 3.5f) * 2.f, (r + 3.5f) * 2.f, 1.0f);
+
     // Track arc (background) — 270° sweep, 7 o'clock → 5 o'clock
     const float startA  = juce::MathConstants<float>::pi * 0.75f;
     const float arcLen  = juce::MathConstants<float>::pi * 1.5f;
@@ -296,6 +302,14 @@ void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
             else                    // cut → fill leftward from centre
                 fill.addCentredArc ((float)cx, (float)cy, r, r, 0.f,
                                     startA + arcLen * normC, zeroAngle, true);
+
+            // Soft glow pass behind the fill arc — the wider, dimmer stroke
+            // underneath gives the lit-ring look from the reference.
+            g.setColour (fillCol.withAlpha (0.30f));
+            g.strokePath (fill, juce::PathStrokeType (4.0f));
+            g.setColour (fillCol.withAlpha (0.16f));
+            g.strokePath (fill, juce::PathStrokeType (6.5f));
+
             g.setColour (fillCol);
             g.strokePath (fill, juce::PathStrokeType (1.5f));
         }
@@ -316,6 +330,14 @@ void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
             const float endAngle = startA + arcLen * normC;
             juce::Path fill;
             fill.addCentredArc ((float)cx, (float)cy, r, r, 0.f, startA, endAngle, true);
+
+            // Matching glow pass so every knob in the row reads as the same
+            // glowing-dial family, not just the gain knobs.
+            g.setColour (fillCol.withAlpha (0.30f));
+            g.strokePath (fill, juce::PathStrokeType (4.0f));
+            g.setColour (fillCol.withAlpha (0.16f));
+            g.strokePath (fill, juce::PathStrokeType (6.5f));
+
             g.setColour (fillCol);
             g.strokePath (fill, juce::PathStrokeType (1.5f));
         }
@@ -347,6 +369,18 @@ void MixerPanel::drawMuteBadge (juce::Graphics& g, int cx, int cy,
     }
 
     const bool active = (muteGroup > 0);
+    const auto glowCol = locked ? theme.lockActive : theme.accent;
+
+    // Glow halo behind the badge when active — same lit-family treatment as
+    // the knob rings, so mute groups read as part of the glowing dial set.
+    if (active)
+    {
+        g.setColour (glowCol.withAlpha (0.14f));
+        g.fillRoundedRectangle (r.expanded (2.5f), 4.0f);
+        g.setColour (glowCol.withAlpha (0.08f));
+        g.fillRoundedRectangle (r.expanded (4.5f), 5.0f);
+    }
+
     g.setColour (active ? (locked ? theme.lockActive.withAlpha (0.15f)
                                   : theme.accent.withAlpha (0.10f))
                         : theme.separator.withAlpha (0.3f));
@@ -396,6 +430,18 @@ void MixerPanel::drawChroBadge (juce::Graphics& g, int cx, int cy, int channel, 
     const juce::Rectangle<float> r ((float)(cx - bw/2), (float)(cy - bh/2), (float)bw, (float)bh);
 
     const bool active = (channel > 0);
+
+    // Glow halo — mirrors the mute badge treatment so the two badge types
+    // read as one lit family in the row.
+    if (active)
+    {
+        const auto glowCol = locked ? theme.lockActive : theme.accent;
+        g.setColour (glowCol.withAlpha (0.14f));
+        g.fillRoundedRectangle (r.expanded (2.5f), 4.0f);
+        g.setColour (glowCol.withAlpha (0.08f));
+        g.fillRoundedRectangle (r.expanded (4.5f), 5.0f);
+    }
+
     g.setColour (active ? (locked ? theme.lockActive.withAlpha (0.15f) : theme.accent.withAlpha (0.15f))
                         : theme.separator.withAlpha (0.3f));
     g.fillRoundedRectangle (r, 2.5f);
@@ -484,6 +530,12 @@ void MixerPanel::drawMeter (juce::Graphics& g,
                             phosphorCol (0.85f * fill, pk));
             g.setGradientFill (grad);
             g.fillRect (x + 1, barY + 1, litW, barH - 2);
+
+            // Soft glow at the leading edge of the lit fill — matches the
+            // brightness of the glowing fader/knob look elsewhere in the strip.
+            const int glowX = x + 1 + juce::jmax (0, litW - 3);
+            g.setColour (phosphorCol (fill, pk).withAlpha (0.35f));
+            g.fillRect (glowX, barY + 1, 3, barH - 2);
         }
 
         // Hold marker — bright hairline with soft glow
@@ -644,10 +696,10 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
         const int     centreX = sliderX + sliderW / 2;
         const auto    fillCol = panLocked ? theme.lockActive : theme.accent;
 
-        // Track bg
+        // Track bg — pill-shaped, matching the glowing-pill motif
         g.setColour (theme.darkBar.darker (0.3f));
         g.fillRoundedRectangle ((float)sliderX, (float)sliderY,
-                                 (float)sliderW, (float)sliderH, 2.f);
+                                 (float)sliderW, (float)sliderH, sliderH * 0.5f);
 
         // Centre tick
         g.setColour (theme.foreground.withAlpha (0.18f));
@@ -661,14 +713,20 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
             if (fillW > 0)
             {
                 g.setColour (fillCol.withAlpha (panLocked ? 0.55f : 0.35f));
-                g.fillRect (fillX, sliderY + 1, fillW, sliderH - 2);
+                g.fillRoundedRectangle ((float)fillX, (float)(sliderY + 1), (float)fillW, (float)(sliderH - 2), (sliderH - 2) * 0.5f);
             }
         }
 
-        // Thumb
+        // Glowing thumb — soft halo behind a notched pill, echoing the
+        // bright glowing-fader thumb from the reference.
+        g.setColour (fillCol.withAlpha (panLocked ? 0.35f : 0.22f));
+        g.fillRoundedRectangle ((float)(thumbX - 5), (float)(sliderY - 4),
+                                 10.f, (float)(sliderH + 8), 4.f);
         g.setColour (fillCol.withAlpha (panLocked ? 1.0f : 0.85f));
         g.fillRoundedRectangle ((float)(thumbX - 2), (float)(sliderY - 1),
                                  4.f, (float)(sliderH + 2), 1.5f);
+        g.setColour (theme.darkBar.darker (0.5f).withAlpha (0.6f));
+        g.drawVerticalLine (thumbX, (float)(sliderY - 1), (float)(sliderY + sliderH + 1));
 
         // Value label — below the slider track, centred in column
         g.setFont (DysektLookAndFeel::makeFont (12.0f));
@@ -788,7 +846,7 @@ void MixerPanel::drawMasterRow (juce::Graphics& g, int ry) const
 
         g.setColour (theme.darkBar.darker (0.3f));
         g.fillRoundedRectangle ((float)sliderX, (float)sliderY,
-                                 (float)sliderW, (float)sliderH, 2.f);
+                                 (float)sliderW, (float)sliderH, sliderH * 0.5f);
         g.setColour (theme.foreground.withAlpha (0.18f));
         g.drawVerticalLine (centreX, (float)sliderY, (float)(sliderY + sliderH));
 
@@ -799,12 +857,17 @@ void MixerPanel::drawMasterRow (juce::Graphics& g, int ry) const
             if (fillW > 0)
             {
                 g.setColour (fillCol.withAlpha (0.35f));
-                g.fillRect (fillX, sliderY + 1, fillW, sliderH - 2);
+                g.fillRoundedRectangle ((float)fillX, (float)(sliderY + 1), (float)fillW, (float)(sliderH - 2), (sliderH - 2) * 0.5f);
             }
         }
+        g.setColour (fillCol.withAlpha (0.22f));
+        g.fillRoundedRectangle ((float)(thumbX - 5), (float)(sliderY - 4),
+                                 10.f, (float)(sliderH + 8), 4.f);
         g.setColour (fillCol.withAlpha (0.85f));
         g.fillRoundedRectangle ((float)(thumbX - 2), (float)(sliderY - 1),
                                  4.f, (float)(sliderH + 2), 1.5f);
+        g.setColour (theme.darkBar.darker (0.5f).withAlpha (0.6f));
+        g.drawVerticalLine (thumbX, (float)(sliderY - 1), (float)(sliderY + sliderH + 1));
 
         const int tx = x + kKnobColW / 2 + 8;
         g.setFont (DysektLookAndFeel::makeFont (11.0f));
@@ -878,17 +941,21 @@ void MixerPanel::drawSf2Row (juce::Graphics& g, int ry) const
         const auto  fillCol = theme.accent;
 
         g.setColour (theme.darkBar.darker (0.3f));
-        g.fillRoundedRectangle ((float)sliderX, (float)sliderY, (float)sliderW, (float)sliderH, 2.f);
+        g.fillRoundedRectangle ((float)sliderX, (float)sliderY, (float)sliderW, (float)sliderH, sliderH * 0.5f);
         g.setColour (theme.foreground.withAlpha (0.18f));
         g.drawVerticalLine (centreX, (float)sliderY, (float)(sliderY + sliderH));
         if (std::abs (pan) > 0.005f)
         {
             const int fillX = (pan < 0.f) ? thumbX : centreX;
             const int fillW = std::abs (thumbX - centreX);
-            if (fillW > 0) { g.setColour (fillCol.withAlpha (0.35f)); g.fillRect (fillX, sliderY + 1, fillW, sliderH - 2); }
+            if (fillW > 0) { g.setColour (fillCol.withAlpha (0.35f)); g.fillRoundedRectangle ((float)fillX, (float)(sliderY + 1), (float)fillW, (float)(sliderH - 2), (sliderH - 2) * 0.5f); }
         }
+        g.setColour (fillCol.withAlpha (0.22f));
+        g.fillRoundedRectangle ((float)(thumbX - 5), (float)(sliderY - 4), 10.f, (float)(sliderH + 8), 4.f);
         g.setColour (fillCol.withAlpha (0.85f));
         g.fillRoundedRectangle ((float)(thumbX - 2), (float)(sliderY - 1), 4.f, (float)(sliderH + 2), 1.5f);
+        g.setColour (theme.darkBar.darker (0.5f).withAlpha (0.6f));
+        g.drawVerticalLine (thumbX, (float)(sliderY - 1), (float)(sliderY + sliderH + 1));
         g.setFont (DysektLookAndFeel::makeFont (12.0f));
         g.setColour (theme.foreground.withAlpha (0.40f));
         g.drawText (fmtPan (pan), x, sliderY + sliderH + 2, kKnobColW, 10, juce::Justification::centred);
@@ -994,7 +1061,7 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
         const auto  fillCol = chCol;
 
         g.setColour (theme.darkBar.darker (0.3f));
-        g.fillRoundedRectangle ((float)sliderX, (float)sliderY, (float)sliderW, (float)sliderH, 2.f);
+        g.fillRoundedRectangle ((float)sliderX, (float)sliderY, (float)sliderW, (float)sliderH, sliderH * 0.5f);
         g.setColour (theme.foreground.withAlpha (0.18f));
         g.drawVerticalLine (centreX, (float)sliderY, (float)(sliderY + sliderH));
         if (std::abs (strip.pan) > 0.005f)
@@ -1004,11 +1071,15 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
             if (fillW > 0)
             {
                 g.setColour (fillCol.withAlpha (0.35f));
-                g.fillRect (fillX, sliderY + 1, fillW, sliderH - 2);
+                g.fillRoundedRectangle ((float)fillX, (float)(sliderY + 1), (float)fillW, (float)(sliderH - 2), (sliderH - 2) * 0.5f);
             }
         }
+        g.setColour (fillCol.withAlpha (0.22f));
+        g.fillRoundedRectangle ((float)(thumbX - 5), (float)(sliderY - 4), 10.f, (float)(sliderH + 8), 4.f);
         g.setColour (fillCol.withAlpha (0.85f));
         g.fillRoundedRectangle ((float)(thumbX - 2), (float)(sliderY - 1), 4.f, (float)(sliderH + 2), 1.5f);
+        g.setColour (theme.darkBar.darker (0.5f).withAlpha (0.6f));
+        g.drawVerticalLine (thumbX, (float)(sliderY - 1), (float)(sliderY + sliderH + 1));
         g.setFont (DysektLookAndFeel::makeFont (11.0f));
         g.setColour (theme.foreground.withAlpha (0.40f));
         g.drawText (fmtPan (strip.pan), x, sliderY + sliderH + 2, kKnobColW, 10,
@@ -1021,6 +1092,13 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
         const int cx = x + kKnobColW / 2;
         const juce::Rectangle<float> r ((float)(cx - 12), (float)(kcy - 8), 24.f, 16.f);
         const bool muted = strip.muted;
+        if (muted)
+        {
+            g.setColour (theme.accent.withAlpha (0.14f));
+            g.fillRoundedRectangle (r.expanded (2.5f), 4.5f);
+            g.setColour (theme.accent.withAlpha (0.08f));
+            g.fillRoundedRectangle (r.expanded (4.5f), 5.5f);
+        }
         g.setColour (muted ? theme.accent.withAlpha (0.25f) : theme.separator.withAlpha (0.2f));
         g.fillRoundedRectangle (r, 3.f);
         g.setColour (muted ? theme.accent : theme.foreground.withAlpha (0.30f));
