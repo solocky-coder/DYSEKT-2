@@ -7,6 +7,7 @@ static constexpr int kFieldRootNote = 9999;
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "UIHelpers.h"
 #include "DysektLookAndFeel.h"
+#include "IconManager.h"
 #include "../PluginProcessor.h"
 #include "../MidiLearnManager.h"
 #include "../audio/GrainEngine.h"
@@ -28,6 +29,25 @@ static juce::Colour adsrTintForField (int fieldId)
  if (fieldId == F::FieldRelease) return kAdsrRelease;
  if (fieldId == F::FieldHold)    return kAdsrHold;
  return {}; // invalid = use theme default
+}
+
+// ── Glass badge fill — subtle vertical gradient + soft top glow, so small
+// flat badges (FINE / CHRO / LGTO) read as part of the same LCD-glass
+// aesthetic as the panel background in paint() rather than flat vector fills.
+static void fillGlassBadge (juce::Graphics& g, juce::Rectangle<float> bounds,
+                             juce::Colour fillColour, float radius)
+{
+    juce::ColourGradient grad (fillColour.brighter (0.15f), bounds.getX(), bounds.getY(),
+                                fillColour.darker (0.20f), bounds.getX(), bounds.getBottom(), false);
+    g.setGradientFill (grad);
+    g.fillRoundedRectangle (bounds, radius);
+
+    juce::ColourGradient glow (juce::Colours::white.withAlpha (fillColour.getFloatAlpha() * 0.20f),
+                                bounds.getX(), bounds.getY(),
+                                juce::Colours::transparentWhite,
+                                bounds.getX(), bounds.getY() + bounds.getHeight() * 0.7f, false);
+    g.setGradientFill (glow);
+    g.fillRoundedRectangle (bounds, radius);
 }
 
 namespace
@@ -667,8 +687,8 @@ void SliceControlBar::drawMarkerSliderCell (juce::Graphics& g, int x, int y,
         const int by = cell.getY() + juce::roundToInt (2.0f * paintSf);
         markerFineModeToggleArea = juce::Rectangle<int> (bx, by, bw, bh);
 
-        g.setColour (fineOn ? T.accent.withAlpha (0.85f) : T.foreground.withAlpha (0.18f));
-        g.fillRoundedRectangle (markerFineModeToggleArea.toFloat(), 2.0f);
+        fillGlassBadge (g, markerFineModeToggleArea.toFloat(),
+                        fineOn ? T.accent.withAlpha (0.85f) : T.foreground.withAlpha (0.18f), 2.0f);
         g.setFont (DysektLookAndFeel::makeFont (7.5f * paintSf));
         g.setColour (fineOn ? T.darkBar : T.foreground.withAlpha (0.45f));
         g.drawText ("FINE", markerFineModeToggleArea, juce::Justification::centred, false);
@@ -1299,20 +1319,35 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
 
      auto drawBtn = [&] (const juce::Rectangle<int>& area, const juce::String& label, bool active)
      {
-         const auto bg = active
-             ? getTheme().accent.withAlpha (0.22f)
-             : getTheme().separator.withAlpha (0.10f);
-         g.setColour (bg);
-         g.fillRoundedRectangle (area.toFloat(), 4.0f);
+         // Same chrome formula as DysektLookAndFeel::drawButtonBackground / the
+         // DualLcdControlFrame SLICER-SFZ-PLAYER-SF2-PLAYER drawTab lambda, so
+         // PADS/WAVE reads as the same "button" everywhere else in the UI: sprite
+         // base layer first, flat tint only as a fallback if the sprite is missing.
+         juce::Rectangle<float> rf = area.toFloat().reduced (0.5f);
+         const float r = 4.0f;
+         const auto accent  = getTheme().accent;
+         auto baseBg  = getTheme().button;
+         auto fillCol = active ? baseBg.interpolatedWith (accent, 0.18f) : baseBg;
+
+         auto stateDrawable = active ? IconManager::getButtonActive()
+                                      : IconManager::getButtonIdle();
+
+         if (stateDrawable != nullptr)
+             stateDrawable->drawWithin (g, rf, juce::RectanglePlacement::stretchToFit, 1.0f);
+         else
+         {
+             g.setColour (fillCol);
+             g.fillRoundedRectangle (rf, r);
+         }
 
          const auto border = active
-             ? getTheme().accent.withAlpha (0.80f)
+             ? accent.withAlpha (0.80f)
              : getTheme().separator.withAlpha (0.35f);
          g.setColour (border);
-         g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
+         g.drawRoundedRectangle (rf, r, 1.0f);
 
          g.setColour (active
-             ? getTheme().accent
+             ? accent
              : getTheme().foreground.withAlpha (0.50f));
          g.drawText (label, area, juce::Justification::centred);
      };
@@ -2023,10 +2058,10 @@ void SliceControlBar::drawChroBadgeCell (juce::Graphics& g, int x, int y,
 
     // Badge
     const int bx = x + juce::roundToInt (4.0f * paintSf), by = y + juce::roundToInt (14.0f * paintSf), bw = cellW - juce::roundToInt (8.0f * paintSf), bh = juce::roundToInt (14.0f * paintSf);
-    g.setColour (active ? (locked ? theme.lockActive.withAlpha (0.15f)
-                                  : theme.accent.withAlpha (0.15f))
-                        : theme.separator.withAlpha (0.25f));
-    g.fillRoundedRectangle ((float)bx, (float)by, (float)bw, (float)bh, 2.5f);
+    fillGlassBadge (g, juce::Rectangle<float> ((float) bx, (float) by, (float) bw, (float) bh),
+                    active ? (locked ? theme.lockActive.withAlpha (0.15f)
+                                     : theme.accent.withAlpha (0.15f))
+                           : theme.separator.withAlpha (0.25f), 2.5f);
     g.setColour (active ? (locked ? theme.lockActive : theme.accent)
                         : (locked ? theme.lockActive.withAlpha (0.5f)
                                   : theme.foreground.withAlpha (0.22f)));
@@ -2070,8 +2105,8 @@ void SliceControlBar::drawLegatoToggleCell (juce::Graphics& g, int x, int y,
     const juce::Colour col = on ? (locked ? theme.lockActive : theme.accent)
                                : (locked ? theme.lockActive.withAlpha (0.4f)
                                          : theme.foreground.withAlpha (0.18f));
-    g.setColour (col.withAlpha (on ? 0.15f : 0.08f));
-    g.fillRoundedRectangle ((float)bx, (float)by, (float)bw, (float)bh, 2.5f);
+    fillGlassBadge (g, juce::Rectangle<float> ((float) bx, (float) by, (float) bw, (float) bh),
+                    col.withAlpha (on ? 0.15f : 0.08f), 2.5f);
     g.setColour (col);
     g.drawRoundedRectangle ((float)bx, (float)by, (float)bw, (float)bh, 2.5f, 0.8f);
 
