@@ -419,8 +419,8 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
 
     // ── EDIT | PAD mode tab strip (centred on divider) ────────────────────────
     {
-        const int tabH    = si (15);
-        const int tabW    = si (34);
+        const int tabH    = si (17);
+        const int tabW    = si (50);
         const int tabGap  = si (3);
         const int totalTW = tabW * 3 + tabGap * 2;
         const int tabX    = (w - totalTW) / 2;
@@ -470,7 +470,7 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
             g.drawRoundedRectangle (rf, r2, 1.0f);
 
             g.setColour (active ? accent : fg.withAlpha (0.85f));
-            g.setFont (DysektLookAndFeel::makeFont (sf1 (7.0f), true));
+            g.setFont (DysektLookAndFeel::makeFont (sf1 (8.5f), true));
             g.drawText (label, r, juce::Justification::centred);
         };
 
