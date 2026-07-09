@@ -46,9 +46,15 @@ void LogoBar::paint (juce::Graphics& g)
     const int startX  = (w - blockW) / 2;
 
     // ── Waveform-slice icon ───────────────────────────────────────────────
-    const float barH = (float)(h - 8);
-    const float sideHeights[kNumBarsSide] = { 0.174f, 0.317f, 0.548f, 0.747f, 1.0f };
+    // The spike is the tallest element (1.237x a side bar), so barH has to
+    // be sized against the spike, not the bars, or the spike pokes out
+    // past the frame's top/bottom edges. framePad keeps everything clear
+    // of the border drawn further down (withTrimmedTop(3) + stroke insets).
+    const float framePad = 6.0f * sf;
     const float spikeHeightRatio = 1.237f;
+    const float availableH = juce::jmax (4.0f, (float) h - 3.0f - 2.0f * framePad);
+    const float barH = availableH / spikeHeightRatio;
+    const float sideHeights[kNumBarsSide] = { 0.174f, 0.317f, 0.548f, 0.747f, 1.0f };
 
     // The icon keeps its gradient look, but the gradient is now derived
     // from the active theme's single accent colour rather than a hardcoded
