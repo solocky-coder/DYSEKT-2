@@ -1,5 +1,6 @@
 #include "DualLcdControlFrame.h"
 #include "DysektLookAndFeel.h"
+#include "IconManager.h"
 #include "../PluginProcessor.h"
 #include "../params/ParamIds.h"
 
@@ -28,8 +29,22 @@ void DualLcdControlFrame::drawIcon (juce::Graphics& g, juce::Rectangle<float> b,
         auto fillCol = hovered ? baseBg.brighter (0.10f)
                      : active  ? baseBg.interpolatedWith (accent, 0.18f)
                                : baseBg;
-        g.setColour (fillCol);
-        g.fillRoundedRectangle (bounds, r);
+
+        // Sprite base layer — must match DysektLookAndFeel::drawButtonBackground's
+        // idle/hover/active selection exactly, or these toggles will look like flat
+        // vector rectangles next to HeaderBar's real TextButtons, which draw this
+        // sprite first and the fillCol/border only as a fallback.
+        auto stateDrawable = active  ? IconManager::getButtonActive()
+                           : hovered ? IconManager::getButtonHover()
+                                     : IconManager::getButtonIdle();
+
+        if (stateDrawable != nullptr)
+            stateDrawable->drawWithin (g, bounds, juce::RectanglePlacement::stretchToFit, 1.0f);
+        else
+        {
+            g.setColour (fillCol);
+            g.fillRoundedRectangle (bounds, r);
+        }
 
         auto borderCol = active   ? accent.withAlpha (0.70f)
                         : hovered ? getTheme().separator.brighter (0.30f)
@@ -434,8 +449,20 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
             const float r2 = 2.0f;
             auto baseBg  = getTheme().button;
             auto fillCol = active ? baseBg.interpolatedWith (accent, 0.18f) : baseBg;
-            g.setColour (fillCol);
-            g.fillRoundedRectangle (rf, r2);
+
+            // Sprite base layer — see drawIcon() above for why this must mirror
+            // DysektLookAndFeel::drawButtonBackground's idle/active sprite choice
+            // rather than only the flat-tint fallback.
+            auto stateDrawable = active ? IconManager::getButtonActive()
+                                         : IconManager::getButtonIdle();
+
+            if (stateDrawable != nullptr)
+                stateDrawable->drawWithin (g, rf, juce::RectanglePlacement::stretchToFit, 1.0f);
+            else
+            {
+                g.setColour (fillCol);
+                g.fillRoundedRectangle (rf, r2);
+            }
 
             auto borderCol = active ? accent.withAlpha (0.70f)
                                      : getTheme().separator.withAlpha (0.60f);
