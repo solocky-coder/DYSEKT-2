@@ -37,8 +37,14 @@ public:
     static constexpr int kSf2ChRowH   = 32;
     /** Width of the slice name column. */
     static constexpr int kNameColW    = 88;
-    /** Width of each knob column. */
-    static constexpr int kKnobColW    = 84;
+    /** Width of each knob column.
+        Widened from 84 -> 108 (24px/col x 8 cols = 192px reclaimed) so the
+        GAIN/PAN/FCUT/PRES/OUT knobs, sliders, and value text have more
+        breathing room. The peak meter (drawn in whatever space remains
+        after these columns) narrows by the same 192px as a direct
+        consequence — no separate meter cap needed, and no dead space is
+        introduced since the meter still fills 100% of what's left. */
+    static constexpr int kKnobColW    = 108;
     /** Number of knob columns (GAIN PAN FCUT PRES MUTE CHRO OUT — meter is after). */
     static constexpr int kNumCols     = 8;
     /** Width of the horizontal peak meter column after OUT. */
