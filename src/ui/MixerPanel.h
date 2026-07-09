@@ -26,15 +26,19 @@ public:
     /** Fixed panel height used by PluginEditor layout. */
     static constexpr int kPanelH      = 260;
     /** Height of the column-header row. */
-    static constexpr int kHeaderH     = 26;
-    /** Height of each slice row. */
-    static constexpr int kRowH        = 38;
+    static constexpr int kHeaderH     = 28;
+    /** Height of each slice row.
+        Bumped 38 -> 46 to give value text and knobs more vertical room to
+        breathe. Panel height (kPanelH) is unchanged, so taller rows mean
+        fewer rows fit before scrolling — an intentional tradeoff for
+        readability. */
+    static constexpr int kRowH        = 46;
     /** Height of the master row at the bottom. */
-    static constexpr int kMasterH     = 42;
+    static constexpr int kMasterH     = 50;
     /** Height of the SF-PLAYER header row. */
-    static constexpr int kSf2RowH     = 38;
+    static constexpr int kSf2RowH     = 46;
     /** Height of each per-channel sub-row under the SF-PLAYER row. */
-    static constexpr int kSf2ChRowH   = 32;
+    static constexpr int kSf2ChRowH   = 38;
     /** Width of the slice name column. */
     static constexpr int kNameColW    = 88;
     /** Width of each knob column.
