@@ -27,11 +27,18 @@ void LogoBar::paint (juce::Graphics& g)
     const int sektW = juce::GlyphArrangement::getStringWidthInt(wordmarkFont, sekt);
     const int wordW = dyW + sektW;
 
-    // Icon: 5 bars
-    const int barW    = juce::roundToInt (3 * sf);
-    const int gap     = juce::roundToInt (2 * sf);
-    const int barStep = barW + gap;
-    const int iconW   = 5 * barStep - gap;
+    // Icon: symmetric 11-element waveform — 5 bars ramping up, a tapered
+    // centre spike, then 5 bars ramping back down. Proportions measured
+    // directly from the DYSEKT mark artwork (bar heights ~0.17/0.32/0.55/
+    // 0.75/1.0 of the tallest bar; spike ~1.24x the tallest bar).
+    const int barW    = juce::roundToInt (2.6f * sf);
+    const int gap     = juce::roundToInt (1.4f * sf);
+    constexpr int kNumBarsSide = 5;
+    constexpr int kNumElems = kNumBarsSide * 2 + 1;
+    constexpr int kSpikeIdx = kNumBarsSide;
+    const int spikeW  = juce::jmax (2, juce::roundToInt (1.8f * sf));
+
+    const int iconW = kNumBarsSide * 2 * barW + spikeW + (kNumElems - 1) * gap;
     const int iconGap = juce::roundToInt (7 * sf);
 
     // Total block width → centre it
@@ -39,9 +46,9 @@ void LogoBar::paint (juce::Graphics& g)
     const int startX  = (w - blockW) / 2;
 
     // ── Waveform-slice icon ───────────────────────────────────────────────
-    const float barH = (float)(h - 10);
-    const float heights[5] = { 0.55f, 0.90f, 0.48f, 0.80f, 0.52f };
-    const int   activeBar  = 1;
+    const float barH = (float)(h - 8);
+    const float sideHeights[kNumBarsSide] = { 0.174f, 0.317f, 0.548f, 0.747f, 1.0f };
+    const float spikeHeightRatio = 1.237f;
 
     // The icon keeps its gradient look, but the gradient is now derived
     // from the active theme's single accent colour rather than a hardcoded
@@ -70,25 +77,54 @@ void LogoBar::paint (juce::Graphics& g)
     g.setOpacity (0.12f);
     g.drawHorizontalLine (cy, (float)startX, (float)(startX + iconW));
 
-    for (int i = 0; i < 5; ++i)
+    // The centre spike is the dark tapered divider from the artwork —
+    // themed off the panel's own dark colour so it reads correctly on
+    // light themes too.
+    const auto spikeColour = getTheme().background.getPerceivedBrightness() < 0.5f
+                                ? getTheme().background.brighter (0.05f)
+                                : getTheme().darkBar;
+
+    int bx = startX;
+    for (int i = 0; i < kNumElems; ++i)
     {
-        const int bx = startX + i * barStep;
-        const int bh = juce::roundToInt (heights[i] * barH);
-        const int by = cy - bh / 2;
+        const bool isSpike = (i == kSpikeIdx);
 
-        g.setGradientFill (iconGrad);
-
-        if (i == activeBar)
+        if (isSpike)
         {
-            g.setOpacity (0.22f);
-            g.fillRect (bx, by, barW, bh);
-            g.setOpacity (1.0f);
+            const int sh = juce::roundToInt (spikeHeightRatio * barH);
+            const int sy = cy - sh / 2;
+            const float midX = bx + spikeW * 0.5f;
+
+            // Tapered lens/spike shape — pointed top & bottom, widest at mid-height.
+            juce::Path spike;
+            spike.startNewSubPath (midX, (float) sy);
+            spike.quadraticTo ((float)(bx + spikeW), (float)(sy + sh * 0.30f),
+                                (float)(bx + spikeW), (float) cy);
+            spike.quadraticTo ((float)(bx + spikeW), (float)(sy + sh * 0.70f),
+                                midX, (float)(sy + sh));
+            spike.quadraticTo ((float) bx, (float)(sy + sh * 0.70f),
+                                (float) bx, (float) cy);
+            spike.quadraticTo ((float) bx, (float)(sy + sh * 0.30f),
+                                midX, (float) sy);
+            spike.closeSubPath();
+
+            g.setColour (spikeColour);
+            g.fillPath (spike);
+
+            bx += spikeW + gap;
         }
         else
         {
-            g.setOpacity (0.45f);
+            const int sideIdx = i < kSpikeIdx ? i : (kNumElems - 1 - i);
+            const int bh = juce::roundToInt (sideHeights[sideIdx] * barH);
+            const int by = cy - bh / 2;
+
+            g.setGradientFill (iconGrad);
+            g.setOpacity (1.0f);
+            g.fillRoundedRectangle ((float) bx, (float) by, (float) barW, (float) bh, barW * 0.4f);
+
+            bx += barW + gap;
         }
-        g.drawRect (bx, by, barW, bh, 1);
     }
 
     // ── Wordmark ──────────────────────────────────────────────────────────
