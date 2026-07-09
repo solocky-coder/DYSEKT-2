@@ -12,22 +12,35 @@ DualLcdControlFrame::DualLcdControlFrame (DysektProcessor& p)
 // ── drawIcon ──────────────────────────────────────────────────────────────────
 
 void DualLcdControlFrame::drawIcon (juce::Graphics& g, juce::Rectangle<float> b,
-                                    int type, bool active)
+                                    int type, bool active, bool hovered)
 {
     const auto accent = getTheme().accent;
     const auto fg     = getTheme().foreground;
 
-    if (active)
+    // ── Chrome — matches DysektLookAndFeel::drawButtonBackground exactly,
+    // so these icon toggles read as the same "button" as HeaderBar's real
+    // juce::TextButtons (UNDO/REDO/PANIC/⚙): 2px radius, theme.button base
+    // fill, accent fill+border when toggled, separator border otherwise.
     {
-        g.setColour (accent.withAlpha (0.22f));
-        g.fillRoundedRectangle (b.reduced (2.0f), 4.0f);
-        g.setColour (accent.withAlpha (0.70f));
-        g.drawRoundedRectangle (b.reduced (1.5f), 4.0f, 1.2f);
+        auto bounds = b.reduced (0.5f);
+        const float r = 2.0f;
+        auto baseBg = getTheme().button;
+        auto fillCol = hovered ? baseBg.brighter (0.10f)
+                     : active  ? baseBg.interpolatedWith (accent, 0.18f)
+                               : baseBg;
+        g.setColour (fillCol);
+        g.fillRoundedRectangle (bounds, r);
+
+        auto borderCol = active   ? accent.withAlpha (0.70f)
+                        : hovered ? getTheme().separator.brighter (0.30f)
+                                  : getTheme().separator.withAlpha (0.60f);
+        g.setColour (borderCol);
+        g.drawRoundedRectangle (bounds, r, 1.0f);
     }
 
     float cx  = b.getCentreX();
     float cy2 = b.getCentreY();
-    auto  col = active ? accent : fg.withAlpha (0.75f);
+    auto  col = active ? accent : fg.withAlpha (0.85f);
     g.setColour (col);
 
     if (type == 0) // Folder / Browser
@@ -414,23 +427,22 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
 
         auto drawTab = [&] (juce::Rectangle<int> r, const char* label, bool active)
         {
-            juce::Rectangle<float> rf = r.toFloat();
-            if (active)
-            {
-                g.setColour (accent.withAlpha (0.28f));
-                g.fillRoundedRectangle (rf, 3.0f);
-                g.setColour (accent.withAlpha (0.85f));
-                g.drawRoundedRectangle (rf.reduced (0.5f), 3.0f, 1.1f);
-                g.setColour (accent);
-            }
-            else
-            {
-                g.setColour (fg.withAlpha (0.10f));
-                g.fillRoundedRectangle (rf, 3.0f);
-                g.setColour (fg.withAlpha (0.28f));
-                g.drawRoundedRectangle (rf.reduced (0.5f), 3.0f, 0.7f);
-                g.setColour (fg.withAlpha (0.50f));
-            }
+            // Same chrome formula as DysektLookAndFeel::drawButtonBackground
+            // (HeaderBar's UNDO/REDO/PANIC buttons): 2px radius, theme.button
+            // base fill, accent fill+border when active/toggled.
+            juce::Rectangle<float> rf = r.toFloat().reduced (0.5f);
+            const float r2 = 2.0f;
+            auto baseBg  = getTheme().button;
+            auto fillCol = active ? baseBg.interpolatedWith (accent, 0.18f) : baseBg;
+            g.setColour (fillCol);
+            g.fillRoundedRectangle (rf, r2);
+
+            auto borderCol = active ? accent.withAlpha (0.70f)
+                                     : getTheme().separator.withAlpha (0.60f);
+            g.setColour (borderCol);
+            g.drawRoundedRectangle (rf, r2, 1.0f);
+
+            g.setColour (active ? accent : fg.withAlpha (0.85f));
             g.setFont (DysektLookAndFeel::makeFont (sf1 (7.0f), true));
             g.drawText (label, r, juce::Justification::centred);
         };
@@ -462,12 +474,12 @@ void DualLcdControlFrame::paint (juce::Graphics& g)
         eqIconArea         = {};
         sfzIconArea        = {};
 
-        drawIcon (g, filIconArea       .toFloat(), 0, browserActive);
-        drawIcon (g, waIconArea        .toFloat(), 1, waveMode != 0);
-        drawIcon (g, midiFollowIconArea.toFloat(), 2, midiFollowActive);
-        drawIcon (g, bodeIconArea      .toFloat(), 3, bodeActive);
+        drawIcon (g, filIconArea       .toFloat(), 0, browserActive,    hoveredIcon == 0);
+        drawIcon (g, waIconArea        .toFloat(), 1, waveMode != 0,    hoveredIcon == 1);
+        drawIcon (g, midiFollowIconArea.toFloat(), 2, midiFollowActive, hoveredIcon == 2);
+        drawIcon (g, bodeIconArea      .toFloat(), 3, bodeActive,       hoveredIcon == 3);
 #if DYSEKT_STANDALONE
-        drawIcon (g, seqIconArea       .toFloat(), 6, seqActive);
+        drawIcon (g, seqIconArea       .toFloat(), 6, seqActive,        hoveredIcon == 4);
 #endif
 
         // ── Hover tooltip label ──────────────────────────────────────

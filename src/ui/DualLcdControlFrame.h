@@ -49,7 +49,7 @@ public:
     void setSeqActive        (bool v) { seqActive        = v; repaint(); }
 
 private:
-    void drawIcon (juce::Graphics& g, juce::Rectangle<float> b, int type, bool active);
+    void drawIcon (juce::Graphics& g, juce::Rectangle<float> b, int type, bool active, bool hovered = false);
 
     DysektProcessor& processor;
 
