@@ -43,7 +43,31 @@ void LogoBar::paint (juce::Graphics& g)
     const float heights[5] = { 0.55f, 0.90f, 0.48f, 0.80f, 0.52f };
     const int   activeBar  = 1;
 
-    g.setColour (accent.withAlpha (0.12f));
+    // The icon keeps its gradient look, but the gradient is now derived
+    // from the active theme's single accent colour rather than a hardcoded
+    // cyan-to-purple pair — so it stays correct for every built-in theme
+    // (dysekt's teal, hack's red, snow's orange, ...) and for any
+    // user-created theme too, since those only ever define one accent
+    // colour (see ThemeData::fromThemeFile). The second stop is normally a
+    // hue-rotated variant of the same accent, reproducing the original
+    // "cool colour sweeping into a neighbouring hue" effect for any input.
+    //
+    // Fallback: a custom theme could set a near-grayscale accent (very low
+    // saturation), where rotating the hue barely changes anything visible.
+    // In that case, shift lightness instead so the gradient still reads as
+    // two distinct stops rather than collapsing to a flat colour.
+    juce::Colour accentB;
+    if (accent.getSaturation() < 0.15f)
+        accentB = accent.getBrightness() > 0.5f ? accent.darker (0.45f) : accent.brighter (0.45f);
+    else
+        accentB = accent.withRotatedHue (0.16f).withMultipliedSaturation (0.9f);
+
+    const juce::ColourGradient iconGrad (accent,  (float) startX,          (float) cy,
+                                          accentB, (float)(startX + iconW), (float) cy,
+                                          false);
+
+    g.setGradientFill (iconGrad);
+    g.setOpacity (0.12f);
     g.drawHorizontalLine (cy, (float)startX, (float)(startX + iconW));
 
     for (int i = 0; i < 5; ++i)
@@ -52,15 +76,17 @@ void LogoBar::paint (juce::Graphics& g)
         const int bh = juce::roundToInt (heights[i] * barH);
         const int by = cy - bh / 2;
 
+        g.setGradientFill (iconGrad);
+
         if (i == activeBar)
         {
-            g.setColour (accent.withAlpha (0.22f));
+            g.setOpacity (0.22f);
             g.fillRect (bx, by, barW, bh);
-            g.setColour (accent);
+            g.setOpacity (1.0f);
         }
         else
         {
-            g.setColour (accent.withAlpha (0.45f));
+            g.setOpacity (0.45f);
         }
         g.drawRect (bx, by, barW, bh, 1);
     }

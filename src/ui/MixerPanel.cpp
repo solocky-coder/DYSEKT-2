@@ -229,7 +229,7 @@ float MixerPanel::fromNormFcut (float n) const
 // ─────────────────────────────────────────────────────────────────────────────
 //  Drawing
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr int kKnobR = 13;  // knob radius (px) — bumped from 11 now that
+static constexpr int kKnobR = 14;  // knob radius (px) — bumped from 13 now that
                                     // kRowH gives each row more vertical room
 
 void MixerPanel::drawKnobInRow (juce::Graphics& g, int cx, int cy,
@@ -629,7 +629,7 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
     g.fillRect (3, ry, kNameColW - 4, kRowH);
 
     // Slice number / custom name
-    g.setFont (DysektLookAndFeel::makeFont (13.0f));
+    g.setFont (DysektLookAndFeel::makeFont (14.0f));
     g.setColour (dot.withAlpha (selected ? 0.95f : 0.65f));
     if (sl.name.isNotEmpty())
     {
@@ -656,7 +656,11 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
     // ── Knob columns ────────────────────────────────────────────────────
     const int kcy = ry + kRowH / 2;
 
-    static constexpr int kTextOffX = kKnobR + 5;
+    // Gap between a knob's right edge and its value text. Widened from the
+    // previous tight +4px so there's clear breathing room between the knob
+    // and the number, and so the text sits further right, per feedback that
+    // knobs and readouts were reading as visually merged together.
+    static constexpr int kValueTextGap = 14;
 
     auto drawCol = [&] (Col col, float norm, bool locked,
                          const juce::String& valStr)
@@ -665,9 +669,9 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
         const int cx = x + kKnobR + 8;
         drawKnobInRow (g, cx, kcy, norm, locked);
 
-        const int tx = cx + kKnobR + 4;
+        const int tx = cx + kKnobR + kValueTextGap;
         const int tw = kKnobColW - (tx - x) - 2;
-        g.setFont (DysektLookAndFeel::makeFont (14.0f));
+        g.setFont (DysektLookAndFeel::makeFont (16.0f));
         g.setColour (locked ? theme.foreground.withAlpha (0.90f)
                             : theme.foreground.withAlpha (0.40f));
         g.drawText (valStr, tx, ry + 1, tw, kRowH - 2, juce::Justification::centredLeft);
@@ -679,9 +683,9 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
         const int x  = colX (ColGain);
         const int cx = x + kKnobR + 8;
         drawKnobInRow (g, cx, kcy, toNormGain (sl.volume), gainLocked, false, /*isGain=*/true);
-        const int tx = cx + kKnobR + 4;
+        const int tx = cx + kKnobR + kValueTextGap;
         const int tw = kKnobColW - (tx - x) - 2;
-        g.setFont (DysektLookAndFeel::makeFont (14.0f));
+        g.setFont (DysektLookAndFeel::makeFont (16.0f));
         g.setColour (gainLocked ? theme.foreground.withAlpha (0.90f)
                                 : theme.foreground.withAlpha (0.40f));
         g.drawText (fmtGain (sl.volume), tx, ry + 1, tw, kRowH - 2, juce::Justification::centredLeft);
@@ -693,13 +697,20 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
         const int     x      = colX (ColPan);
         const int     sliderX = x + 6;
         const int     sliderW = kKnobColW - 12;
-        const int     sliderY = kcy - 3;
+        const int     sliderY = kcy + 5;   // slider now sits BELOW the label
         const int     sliderH = 6;
         const float   pan     = sl.pan;
         const float   norm    = toNormPan (pan);
         const int     thumbX  = sliderX + (int)(norm * (float)sliderW);
         const int     centreX = sliderX + sliderW / 2;
         const auto    fillCol = panLocked ? theme.lockActive : theme.accent;
+
+        // Value label — now drawn ABOVE the slider track, centred in column
+        g.setFont (DysektLookAndFeel::makeFont (16.0f));
+        g.setColour (panLocked ? theme.foreground.withAlpha (0.90f)
+                               : theme.foreground.withAlpha (0.40f));
+        g.drawText (fmtPan (pan), x, kcy - 20, kKnobColW, 16,
+                    juce::Justification::centred);
 
         // Track bg — pill-shaped, matching the glowing-pill motif
         g.setColour (theme.darkBar.darker (0.3f));
@@ -732,13 +743,6 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
                                  4.f, (float)(sliderH + 2), 1.5f);
         g.setColour (theme.darkBar.darker (0.5f).withAlpha (0.6f));
         g.drawVerticalLine (thumbX, (float)(sliderY - 1), (float)(sliderY + sliderH + 1));
-
-        // Value label — below the slider track, centred in column
-        g.setFont (DysektLookAndFeel::makeFont (14.0f));
-        g.setColour (panLocked ? theme.foreground.withAlpha (0.90f)
-                               : theme.foreground.withAlpha (0.40f));
-        g.drawText (fmtPan (pan), x, sliderY + sliderH + 2, kKnobColW, 10,
-                    juce::Justification::centred);
     }
 
     // FCUT
@@ -773,7 +777,7 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
         const auto& T = getTheme();
         juce::Colour col = on ? T.accent : T.foreground.withAlpha (0.28f);
         if (legatoLocked) col = T.lockActive;
-        g.setFont (DysektLookAndFeel::makeFont (14.0f));
+        g.setFont (DysektLookAndFeel::makeFont (16.0f));
         g.setColour (col);
         g.drawText (on ? "ON" : "OFF", x, ry, kKnobColW, kRowH, juce::Justification::centred);
     }
@@ -783,7 +787,7 @@ void MixerPanel::drawSliceRow (juce::Graphics& g, int ry, int idx, bool selected
         const bool outLocked = (sl.lockMask & kLockOutputBus) != 0;
         const int x = colX (ColOut);
         const int cx = x + kKnobColW / 2 - 6;
-        g.setFont (DysektLookAndFeel::makeFont (14.0f));
+        g.setFont (DysektLookAndFeel::makeFont (16.0f));
         g.setColour (outLocked ? theme.foreground.withAlpha (0.85f)
                                : theme.foreground.withAlpha (0.32f));
         g.drawText (fmtOut (sl.outputBus), cx, ry, kKnobColW - 4, kRowH,
@@ -830,7 +834,7 @@ void MixerPanel::drawMasterRow (juce::Graphics& g, int ry) const
         drawKnobInRow (g, cx, kcy, norm, false, true, isGain);
         const int tx = cx + kKnobR + 4;
         const int tw = kKnobColW - (tx - x) - 2;
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
+        g.setFont (DysektLookAndFeel::makeFont (14.0f));
         g.setColour (theme.accent.withAlpha (0.55f));
         g.drawText (valStr, tx, ry + 1, tw, kMasterH - 2, juce::Justification::centredLeft);
     };
@@ -842,12 +846,17 @@ void MixerPanel::drawMasterRow (juce::Graphics& g, int ry) const
         const int   x       = colX (ColPan);
         const int   sliderX = x + 6;
         const int   sliderW = kKnobColW - 12;
-        const int   sliderY = kcy - 3;
+        const int   sliderY = kcy + 5;   // slider below the label
         const int   sliderH = 6;
         const float norm    = toNormPan (masterPan);
         const int   thumbX  = sliderX + (int)(norm * (float)sliderW);
         const int   centreX = sliderX + sliderW / 2;
         const auto  fillCol = theme.accent;
+
+        g.setFont (DysektLookAndFeel::makeFont (14.0f));
+        g.setColour (theme.accent.withAlpha (0.55f));
+        g.drawText (fmtPan (masterPan), x, kcy - 18, kKnobColW, 14,
+                    juce::Justification::centred);
 
         g.setColour (theme.darkBar.darker (0.3f));
         g.fillRoundedRectangle ((float)sliderX, (float)sliderY,
@@ -873,16 +882,10 @@ void MixerPanel::drawMasterRow (juce::Graphics& g, int ry) const
                                  4.f, (float)(sliderH + 2), 1.5f);
         g.setColour (theme.darkBar.darker (0.5f).withAlpha (0.6f));
         g.drawVerticalLine (thumbX, (float)(sliderY - 1), (float)(sliderY + sliderH + 1));
-
-        const int tx = x + kKnobColW / 2 + 8;
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
-        g.setColour (theme.accent.withAlpha (0.55f));
-        g.drawText (fmtPan (masterPan), x, sliderY + sliderH + 2, kKnobColW, 10,
-                    juce::Justification::centred);
     }
 
         // Remaining columns — dimmed dashes
-    g.setFont (DysektLookAndFeel::makeFont (13.0f));
+    g.setFont (DysektLookAndFeel::makeFont (14.0f));
     g.setColour (theme.foreground.withAlpha (0.15f));
     for (int i = ColFcut; i < kNumCols; ++i)
         g.drawText ("—", colX ((Col)i), ry, kKnobColW, kMasterH, juce::Justification::centred);
@@ -928,7 +931,7 @@ void MixerPanel::drawSf2Row (juce::Graphics& g, int ry) const
         drawKnobInRow (g, cx, kcy, toNormGain (volDb), false, true, /*isGain=*/true);
         const int tx = cx + kKnobR + 4;
         const int tw = kKnobColW - (tx - x);
-        g.setFont (DysektLookAndFeel::makeFont (14.0f));
+        g.setFont (DysektLookAndFeel::makeFont (16.0f));
         g.setColour (theme.foreground.withAlpha (0.40f));
         g.drawText (fmtGain (volDb), tx, ry + 1, tw, kSf2RowH - 2, juce::Justification::centredLeft);
     }
@@ -938,12 +941,16 @@ void MixerPanel::drawSf2Row (juce::Graphics& g, int ry) const
         const int   x       = colX (ColPan);
         const int   sliderX = x + 6;
         const int   sliderW = kKnobColW - 12;
-        const int   sliderY = kcy - 3;
+        const int   sliderY = kcy + 5;   // slider below the label
         const int   sliderH = 6;
         const float norm    = toNormPan (pan);
         const int   thumbX  = sliderX + (int)(norm * (float)sliderW);
         const int   centreX = sliderX + sliderW / 2;
         const auto  fillCol = theme.accent;
+
+        g.setFont (DysektLookAndFeel::makeFont (16.0f));
+        g.setColour (theme.foreground.withAlpha (0.40f));
+        g.drawText (fmtPan (pan), x, kcy - 20, kKnobColW, 16, juce::Justification::centred);
 
         g.setColour (theme.darkBar.darker (0.3f));
         g.fillRoundedRectangle ((float)sliderX, (float)sliderY, (float)sliderW, (float)sliderH, sliderH * 0.5f);
@@ -961,9 +968,6 @@ void MixerPanel::drawSf2Row (juce::Graphics& g, int ry) const
         g.fillRoundedRectangle ((float)(thumbX - 2), (float)(sliderY - 1), 4.f, (float)(sliderH + 2), 1.5f);
         g.setColour (theme.darkBar.darker (0.5f).withAlpha (0.6f));
         g.drawVerticalLine (thumbX, (float)(sliderY - 1), (float)(sliderY + sliderH + 1));
-        g.setFont (DysektLookAndFeel::makeFont (14.0f));
-        g.setColour (theme.foreground.withAlpha (0.40f));
-        g.drawText (fmtPan (pan), x, sliderY + sliderH + 2, kKnobColW, 10, juce::Justification::centred);
     }
 
     // Dash-fill columns that don't apply to the SF-Player
@@ -1047,7 +1051,7 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
         drawKnobInRow (g, cx, kcy, toNormGain (volDb), false, false, /*isGain=*/true);
         const int tx = cx + kKnobR + 4;
         const int tw = kKnobColW - (tx - x) - 2;
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
+        g.setFont (DysektLookAndFeel::makeFont (14.0f));
         g.setColour (theme.foreground.withAlpha (0.40f));
         g.drawText (fmtGain (volDb), tx, ry + 1, tw, kSf2ChRowH - 2,
                     juce::Justification::centredLeft);
@@ -1058,12 +1062,17 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
         const int   x       = colX (ColPan);
         const int   sliderX = x + 6;
         const int   sliderW = kKnobColW - 12;
-        const int   sliderY = kcy - 3;
+        const int   sliderY = kcy + 4;   // slider below the label
         const int   sliderH = 6;
         const float norm    = toNormPan (strip.pan);
         const int   thumbX  = sliderX + (int)(norm * (float)sliderW);
         const int   centreX = sliderX + sliderW / 2;
         const auto  fillCol = chCol;
+
+        g.setFont (DysektLookAndFeel::makeFont (14.0f));
+        g.setColour (theme.foreground.withAlpha (0.40f));
+        g.drawText (fmtPan (strip.pan), x, kcy - 16, kKnobColW, 14,
+                    juce::Justification::centred);
 
         g.setColour (theme.darkBar.darker (0.3f));
         g.fillRoundedRectangle ((float)sliderX, (float)sliderY, (float)sliderW, (float)sliderH, sliderH * 0.5f);
@@ -1085,10 +1094,6 @@ void MixerPanel::drawSf2ChannelRow (juce::Graphics& g, int ry,
         g.fillRoundedRectangle ((float)(thumbX - 2), (float)(sliderY - 1), 4.f, (float)(sliderH + 2), 1.5f);
         g.setColour (theme.darkBar.darker (0.5f).withAlpha (0.6f));
         g.drawVerticalLine (thumbX, (float)(sliderY - 1), (float)(sliderY + sliderH + 1));
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
-        g.setColour (theme.foreground.withAlpha (0.40f));
-        g.drawText (fmtPan (strip.pan), x, sliderY + sliderH + 2, kKnobColW, 10,
-                    juce::Justification::centred);
     }
 
     // Mute button — small badge in FCUT column
