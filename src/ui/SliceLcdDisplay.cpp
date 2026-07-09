@@ -39,6 +39,36 @@ namespace LcdColours
     }
 }
 
+// ── Phosphor-glow flag fill ─────────────────────────────────────────────────────
+// Mirrors the "glass gradient + glow" treatment used on the FINE/CHRO/LGTO
+// badges (SliceControlBar), but phosphor-tinted so the flags row reads as a
+// lit segment of the CRT screen rather than a plastic button glued onto it.
+// A subtle vertical gradient gives every pill some depth; active ("on")
+// flags additionally get a soft radial glow blooming up from the bottom
+// centre, like a genuinely lit phosphor segment. Border and text drawing
+// are untouched — only the fill changes.
+static void fillPhosphorFlag (juce::Graphics& g, juce::Rectangle<float> bounds,
+                               juce::Colour phosphor, bool on, float radius)
+{
+    const juce::Colour top    = on ? phosphor.withAlpha (0.26f) : phosphor.withAlpha (0.10f);
+    const juce::Colour bottom = on ? phosphor.withAlpha (0.12f) : phosphor.withAlpha (0.05f);
+
+    juce::ColourGradient grad (top, bounds.getX(), bounds.getY(),
+                                bottom, bounds.getX(), bounds.getBottom(), false);
+    g.setGradientFill (grad);
+    g.fillRoundedRectangle (bounds, radius);
+
+    if (on)
+    {
+        juce::ColourGradient glow (phosphor.withAlpha (0.30f),
+                                    bounds.getCentreX(), bounds.getBottom(),
+                                    juce::Colours::transparentBlack,
+                                    bounds.getCentreX(), bounds.getY(), true);
+        g.setGradientFill (glow);
+        g.fillRoundedRectangle (bounds, radius);
+    }
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 juce::String SliceLcdDisplay::midiNoteName (int note)
@@ -377,8 +407,7 @@ void SliceLcdDisplay::drawFlagsRow (juce::Graphics& g, int /*row*/)
         juce::Rectangle<int> box (fx, stripY, flagW, flagH);
         flagHitRects.push_back ({ box, f.fieldId, f.isCycle });
 
-        g.setColour (f.on ? pal.phosphor.withAlpha (0.15f) : pal.flagBg);
-        g.fillRoundedRectangle (box.toFloat(), 2.0f);
+        fillPhosphorFlag (g, box.toFloat(), pal.phosphor, f.on, 2.0f);
         g.setColour (f.on ? pal.flagOn : pal.flagOff);
         g.drawRoundedRectangle (box.toFloat(), 2.0f, 1.0f);
         g.drawText (f.text, box.getX() + pad, box.getY(),
