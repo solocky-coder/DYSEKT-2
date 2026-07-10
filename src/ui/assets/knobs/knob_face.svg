@@ -6,8 +6,15 @@
       <stop offset="100%" style="stop-color:#202028;stop-opacity:1" />
     </radialGradient>
   </defs>
-  <circle cx="64" cy="64" r="56" fill="url(#metalGrad)" stroke="#00ffe0" stroke-width="1"/>
-  <!-- Concentric groove rings for depth -->
-  <circle cx="64" cy="64" r="48" fill="none" stroke="#101018" stroke-width="0.5" opacity="0.6"/>
-  <circle cx="64" cy="64" r="40" fill="none" stroke="#303040" stroke-width="0.5" opacity="0.4"/>
+  <circle cx="64" cy="64" r="56" fill="url(#metalGrad)"/>
+  <!-- Concentric groove rings for depth.
+       stroke-width bumped 0.5 -> 3.5: this face renders at ~36px on screen
+       (see MixerPanel::drawKnobInRow, d = kKnobR*2.6), a ~0.284x scale from
+       this 128-unit viewBox. A 0.5-unit stroke became ~0.14 physical
+       pixels — sub-pixel geometry that anti-aliases as speckle/noise
+       rather than a clean line. 3.5 units survives that scale-down as a
+       ~1px line. Depth differentiation between the two rings is kept via
+       opacity, not stroke width, matching the original intent. -->
+  <circle cx="64" cy="64" r="48" fill="none" stroke="#101018" stroke-width="3.5" opacity="0.6"/>
+  <circle cx="64" cy="64" r="40" fill="none" stroke="#303040" stroke-width="3.5" opacity="0.4"/>
 </svg>
