@@ -25,8 +25,14 @@ public:
     void setPadViewActive (bool on) { padViewActive = on; repaint(); }
     bool getPadViewActive() const noexcept { return padViewActive; }
 
+    // SFZ-PLAYER zone-matrix toggle. Kept separate from PAD/WAVE because the
+    // SFZ player uses the waveform and zone builder as its two primary views.
+    void setZoneBuilderActive (bool on) { zoneBuilderActive = on; repaint(); }
+    bool getZoneBuilderActive() const noexcept { return zoneBuilderActive; }
+
     /// Fired when the user clicks the PAD/WAVE toggle button.
     std::function<void (bool padActive)> onPadViewToggle;
+    std::function<void (bool zonesActive)> onZonesToggle;
 
 private:
     void timerCallback() override;
@@ -34,8 +40,10 @@ private:
     bool  wasArmed      = false;  // tracks arm state across updateMidiLearnPulse calls
     int   lastLiveDrag  = -1;      // last liveDragBoundsStart value seen, for repaint gating
     bool  padViewActive = false;   // mirrors editor showPadGrid
+    bool  zoneBuilderActive = false; // mirrors editor showZoneBuilder
     juce::Rectangle<int> padToggleBtnArea;  // hit-tested in mouseDown — PADS button
     juce::Rectangle<int> waveToggleBtnArea; // hit-tested in mouseDown — WAVE button
+    juce::Rectangle<int> zonesToggleBtnArea; // SFZ-PLAYER ZONES button
 
     // True when the SFZ-PLAYER tab (sliceManager2/voicePool2 — a full second
     // Slicer instance) is the active engine. Mirrors SliceLcdDisplay's

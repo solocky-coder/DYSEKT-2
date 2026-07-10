@@ -67,6 +67,11 @@ public:
 
     /** Reload zone display for the given file — public so PluginEditor can call it directly. */
     void reloadZones (const juce::File& f);
+    static std::vector<KeysPanel::Keyzone> parseSfzZones (const juce::File& f);
+
+    // Shared SFZ-zone helpers used by the standalone SFZ-PLAYER zone builder.
+    static bool appendZoneToSfz (const juce::File& sfzFile, const juce::File& sampleFile, int loKey, int hiKey, int rootKey);
+    void writeSfzZoneChange (const juce::File& f, int rowIndex, const KeysPanel::Keyzone& updated);
 
     // ── Layout constants ──────────────────────────────────────────────────────
     static constexpr int kStripH  = 36;
@@ -164,21 +169,15 @@ private:
     void selectPreset (int delta);
 
     // ── Zone parsers ──────────────────────────────────────────────────────────
-    static std::vector<KeysPanel::Keyzone> parseSfzZones (const juce::File& f);
     static std::vector<KeysPanel::Keyzone> parseSf2Zones (const juce::File& f,
                                                             int targetBank   = 0,
                                                             int targetPreset = 0);
-    void writeSfzZoneChange (const juce::File& f, int rowIndex,
-                              const KeysPanel::Keyzone& updated);
 
     // ── Add Zone / Save SFZ As ────────────────────────────────────────────────
     void openAddZoneChooser();
     void showAddZoneOverlay (const juce::File& sfzFile,
                               const juce::File& sampleFile,
                               int               prevHiKey);
-    static bool appendZoneToSfz (const juce::File& sfzFile,
-                                  const juce::File& sampleFile,
-                                  int loKey, int hiKey, int rootKey);
     void openSaveAsOverlay();
     void openSaveAsNewForZone (const juce::File& sampleFile);
 

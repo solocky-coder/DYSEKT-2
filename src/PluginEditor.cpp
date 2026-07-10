@@ -105,6 +105,13 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      resized();
      repaint(); // clear waveform/overview areas vacated by the old view
  };
+ sliceControlBar.onZonesToggle = [this] (bool on)
+ {
+     showZoneBuilder = on;
+     if (on) reloadZoneBuilder();
+     resized();
+     repaint();
+ };
  // When a new SF2/SFZ is loaded from the dropdown, reset the restore flag
  // so the timer re-populates the zone matrix on the next completed load.
  sfzDropdown.onFileLoaded = [this] (const juce::File&)
@@ -429,6 +436,7 @@ void DysektEditor::setUiMode (int mode)
  uiMode = mode;
  // Leaving slicer mode — reset pad view to waveform
  if (uiMode != 0) { showPadGrid = false; sliceControlBar.setPadViewActive (false); }
+ if (uiMode != 1) { showZoneBuilder = false; sliceControlBar.setZoneBuilderActive (false); }
 
  // Filter browser files to match the active tab:
  // Slicer → audio files only, SFZ-PLAYER → .sfz only, SF2-PLAYER → .sf2 only
@@ -1202,6 +1210,7 @@ void DysektEditor::resized()
      sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
      sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
      padGridView.setVisible  (false);       padGridView.setBounds  ({});
+     zoneKeysPanel.setVisible (false);   zoneKeysPanel.setBounds ({});
  }
  else if (initBrowserOpen)
  {
@@ -1211,6 +1220,7 @@ void DysektEditor::resized()
      sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
      sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
      padGridView.setVisible  (false);       padGridView.setBounds  ({});
+     zoneKeysPanel.setVisible (false);   zoneKeysPanel.setBounds ({});
  }
  else if (uiMode == 0 || trimActive)
  {
@@ -1232,14 +1242,15 @@ void DysektEditor::resized()
  }
  else if (uiMode == 1)
  {
-    // SFZ-PLAYER: same waveform view as slicer — no dropdown panels
-    const bool showPads1 = showPadGrid;
-    waveformView.setVisible (! showPads1);
-    waveformView.setBounds (showPads1 ? juce::Rectangle<int>()
-                                      : juce::Rectangle<int> (screenX, y, screenW, waveH));
-    padGridView.setVisible (showPads1);
-    padGridView.setBounds (showPads1 ? juce::Rectangle<int> (screenX, y, screenW, waveH)
-                                     : juce::Rectangle<int>());
+    // SFZ-PLAYER: waveform or the editable SFZ zone matrix.
+    waveformView.setVisible (! showZoneBuilder);
+    waveformView.setBounds (showZoneBuilder ? juce::Rectangle<int>()
+                                             : juce::Rectangle<int> (screenX, y, screenW, waveH));
+    zoneKeysPanel.setVisible (showZoneBuilder);
+    zoneKeysPanel.setBounds (showZoneBuilder ? juce::Rectangle<int> (screenX, y, screenW, waveH)
+                                               : juce::Rectangle<int>());
+    padGridView.setVisible (false);
+    padGridView.setBounds ({});
     sfzDropdown.setVisible (false);
     sfzDropdown.setBounds ({});
     sfzPlayerDropdown.setVisible (false);
@@ -1431,6 +1442,78 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
  }
 
  return false;
+}
+
+void DysektEditor::reloadZoneBuilder()
+{
+    zoneTargetSfz = processor.sfzPlayer2.isLoaded() ? processor.sfzPlayer2.getLoadedFile() : juce::File{};
+    if (zoneTargetSfz.getFileExtension().toLowerCase() != ".sfz") zoneTargetSfz = {};
+    const auto zones = zoneTargetSfz.existsAsFile()
+        ? SfzPlayerDropdownPanel::parseSfzZones (zoneTargetSfz)
+        : std::vector<KeysPanel::Keyzone>{};
+    zoneKeysPanel.setSfzEditable (zoneTargetSfz.existsAsFile());
+    zoneKeysPanel.setAddZoneButtonVisible (true);
+    zoneKeysPanel.setKeyzones (zones);
+    if (! zones.empty()) zoneKeysPanel.autoScrollToZones();
+}
+
+void DysektEditor::chooseZoneSample()
+{
+    zonePrevHiKey = -1;
+    if (zoneTargetSfz.existsAsFile())
+        for (const auto& z : SfzPlayerDropdownPanel::parseSfzZones (zoneTargetSfz))
+            zonePrevHiKey = juce::jmax (zonePrevHiKey, z.hiKey);
+    const auto root = zoneTargetSfz.existsAsFile() ? zoneTargetSfz.getParentDirectory()
+        : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    zoneSampleChooser = std::make_unique<juce::FileChooser> ("Choose zone sample", root, "*.wav;*.aif;*.aiff;*.flac;*.mp3");
+    zoneSampleChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this] (const juce::FileChooser& chooser)
+        {
+            const auto sample = chooser.getResult();
+            if (! sample.existsAsFile()) return;
+            if (zoneTargetSfz.existsAsFile()) showZoneRangeOverlay (sample);
+            else showZoneSaveOverlay (sample);
+        });
+}
+
+void DysektEditor::showZoneRangeOverlay (const juce::File& sample)
+{
+    const int defaultLo = zonePrevHiKey < 0 ? 0 : juce::jmin (127, zonePrevHiKey + 1);
+    zoneAddOverlay = std::make_unique<AddZoneOverlay> (sample.getFileNameWithoutExtension(), defaultLo);
+    zoneAddOverlay->onResult = [this, sample] (int lo, int hi, int root, bool confirmed)
+    {
+        if (confirmed && SfzPlayerDropdownPanel::appendZoneToSfz (zoneTargetSfz, sample, lo, hi, root))
+        {
+            processor.sfzPlayer2.loadFile (zoneTargetSfz, processor.fileLoadPool);
+            reloadZoneBuilder();
+        }
+        juce::MessageManager::callAsync ([this] { dismissZoneOverlays(); });
+    };
+    addAndMakeVisible (*zoneAddOverlay); zoneAddOverlay->setBounds (getLocalBounds()); zoneAddOverlay->toFront (true);
+}
+
+void DysektEditor::showZoneSaveOverlay (const juce::File& sample)
+{
+    const auto seed = sample.getParentDirectory().getChildFile ("Custom.sfz");
+    zoneSaveOverlay = std::make_unique<SaveSfzOverlay> (seed);
+    zoneSaveOverlay->onResult = [this, sample] (const juce::File& destination, bool confirmed)
+    {
+        if (confirmed && destination != juce::File{})
+        {
+            destination.replaceWithText ("// Custom SFZ — built with DYSEKT\n\n");
+            zoneTargetSfz = destination;
+            processor.sfzPlayer2.loadFile (zoneTargetSfz, processor.fileLoadPool);
+            showZoneRangeOverlay (sample);
+        }
+        juce::MessageManager::callAsync ([this] { if (zoneSaveOverlay) { removeChildComponent (zoneSaveOverlay.get()); zoneSaveOverlay.reset(); } });
+    };
+    addAndMakeVisible (*zoneSaveOverlay); zoneSaveOverlay->setBounds (getLocalBounds()); zoneSaveOverlay->toFront (true);
+}
+
+void DysektEditor::dismissZoneOverlays()
+{
+    if (zoneAddOverlay) { removeChildComponent (zoneAddOverlay.get()); zoneAddOverlay.reset(); }
+    if (zoneSaveOverlay) { removeChildComponent (zoneSaveOverlay.get()); zoneSaveOverlay.reset(); }
 }
 
 void DysektEditor::timerCallback()

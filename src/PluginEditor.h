@@ -27,6 +27,9 @@
 #include "ui/SfzPlayerDropdownPanel.h"
 #include "ui/GlobalEqPanel.h"
 #include "ui/PadGridView.h"
+#include "ui/KeysPanel.h"
+#include "ui/AddZoneOverlay.h"
+#include "ui/SaveSfzOverlay.h"
 #if DYSEKT_STANDALONE
 #include "ui/PianoRollPanel.h"
 #include "ui/ArrangeView.h"
@@ -130,6 +133,7 @@ private:
     /// 1 = SFZ Player.
     int  uiMode = 0;
     bool showPadGrid     = false;  ///< true = PadGridView, false = WaveformView (within uiMode 0)
+    bool showZoneBuilder = false; ///< SFZ-PLAYER: true = editable SFZ zone matrix
     bool hasSampleLoaded = false;   // true once a sample with audio is loaded
     bool hasSampleLoaded2 = false;  // true once SFZ-PLAYER (sliceManager2/sampleData2) has a real sample loaded
 
@@ -164,6 +168,12 @@ private:
     FileBrowserPanel browserPanel;
     MixerPanel       mixerPanel;
     PadGridView      padGridView;
+    KeysPanel        zoneKeysPanel { processor };
+    std::unique_ptr<AddZoneOverlay> zoneAddOverlay;
+    std::unique_ptr<SaveSfzOverlay> zoneSaveOverlay;
+    std::unique_ptr<juce::FileChooser> zoneSampleChooser;
+    juce::File zoneTargetSfz;
+    int zonePrevHiKey = -1;
     SfzDropdownPanel       sfzDropdown;
     SfzPlayerDropdownPanel sfzPlayerDropdown;
     ShortcutsPanel   shortcutsPanel { processor };
@@ -180,6 +190,11 @@ private:
     void toggleShortcutsPanel();
     void toggleThemeEditor();
     void toggleSeqPanel();
+    void reloadZoneBuilder();
+    void chooseZoneSample();
+    void showZoneRangeOverlay (const juce::File& sample);
+    void showZoneSaveOverlay (const juce::File& sample);
+    void dismissZoneOverlays();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DysektEditor)
 };

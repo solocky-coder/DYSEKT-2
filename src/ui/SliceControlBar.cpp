@@ -1302,65 +1302,43 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
  if (adsrGroupX2 > adsrGroupX1) drawGroupLabel (adsrGroupX1, adsrGroupX2, "");
  }
 
- // ── PAD / WAVE — two separate toggle buttons side by side ────────────────────────────────────
- // PAD MODE is a Slicer-only feature. The SFZ-PLAYER SCB has no pad grid, so
- // we skip drawing (and hit-testing, see mouseDown) the toggle entirely there.
- if (! isSfzPlayer2Mode())
+ // ── View toggles ───────────────────────────────────────────────────────────
+ // Slicer uses PADS/WAVE; SFZ-PLAYER uses ZONES/WAVE. Both use the same chrome
+ // and stay mutually exclusive with their respective alternate view.
  {
-     const int btnY   = si (9);  // centred in row1 (y=7..35): (7+35-24)/2 = 9
-     const int btnH   = si (24);
-     const int gap    = si (4);
-     const int rightX = getWidth() - si (8);
-
-     padToggleBtnArea  = juce::Rectangle<int> (rightX - kToggleBtnW * 2 - gap, btnY, kToggleBtnW, btnH);
-     waveToggleBtnArea = juce::Rectangle<int> (rightX - kToggleBtnW,            btnY, kToggleBtnW, btnH);
-
-     g.setFont (DysektLookAndFeel::makeFont (9.5f * paintSf, true));
-
+     const int btnY = si (9), btnH = si (24), gap = si (4), rightX = getWidth() - si (8);
+     const bool zonesMode = isSfzPlayer2Mode();
+     const int buttonCount = zonesMode ? 2 : 2;
+     const int leftX = rightX - kToggleBtnW * buttonCount - gap;
      auto drawBtn = [&] (const juce::Rectangle<int>& area, const juce::String& label, bool active)
      {
-         // Same chrome formula as DysektLookAndFeel::drawButtonBackground / the
-         // DualLcdControlFrame SLICER-SFZ-PLAYER-SF2-PLAYER drawTab lambda, so
-         // PADS/WAVE reads as the same "button" everywhere else in the UI: sprite
-         // base layer first, flat tint only as a fallback if the sprite is missing.
-         juce::Rectangle<float> rf = area.toFloat().reduced (0.5f);
-         const float r = 4.0f;
-         const auto accent  = getTheme().accent;
-         auto baseBg  = getTheme().button;
-         auto fillCol = active ? baseBg.interpolatedWith (accent, 0.18f) : baseBg;
-
-         auto stateDrawable = active ? IconManager::getButtonActive()
-                                      : IconManager::getButtonIdle();
-
-         if (stateDrawable != nullptr)
-             stateDrawable->drawWithin (g, rf, juce::RectanglePlacement::stretchToFit, 1.0f);
-         else
-         {
-             g.setColour (fillCol);
-             g.fillRoundedRectangle (rf, r);
-         }
-
-         const auto border = active
-             ? accent.withAlpha (0.80f)
-             : getTheme().separator.withAlpha (0.35f);
-         g.setColour (border);
-         g.drawRoundedRectangle (rf, r, 1.0f);
-
-         g.setColour (active
-             ? accent
-             : getTheme().foreground.withAlpha (0.50f));
+         auto rf = area.toFloat().reduced (0.5f);
+         const auto accent = getTheme().accent;
+         auto drawable = active ? IconManager::getButtonActive() : IconManager::getButtonIdle();
+         if (drawable != nullptr) drawable->drawWithin (g, rf, juce::RectanglePlacement::stretchToFit, 1.0f);
+         else { g.setColour (active ? getTheme().button.interpolatedWith (accent, .18f) : getTheme().button); g.fillRoundedRectangle (rf, 4.0f); }
+         g.setColour (active ? accent.withAlpha (.80f) : getTheme().separator.withAlpha (.35f));
+         g.drawRoundedRectangle (rf, 4.0f, 1.0f);
+         g.setColour (active ? accent : getTheme().foreground.withAlpha (.50f));
          g.drawText (label, area, juce::Justification::centred);
      };
-
-     drawBtn (padToggleBtnArea,  "PADS",  padViewActive);
-     drawBtn (waveToggleBtnArea, "WAVE", !padViewActive);
- }
- else
- {
-     // No toggle in SFZ-PLAYER mode — clear hit areas so stale rects from a
-     // previous Slicer-mode paint can't still register clicks.
-     padToggleBtnArea  = {};
-     waveToggleBtnArea = {};
+     g.setFont (DysektLookAndFeel::makeFont (9.5f * paintSf, true));
+     if (zonesMode)
+     {
+         zonesToggleBtnArea = { leftX, btnY, kToggleBtnW, btnH };
+         waveToggleBtnArea  = { leftX + kToggleBtnW + gap, btnY, kToggleBtnW, btnH };
+         padToggleBtnArea = {};
+         drawBtn (zonesToggleBtnArea, "ZONES", zoneBuilderActive);
+         drawBtn (waveToggleBtnArea, "WAVE", ! zoneBuilderActive);
+     }
+     else
+     {
+         padToggleBtnArea  = { leftX, btnY, kToggleBtnW, btnH };
+         waveToggleBtnArea = { leftX + kToggleBtnW + gap, btnY, kToggleBtnW, btnH };
+         zonesToggleBtnArea = {};
+         drawBtn (padToggleBtnArea, "PADS", padViewActive);
+         drawBtn (waveToggleBtnArea, "WAVE", ! padViewActive);
+     }
  }
 }
 
@@ -1369,6 +1347,16 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
 // =============================================================================
 void SliceControlBar::mouseDown (const juce::MouseEvent& e)
 {
+    // ── SFZ-PLAYER ZONES / WAVE ───────────────────────────────────────────
+    if (e.mods.isLeftButtonDown() && isSfzPlayer2Mode())
+    {
+        if (zonesToggleBtnArea.contains (e.getPosition()) && ! zoneBuilderActive)
+        { zoneBuilderActive = true; repaint(); if (onZonesToggle) onZonesToggle (true); return; }
+        if (waveToggleBtnArea.contains (e.getPosition()) && zoneBuilderActive)
+        { zoneBuilderActive = false; repaint(); if (onZonesToggle) onZonesToggle (false); return; }
+        if (zonesToggleBtnArea.contains (e.getPosition()) || waveToggleBtnArea.contains (e.getPosition())) return;
+    }
+
     // ── PAD / WAVE — two separate buttons, each sets its own active state ───
     // Slicer-only — see paint(). The SFZ-PLAYER SCB never shows this toggle.
     if (e.mods.isLeftButtonDown() && ! isSfzPlayer2Mode())
