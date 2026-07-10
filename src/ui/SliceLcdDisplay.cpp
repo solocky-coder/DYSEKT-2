@@ -48,10 +48,21 @@ namespace LcdColours
 // centre, like a genuinely lit phosphor segment. Border and text drawing
 // are untouched — only the fill changes.
 static void fillPhosphorFlag (juce::Graphics& g, juce::Rectangle<float> bounds,
-                               juce::Colour phosphor, bool on, float radius)
+                               juce::Colour phosphor, juce::Colour flagBg,
+                               bool on, float radius)
 {
-    const juce::Colour top    = on ? phosphor.withAlpha (0.26f) : phosphor.withAlpha (0.10f);
-    const juce::Colour bottom = on ? phosphor.withAlpha (0.12f) : phosphor.withAlpha (0.05f);
+    // flagBg was defined in the palette ("visible pill outline against
+    // screen bg") but never actually applied anywhere — pills were only
+    // ever getting a low-alpha phosphor tint directly over the near-black
+    // screen background, which is why they read as flat/invisible regardless
+    // of alpha tuning. Painting the solid flagBg backdrop first guarantees
+    // contrast against the screen no matter what the theme's accent colour
+    // or alpha values are.
+    g.setColour (flagBg);
+    g.fillRoundedRectangle (bounds, radius);
+
+    const juce::Colour top    = on ? phosphor.withAlpha (0.32f) : phosphor.withAlpha (0.14f);
+    const juce::Colour bottom = on ? phosphor.withAlpha (0.16f) : phosphor.withAlpha (0.06f);
 
     juce::ColourGradient grad (top, bounds.getX(), bounds.getY(),
                                 bottom, bounds.getX(), bounds.getBottom(), false);
@@ -407,7 +418,7 @@ void SliceLcdDisplay::drawFlagsRow (juce::Graphics& g, int /*row*/)
         juce::Rectangle<int> box (fx, stripY, flagW, flagH);
         flagHitRects.push_back ({ box, f.fieldId, f.isCycle });
 
-        fillPhosphorFlag (g, box.toFloat(), pal.phosphor, f.on, 2.0f);
+        fillPhosphorFlag (g, box.toFloat(), pal.phosphor, pal.flagBg, f.on, 2.0f);
         g.setColour (f.on ? pal.flagOn : pal.flagOff);
         g.drawRoundedRectangle (box.toFloat(), 2.0f, 1.0f);
         g.drawText (f.text, box.getX() + pad, box.getY(),
