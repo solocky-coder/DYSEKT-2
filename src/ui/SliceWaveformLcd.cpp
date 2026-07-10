@@ -3,6 +3,7 @@
 #include "../PluginProcessor.h"
 #include "../params/ParamIds.h"
 #include "../audio/Slice.h"
+#include <vector>
 
 // ── Theme-derived colours ─────────────────────────────────────────────────────
 static juce::Colour lcd2Bg() { return getTheme().darkBar.darker (0.55f); }
@@ -662,42 +663,30 @@ void SliceWaveformLcd::drawWaveform (juce::Graphics& g, const juce::Rectangle<fl
  g.setColour (lcd2Phosphor().withAlpha (0.20f));
  g.drawHorizontalLine (juce::roundToInt (cy), area.getX(), area.getRight());
 
- // Build waveform paths — amplitude modulated by envelope shape
- juce::Path fill, lineTop, lineBot;
- bool first = true;
-
+ // ── Shared per-column geometry ────────────────────────────────────────────
+ // Computed once regardless of waveformMode: x position and envelope-
+ // modulated amplitude for every sampled column. Every style below reads
+ // from these arrays instead of recomputing the envelope gain per-mode.
+ std::vector<float> xs ((size_t) n), amps ((size_t) n);
  for (int i = 0; i < n; i++)
  {
  const float xn = (float) i / (float) n;
- const float x = area.getX() + xn * W;
+ xs[(size_t) i] = area.getX() + xn * W;
  const float eGain = 1.0f - envAt (xn); // 0=silence 1=full
- const float amp = juce::jlimit (0.0f, 1.0f, data.peaks[i]) * (H * 0.45f) * eGain;
+ amps[(size_t) i] = juce::jlimit (0.0f, 1.0f, data.peaks[i]) * (H * 0.45f) * eGain;
+ }
 
- const float yT = cy - amp;
- const float yB = cy + amp;
-
- if (first)
+ juce::Path lineTop, lineBot, fill;
+ for (int i = 0; i < n; i++)
  {
- lineTop.startNewSubPath (x, yT);
- lineBot.startNewSubPath (x, yB);
- first = false;
+ const float yT = cy - amps[(size_t) i];
+ const float yB = cy + amps[(size_t) i];
+ if (i == 0) { lineTop.startNewSubPath (xs[0], yT); lineBot.startNewSubPath (xs[0], yB); }
+ else        { lineTop.lineTo (xs[(size_t) i], yT); lineBot.lineTo (xs[(size_t) i], yB); }
  }
- else
- {
- lineTop.lineTo (x, yT);
- lineBot.lineTo (x, yB);
- }
- }
-
  fill = lineTop;
  for (int i = n - 1; i >= 0; i--)
- {
- const float xn = (float) i / (float) n;
- const float x = area.getX() + xn * W;
- const float eGain = 1.0f - envAt (xn);
- const float amp = juce::jlimit (0.0f, 1.0f, data.peaks[i]) * (H * 0.45f) * eGain;
- fill.lineTo (x, cy + amp);
- }
+ fill.lineTo (xs[(size_t) i], cy + amps[(size_t) i]);
  fill.closeSubPath();
 
  // Use selected slice colour for waveform rendering
@@ -709,6 +698,12 @@ void SliceWaveformLcd::drawWaveform (juce::Graphics& g, const juce::Rectangle<fl
  sliceCol = sm4.getSlice (sel).colour;
  }
 
+ switch (waveformMode)
+ {
+ // ── Mode 0 : Hard — original glow+sharp double-stroke look ────────────
+ default:
+ case 0:
+ {
  g.setColour (sliceCol.withAlpha (0.12f));
  g.fillPath (fill);
 
@@ -721,8 +716,140 @@ void SliceWaveformLcd::drawWaveform (juce::Graphics& g, const juce::Rectangle<fl
  g.setColour (sliceCol.withAlpha (0.85f));
  g.strokePath (lineTop, sharp);
  g.strokePath (lineBot, sharp);
+ break;
+ }
 
+ // ── Mode 1 : Soft — gradient fill + thick rounded curved stroke ───────
+ case 1:
+ {
+ juce::ColourGradient grad (sliceCol.withAlpha (0.02f), 0.0f, area.getY(),
+                              sliceCol.withAlpha (0.02f), 0.0f, area.getBottom(), false);
+ grad.addColour (0.5, sliceCol.withAlpha (0.24f));
+ g.setGradientFill (grad);
+ g.fillPath (fill);
 
+ juce::PathStrokeType soft (2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+ g.setColour (sliceCol.withAlpha (0.85f));
+ g.strokePath (lineTop, soft);
+ g.strokePath (lineBot, soft);
+ break;
+ }
+
+ // ── Mode 2 : Outline — hollow, light fill, stroked outline only ───────
+ case 2:
+ {
+ g.setColour (sliceCol.withAlpha (0.10f));
+ g.fillPath (fill);
+
+ juce::PathStrokeType outline (1.3f);
+ g.setColour (sliceCol.withAlpha (0.85f));
+ g.strokePath (lineTop, outline);
+ g.strokePath (lineBot, outline);
+ break;
+ }
+
+ // ── Mode 3 : Rectified — folded, both curves read as upward humps ─────
+ case 3:
+ {
+ juce::Path humpUpper, humpLower;
+ for (int i = 0; i < n; i++)
+ {
+ const float yUp  = cy - amps[(size_t) i];
+ const float yLow = cy + H * 0.28f - amps[(size_t) i] * 0.55f;
+ if (i == 0) { humpUpper.startNewSubPath (xs[0], yUp); humpLower.startNewSubPath (xs[0], yLow); }
+ else        { humpUpper.lineTo (xs[(size_t) i], yUp); humpLower.lineTo (xs[(size_t) i], yLow); }
+ }
+ juce::PathStrokeType stroke (1.4f);
+ g.setColour (sliceCol.withAlpha (0.75f));
+ g.strokePath (humpUpper, stroke);
+ g.strokePath (humpLower, stroke);
+ break;
+ }
+
+ // ── Mode 4 : Mirrored — waveform overlaid with its own horizontal flip ─
+ case 4:
+ {
+ g.setColour (sliceCol.withAlpha (0.12f));
+ g.fillPath (fill);
+
+ juce::PathStrokeType stroke (1.2f);
+ g.setColour (sliceCol.withAlpha (0.75f));
+ g.strokePath (lineTop, stroke);
+ g.strokePath (lineBot, stroke);
+
+ // Horizontally-flipped duplicate at lower alpha for a symmetric,
+ // kaleidoscope-style read.
+ auto flipped = fill;
+ flipped.applyTransform (juce::AffineTransform::scale (-1.0f, 1.0f, area.getCentreX(), 0.0f));
+ g.setColour (sliceCol.withAlpha (0.10f));
+ g.fillPath (flipped);
+ break;
+ }
+
+ // ── Mode 5 : Bars — discrete vertical bar/spectrum segments ───────────
+ case 5:
+ {
+ const int barCount = juce::jmax (1, juce::roundToInt (W / 4.0f));
+ g.setColour (sliceCol.withAlpha (0.80f));
+ for (int b = 0; b < barCount; ++b)
+ {
+ const int i = juce::jlimit (0, n - 1, (int) ((float) b / (float) barCount * n));
+ const float bx = area.getX() + ((float) b + 0.5f) / (float) barCount * W;
+ const float a  = amps[(size_t) i];
+ g.fillRect (juce::Rectangle<float> (bx - 1.2f, cy - a, 2.4f, a * 2.0f));
+ }
+ break;
+ }
+
+ // ── Mode 6 : RMS — smoothed, blurred-looking translucent band ─────────
+ case 6:
+ {
+ juce::Path smoothTop, smoothBot;
+ const int win = juce::jmax (1, n / 40);
+ for (int i = 0; i < n; i++)
+ {
+ int lo = juce::jmax (0, i - win), hi = juce::jmin (n - 1, i + win);
+ float avg = 0.0f;
+ for (int k = lo; k <= hi; ++k) avg += amps[(size_t) k];
+ avg /= (float) (hi - lo + 1);
+ const float yT = cy - avg, yB = cy + avg;
+ if (i == 0) { smoothTop.startNewSubPath (xs[0], yT); smoothBot.startNewSubPath (xs[0], yB); }
+ else        { smoothTop.lineTo (xs[(size_t) i], yT); smoothBot.lineTo (xs[(size_t) i], yB); }
+ }
+ for (float w = 6.0f; w >= 1.5f; w -= 1.5f)
+ {
+ g.setColour (sliceCol.withAlpha (0.10f));
+ g.strokePath (smoothTop, juce::PathStrokeType (w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+ g.strokePath (smoothBot, juce::PathStrokeType (w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+ }
+ break;
+ }
+
+ // ── Mode 7 : Stepped — quantised staircase, chiptune-style ─────────────
+ case 7:
+ {
+ const int steps = juce::jmax (1, juce::roundToInt (W / 6.0f));
+ juce::Path stepTop, stepBot;
+ float prevT = cy, prevB = cy;
+ for (int s = 0; s < steps; ++s)
+ {
+ const int i = juce::jlimit (0, n - 1, (int) ((float) s / (float) steps * n));
+ const float sx0 = area.getX() + (float) s / (float) steps * W;
+ const float sx1 = area.getX() + (float) (s + 1) / (float) steps * W;
+ const float yT = cy - amps[(size_t) i], yB = cy + amps[(size_t) i];
+ if (s == 0) { stepTop.startNewSubPath (sx0, yT); stepBot.startNewSubPath (sx0, yB); }
+ else        { stepTop.lineTo (sx0, prevT); stepBot.lineTo (sx0, prevB); }
+ stepTop.lineTo (sx1, yT);
+ stepBot.lineTo (sx1, yB);
+ prevT = yT; prevB = yB;
+ }
+ juce::PathStrokeType stroke (1.3f);
+ g.setColour (sliceCol.withAlpha (0.85f));
+ g.strokePath (stepTop, stroke);
+ g.strokePath (stepBot, stroke);
+ break;
+ }
+ }
 }
 
 void SliceWaveformLcd::drawSegmentLabel (juce::Graphics& g,

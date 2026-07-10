@@ -36,6 +36,14 @@ public:
     /** Suggested height in pixels (un-scaled) — matches SliceLcdDisplay. */
     static constexpr int kPreferredHeight = 136;
 
+    /** Set the current waveform display style (0-7) and repaint.
+     *  0=Hard 1=Soft 2=Outline 3=Rectified 4=Mirrored 5=Bars 6=RMS 7=Stepped
+     *  Mirrors WaveformView::setWaveformMode so the WAVE icon toggle in
+     *  DualLcdControlFrame drives this display too, not just the main
+     *  waveform views. */
+    void setWaveformMode (int m) { waveformMode = juce::jlimit (0, 7, m); repaint(); }
+    int  getWaveformMode() const noexcept { return waveformMode; }
+
 private:
     // ── Snapshot used for one paint pass ─────────────────────────────────────
     struct DisplayData
@@ -141,6 +149,10 @@ private:
 
     // Content area cached in resized() / used for hit testing
     juce::Rectangle<float> screenArea;
+
+    // Waveform display style — set via setWaveformMode(), driven by the WAVE
+    // icon toggle in DualLcdControlFrame (see DysektEditor::toggleSoftWave()).
+    int waveformMode = 0;   // 0=Hard 1=Soft 2=Outline 3=Rectified 4=Mirrored 5=Bars 6=RMS 7=Stepped
 
     static const juce::Colour kBg;
     static const juce::Colour kBezel;

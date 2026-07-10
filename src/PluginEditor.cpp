@@ -609,6 +609,7 @@ void DysektEditor::toggleSoftWave()
  waveformView.setWaveformMode (waveformMode);
  waveformOverview.setWaveformMode (waveformMode);
  sf2WaveformLcd.setWaveformMode (waveformMode);
+ sliceWaveformLcd.setWaveformMode (waveformMode);
  headerBar.setBrowserActive (activeSlot == SlotContent::Browser);
  headerBar.setWaveMode (waveformMode);
  saveUserSettings (getTheme().name);
@@ -1817,6 +1818,7 @@ void DysektEditor::loadUserSettings()
  waveformView.setWaveformMode (waveformMode);
  waveformOverview.setWaveformMode (waveformMode);
  sf2WaveformLcd.setWaveformMode (waveformMode);
+ sliceWaveformLcd.setWaveformMode (waveformMode);
  headerBar.dualFrame().setPadGridActive (false);
  headerBar.setWaveMode (waveformMode);
  headerBar.setMidiFollowActive (processor.midiSelectsSlice.load());
