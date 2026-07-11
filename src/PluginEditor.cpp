@@ -110,15 +110,9 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      showZoneBuilder = on;
      if (on)
      {
-         // sfzPlayer2 (the SfzPlayer/sfizz instance) is never actually
-         // .process()'d anywhere in PluginProcessor -- audio for the
-         // SFZ-PLAYER runs entirely through sliceManager2/voicePool2, fed
-         // by sampleData2's async decode. sfzPlayer2.isLoaded() therefore
-         // never becomes true; sampleData2.getFilePath() is the real,
-         // reliably-populated source (same one the LCD's zone count/name
-         // display reads from), so key off that instead.
-         const juce::File loaded (processor.sampleData2.getFilePath());
-         zoneBuilderTargetSfz = (loaded.getFileExtension().toLowerCase() == ".sfz") ? loaded : juce::File{};
+         // zoneBuilderTargetSfz is set synchronously in onLoadRequest at
+         // load time (see comment there) — just reflect it here, no engine
+         // query needed.
          refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
      }
      resized();
@@ -247,6 +241,15 @@ DysektEditor::DysektEditor (DysektProcessor& p)
          {
              processor.sfzPlayer2.loadFile (f, processor.fileLoadPool);
              processor.loadSoundFontAsync (f, SoundFontLoadTarget::SfzPlayer2);   // waveform preview -> sampleData2
+
+             // Neither sfzPlayer2 (never .process()'d) nor sampleData2's
+             // DecodedSample (SoundFontLoader only sets ->fileName, never
+             // ->filePath) reliably tracks which .sfz is loaded. The file is
+             // already known right here though, so just remember it directly
+             // rather than querying engine state that doesn't carry it.
+             zoneBuilderTargetSfz = f;
+             if (showZoneBuilder)
+                 refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
          }
          return;
      }
@@ -1472,22 +1475,8 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
 
 void DysektEditor::timerCallback()
 {
- // Zone builder: sampleData2's decode is applied asynchronously (see
- // PluginProcessor's pendingPreviewZones2 handling), so poll here to catch
- // it landing while ZONES is open, and to follow along if a different
- // .sfz gets loaded while the view stays open.
- if (showZoneBuilder)
- {
-     const juce::File loadedNow (processor.sampleData2.getFilePath());
-     const auto resolved = (loadedNow.getFileExtension().toLowerCase() == ".sfz")
-                          ? loadedNow : juce::File{};
-     if (resolved != zoneBuilderTargetSfz)
-     {
-         zoneBuilderTargetSfz = resolved;
-         refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
-     }
- }
-
+void DysektEditor::timerCallback()
+{
  bool uiChanged = false, viewportChanged = false;
  const bool previewActive = waveformView.hasActiveSlicePreview();
  const bool waveformInteracting = waveformView.isInteracting();
@@ -1926,12 +1915,9 @@ void DysektEditor::openZoneBuilderAddZone()
     // Resolve the target SFZ (may be empty if nothing is loaded yet).
     // See onZoneViewToggle's comment: sfzPlayer2 is never actually processed,
     // so sampleData2's tracked path is the real source of truth here too.
-    juce::File targetSfz;
-    {
-        const juce::File loaded (processor.sampleData2.getFilePath());
-        if (loaded.getFileExtension().toLowerCase() == ".sfz")
-            targetSfz = loaded;
-    }
+    // zoneBuilderTargetSfz is already kept current by onLoadRequest/
+    // onZoneViewToggle — reuse it rather than re-querying engine state.
+    const juce::File targetSfz = zoneBuilderTargetSfz;
 
     int prevHiKey = -1;
     if (targetSfz.existsAsFile())
