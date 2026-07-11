@@ -77,6 +77,12 @@ public:
 
     // SFZ-Player: no SF2 program grid
 
+    // ── Zone parsers — public so PluginEditor can call them directly ──────────
+    static std::vector<KeysPanel::Keyzone> parseSfzZones (const juce::File& f);
+    static std::vector<KeysPanel::Keyzone> parseSf2Zones (const juce::File& f,
+                                                            int targetBank   = 0,
+                                                            int targetPreset = 0);
+
 private:
     // ── Header-strip drawing ──────────────────────────────────────────────────
     void drawHeaderStrip (juce::Graphics& g) const;
@@ -163,11 +169,6 @@ private:
     // ── Preset navigation ─────────────────────────────────────────────────────
     void selectPreset (int delta);
 
-    // ── Zone parsers ──────────────────────────────────────────────────────────
-    static std::vector<KeysPanel::Keyzone> parseSfzZones (const juce::File& f);
-    static std::vector<KeysPanel::Keyzone> parseSf2Zones (const juce::File& f,
-                                                            int targetBank   = 0,
-                                                            int targetPreset = 0);
     void writeSfzZoneChange (const juce::File& f, int rowIndex,
                               const KeysPanel::Keyzone& updated);
 
