@@ -27,6 +27,9 @@
 #include "ui/SfzPlayerDropdownPanel.h"
 #include "ui/GlobalEqPanel.h"
 #include "ui/PadGridView.h"
+#include "ui/KeysPanel.h"
+#include "ui/AddZoneOverlay.h"
+#include "ui/SaveSfzOverlay.h"
 #if DYSEKT_STANDALONE
 #include "ui/PianoRollPanel.h"
 #include "ui/ArrangeView.h"
@@ -130,8 +133,29 @@ private:
     /// 1 = SFZ Player.
     int  uiMode = 0;
     bool showPadGrid     = false;  ///< true = PadGridView, false = WaveformView (within uiMode 0)
+    bool showZoneBuilder = false;  ///< true = zoneBuilderKeysPanel, false = WaveformView (within uiMode 1 / SFZ-PLAYER)
     bool hasSampleLoaded = false;   // true once a sample with audio is loaded
     bool hasSampleLoaded2 = false;  // true once SFZ-PLAYER (sliceManager2/sampleData2) has a real sample loaded
+
+    // ── SFZ-PLAYER zone builder (ZONES toggle in SliceControlBar) ──────────────
+    // Ported from SfzPlayerDropdownPanel's existing (but never-shown) Add Zone /
+    // Save SFZ flow — same target-file bookkeeping, same processor.sfzPlayer2
+    // calls, just driven by the live uiMode==1 layout instead of a hidden panel.
+    juce::File zoneBuilderTargetSfz;   // .sfz currently being built/edited, may be empty
+    int        zoneBuilderPrevHiKey = -1;
+    std::unique_ptr<juce::FileChooser> zoneBuilderSampleChooser;
+    std::unique_ptr<AddZoneOverlay>    zoneAddOverlay;
+    std::unique_ptr<SaveSfzOverlay>    zoneSaveOverlay;
+
+    void openZoneBuilderAddZone();               // [+ ZONE] click -> pick sample -> AddZoneOverlay
+    void showZoneBuilderAddZoneOverlay (const juce::File& sfzFile,
+                                         const juce::File& sampleFile,
+                                         int prevHiKey);
+    void openZoneBuilderSaveAsNew (const juce::File& sampleFile); // no SFZ loaded yet -> name one first
+    static bool appendZoneToSfz (const juce::File& sfzFile, const juce::File& sampleFile,
+                                  int loKey, int hiKey, int rootKey);
+    void hideZoneBuilderOverlays();
+    void refreshZoneBuilderMatrix (const juce::File& sfzFile); // re-parse + push into zoneBuilderKeysPanel
 
     /// The editor's full local bounds, cached each resized() so paint()/
     /// paintOverChildren()/waveformFrameRect() can read it. See
@@ -164,6 +188,7 @@ private:
     FileBrowserPanel browserPanel;
     MixerPanel       mixerPanel;
     PadGridView      padGridView;
+    KeysPanel        zoneBuilderKeysPanel { processor }; // SFZ-PLAYER ZONES view — standalone, NOT sfzPlayerDropdown.keysPanel
     SfzDropdownPanel       sfzDropdown;
     SfzPlayerDropdownPanel sfzPlayerDropdown;
     ShortcutsPanel   shortcutsPanel { processor };

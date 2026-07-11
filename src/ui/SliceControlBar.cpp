@@ -1354,13 +1354,55 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
 
      drawBtn (padToggleBtnArea,  "PADS",  padViewActive);
      drawBtn (waveToggleBtnArea, "WAVE", !padViewActive);
+
+     // Not SFZ-PLAYER mode — ZONES toggle doesn't apply here.
+     zoneToggleBtnArea = {};
  }
  else
  {
-     // No toggle in SFZ-PLAYER mode — clear hit areas so stale rects from a
-     // previous Slicer-mode paint can't still register clicks.
+     // SFZ-PLAYER mode: no PADS/WAVE toggle (no pad grid here — see comment
+     // above), but the ZONES toggle takes the same slot instead, giving
+     // access to the zone-builder view (KeysPanel + Add Zone / Save SFZ).
      padToggleBtnArea  = {};
      waveToggleBtnArea = {};
+
+     const int btnY   = si (9);
+     const int btnH   = si (24);
+     const int rightX = getWidth() - si (8);
+
+     zoneToggleBtnArea = juce::Rectangle<int> (rightX - kToggleBtnW, btnY, kToggleBtnW, btnH);
+
+     g.setFont (DysektLookAndFeel::makeFont (9.5f * paintSf, true));
+
+     // Same chrome formula as the PADS/WAVE drawBtn lambda above, kept local
+     // to this branch since it's only ever drawn one button at a time here.
+     juce::Rectangle<float> rf = zoneToggleBtnArea.toFloat().reduced (0.5f);
+     const float r = 4.0f;
+     const auto accent  = getTheme().accent;
+     auto baseBg  = getTheme().button;
+     auto fillCol = zoneViewActive ? baseBg.interpolatedWith (accent, 0.18f) : baseBg;
+
+     auto stateDrawable = zoneViewActive ? IconManager::getButtonActive()
+                                          : IconManager::getButtonIdle();
+
+     if (stateDrawable != nullptr)
+         stateDrawable->drawWithin (g, rf, juce::RectanglePlacement::stretchToFit, 1.0f);
+     else
+     {
+         g.setColour (fillCol);
+         g.fillRoundedRectangle (rf, r);
+     }
+
+     const auto border = zoneViewActive
+         ? accent.withAlpha (0.80f)
+         : getTheme().separator.withAlpha (0.35f);
+     g.setColour (border);
+     g.drawRoundedRectangle (rf, r, 1.0f);
+
+     g.setColour (zoneViewActive
+         ? accent
+         : getTheme().foreground.withAlpha (0.50f));
+     g.drawText ("ZONES", zoneToggleBtnArea, juce::Justification::centred);
  }
 }
 
@@ -1389,6 +1431,15 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
         }
         if (padToggleBtnArea.contains (e.getPosition()) || waveToggleBtnArea.contains (e.getPosition()))
             return; // already active — swallow click, no-op
+    }
+
+    // ── ZONES — SFZ-PLAYER-only toggle, opposite gate from PADS/WAVE above ──
+    if (e.mods.isLeftButtonDown() && isSfzPlayer2Mode() && zoneToggleBtnArea.contains (e.getPosition()))
+    {
+        zoneViewActive = ! zoneViewActive;
+        repaint();
+        if (onZoneViewToggle) onZoneViewToggle (zoneViewActive);
+        return;
     }
 
  // ── Lock guard: block all param changes if selected slice is fully locked ─

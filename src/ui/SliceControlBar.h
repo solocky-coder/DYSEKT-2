@@ -28,6 +28,14 @@ public:
     /// Fired when the user clicks the PAD/WAVE toggle button.
     std::function<void (bool padActive)> onPadViewToggle;
 
+    // ZONES toggle — SFZ-PLAYER-only counterpart to the PAD/WAVE toggle above.
+    // Set externally by the editor and reflected in the button.
+    void setZoneViewActive (bool on) { zoneViewActive = on; repaint(); }
+    bool getZoneViewActive() const noexcept { return zoneViewActive; }
+
+    /// Fired when the user clicks the ZONES toggle button (SFZ-PLAYER mode only).
+    std::function<void (bool zoneActive)> onZoneViewToggle;
+
 private:
     void timerCallback() override;
     float pulsePhase    = 0.0f;   // 0..1, advances each timer tick
@@ -36,6 +44,9 @@ private:
     bool  padViewActive = false;   // mirrors editor showPadGrid
     juce::Rectangle<int> padToggleBtnArea;  // hit-tested in mouseDown — PADS button
     juce::Rectangle<int> waveToggleBtnArea; // hit-tested in mouseDown — WAVE button
+
+    bool  zoneViewActive = false;   // mirrors editor showZoneBuilder
+    juce::Rectangle<int> zoneToggleBtnArea; // hit-tested in mouseDown — ZONES button (SFZ-PLAYER only)
 
     // True when the SFZ-PLAYER tab (sliceManager2/voicePool2 — a full second
     // Slicer instance) is the active engine. Mirrors SliceLcdDisplay's

@@ -105,6 +105,26 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      resized();
      repaint(); // clear waveform/overview areas vacated by the old view
  };
+ sliceControlBar.onZoneViewToggle = [this] (bool on)
+ {
+     showZoneBuilder = on;
+     if (on)
+     {
+         // Reflect whatever's currently loaded in sfzPlayer2 the moment the
+         // view opens, in case it changed while the view was hidden.
+         const auto loaded = processor.sfzPlayer2.isLoaded()
+                            ? processor.sfzPlayer2.getLoadedFile()
+                            : juce::File{};
+         zoneBuilderTargetSfz = (loaded.getFileExtension().toLowerCase() == ".sfz") ? loaded : juce::File{};
+         refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
+     }
+     resized();
+     repaint(); // clear waveform/overview areas vacated by the old view
+ };
+ zoneBuilderKeysPanel.setSfzEditable (true);
+ zoneBuilderKeysPanel.setAddZoneButtonVisible (true);
+ zoneBuilderKeysPanel.onAddZoneRequested = [this] { openZoneBuilderAddZone(); };
+ addChildComponent (zoneBuilderKeysPanel); // hidden until showZoneBuilder is true
  // When a new SF2/SFZ is loaded from the dropdown, reset the restore flag
  // so the timer re-populates the zone matrix on the next completed load.
  sfzDropdown.onFileLoaded = [this] (const juce::File&)
@@ -1202,6 +1222,7 @@ void DysektEditor::resized()
      sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
      sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
      padGridView.setVisible  (false);       padGridView.setBounds  ({});
+     zoneBuilderKeysPanel.setVisible (false); zoneBuilderKeysPanel.setBounds ({});
  }
  else if (initBrowserOpen)
  {
@@ -1211,6 +1232,7 @@ void DysektEditor::resized()
      sfzDropdown.setVisible  (false);       sfzDropdown.setBounds  ({});
      sfzPlayerDropdown.setVisible (false);  sfzPlayerDropdown.setBounds ({});
      padGridView.setVisible  (false);       padGridView.setBounds  ({});
+     zoneBuilderKeysPanel.setVisible (false); zoneBuilderKeysPanel.setBounds ({});
  }
  else if (uiMode == 0 || trimActive)
  {
@@ -1229,17 +1251,27 @@ void DysektEditor::resized()
      sfzDropdown.setBounds ({});
      sfzPlayerDropdown.setVisible (false);
      sfzPlayerDropdown.setBounds ({});
+     zoneBuilderKeysPanel.setVisible (false);
+     zoneBuilderKeysPanel.setBounds ({});
  }
  else if (uiMode == 1)
  {
-    // SFZ-PLAYER: same waveform view as slicer — no dropdown panels
-    const bool showPads1 = showPadGrid;
-    waveformView.setVisible (! showPads1);
-    waveformView.setBounds (showPads1 ? juce::Rectangle<int>()
+    // SFZ-PLAYER: WaveformView / PadGridView / zone-builder KeysPanel,
+    // depending on the SCB toggles. ZONES (showZoneBuilder) takes priority
+    // over PADS since the SCB never shows both toggles at once (see
+    // SliceControlBar::isSfzPlayer2Mode gating), but guard anyway.
+    const bool showZones1 = showZoneBuilder && ! trimActive;
+    const bool showPads1  = showPadGrid && ! showZones1;
+
+    waveformView.setVisible (! showPads1 && ! showZones1);
+    waveformView.setBounds ((showPads1 || showZones1) ? juce::Rectangle<int>()
                                       : juce::Rectangle<int> (screenX, y, screenW, waveH));
     padGridView.setVisible (showPads1);
     padGridView.setBounds (showPads1 ? juce::Rectangle<int> (screenX, y, screenW, waveH)
                                      : juce::Rectangle<int>());
+    zoneBuilderKeysPanel.setVisible (showZones1);
+    zoneBuilderKeysPanel.setBounds (showZones1 ? juce::Rectangle<int> (screenX, y, screenW, waveH)
+                                               : juce::Rectangle<int>());
     sfzDropdown.setVisible (false);
     sfzDropdown.setBounds ({});
     sfzPlayerDropdown.setVisible (false);
@@ -1256,6 +1288,8 @@ void DysektEditor::resized()
      waveformView.setBounds ({});
      padGridView.setVisible (false);
      padGridView.setBounds ({});
+     zoneBuilderKeysPanel.setVisible (false);
+     zoneBuilderKeysPanel.setBounds ({});
  }
 
   // ── Trim bar: hide behind browser or mixer, restore when they close ───────
@@ -1845,4 +1879,195 @@ void DysektEditor::filesDropped (const juce::StringArray& files, int, int)
  processor.zoom.store (1.0f);
  processor.scroll.store (0.0f);
  showTrimDialog (f);
+}
+
+// =============================================================================
+// SFZ-PLAYER zone builder — Add Zone / Save SFZ
+// =============================================================================
+// Ported from SfzPlayerDropdownPanel's existing implementation (that panel is
+// never shown live — see PluginEditor investigation history). Logic is
+// unchanged: same processor.sfzPlayer2 calls, same <region> block written to
+// disk, same overlay classes. Only the sample-picking step differs — the
+// dropdown panel used its own private SfzFileBrowser instance; here we use a
+// plain native juce::FileChooser instead, since the live browserPanel's
+// kAddZone mode is wired specifically for the Slicer's showTrimDialog flow
+// (see browserPanel.onLoadRequest, uiMode == 0 branch) and isn't a fit for
+// writing SFZ <region> blocks.
+
+void DysektEditor::refreshZoneBuilderMatrix (const juce::File& sfzFile)
+{
+    if (sfzFile.existsAsFile())
+        zoneBuilderKeysPanel.setKeyzones (SfzPlayerDropdownPanel::parseSfzZones (sfzFile));
+    else
+        zoneBuilderKeysPanel.clearKeyzones();
+}
+
+void DysektEditor::openZoneBuilderAddZone()
+{
+    // Resolve the target SFZ (may be empty if nothing is loaded yet).
+    juce::File targetSfz;
+    if (processor.sfzPlayer2.isLoaded())
+    {
+        const auto loaded = processor.sfzPlayer2.getLoadedFile();
+        if (loaded.getFileExtension().toLowerCase() == ".sfz")
+            targetSfz = loaded;
+    }
+
+    int prevHiKey = -1;
+    if (targetSfz.existsAsFile())
+    {
+        const auto existing = SfzPlayerDropdownPanel::parseSfzZones (targetSfz);
+        for (const auto& z : existing)
+            prevHiKey = juce::jmax (prevHiKey, z.hiKey);
+    }
+
+    zoneBuilderTargetSfz  = targetSfz;
+    zoneBuilderPrevHiKey  = prevHiKey;
+
+    const auto startDir = targetSfz.existsAsFile()
+                         ? targetSfz.getParentDirectory()
+                         : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+
+    zoneBuilderSampleChooser = std::make_unique<juce::FileChooser> (
+        "Choose a sample for the new zone", startDir,
+        "*.wav;*.aif;*.aiff;*.flac;*.ogg");
+
+    zoneBuilderSampleChooser->launchAsync (
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this] (const juce::FileChooser& fc)
+        {
+            const auto chosen = fc.getResult();
+            if (! chosen.existsAsFile())
+                return; // cancelled
+
+            if (! zoneBuilderTargetSfz.existsAsFile())
+            {
+                // No SFZ loaded yet: name one first, then continue below.
+                openZoneBuilderSaveAsNew (chosen);
+                return;
+            }
+
+            showZoneBuilderAddZoneOverlay (zoneBuilderTargetSfz, chosen, zoneBuilderPrevHiKey);
+        });
+}
+
+void DysektEditor::showZoneBuilderAddZoneOverlay (const juce::File& sfzFile,
+                                                   const juce::File& sampleFile,
+                                                   int prevHiKey)
+{
+    const int defaultLo = (prevHiKey < 0) ? 0 : juce::jmin (prevHiKey + 1, 127);
+
+    zoneAddOverlay = std::make_unique<AddZoneOverlay> (
+        sampleFile.getFileNameWithoutExtension(), defaultLo);
+
+    zoneAddOverlay->onResult = [this, sfzFile, sampleFile] (int lo, int hi, int root, bool confirmed)
+    {
+        // Defer the reset so it runs after onResult has returned and
+        // AddZoneOverlay is no longer on the call stack (use-after-free fix,
+        // matching the pattern in SfzPlayerDropdownPanel).
+        juce::MessageManager::callAsync ([this] { hideZoneBuilderOverlays(); });
+
+        if (! confirmed)
+            return;
+
+        if (! appendZoneToSfz (sfzFile, sampleFile, lo, hi, root))
+        {
+            juce::AlertWindow::showMessageBoxAsync (
+                juce::MessageBoxIconType::WarningIcon,
+                "Add Zone Failed",
+                "Could not write to:\n" + sfzFile.getFullPathName());
+            return;
+        }
+
+        processor.sfzPlayer2.loadFile (sfzFile, processor.fileLoadPool);
+        processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
+        refreshZoneBuilderMatrix (sfzFile);
+        zoneBuilderKeysPanel.autoScrollToZones();
+        repaint();
+    };
+
+    addAndMakeVisible (*zoneAddOverlay);
+    zoneAddOverlay->setBounds (getLocalBounds());
+    zoneAddOverlay->toFront (true);
+}
+
+bool DysektEditor::appendZoneToSfz (const juce::File& sfzFile, const juce::File& sampleFile,
+                                     int loKey, int hiKey, int rootKey)
+{
+    juce::String samplePath;
+    const auto sfzDir = sfzFile.getParentDirectory();
+    if (sampleFile.isAChildOf (sfzDir))
+        samplePath = sampleFile.getRelativePathFrom (sfzDir).replaceCharacter ('\\', '/');
+    else
+        samplePath = sampleFile.getFullPathName().replaceCharacter ('\\', '/');
+
+    const juce::String region =
+        "\n<region>\n"
+        "sample="          + samplePath              + "\n"
+        "lokey="           + juce::String (loKey)    + "\n"
+        "hikey="           + juce::String (hiKey)    + "\n"
+        "pitch_keycenter=" + juce::String (rootKey)  + "\n"
+        "volume=-7\n"
+        "pan=0\n"
+        "tune=0\n"
+        "ampeg_release=0.664\n";
+
+    juce::FileOutputStream stream (sfzFile);
+    if (stream.failedToOpen())
+        return false;
+
+    stream.setPosition (sfzFile.getSize());
+    stream.writeText (region, false, false, nullptr);
+    stream.flush();
+    return ! stream.getStatus().failed();
+}
+
+// Called after the user has already picked a sample but no SFZ is loaded yet.
+// Shows "Name your SFZ file", creates a blank file, then proceeds to AddZoneOverlay.
+void DysektEditor::openZoneBuilderSaveAsNew (const juce::File& sampleFile)
+{
+    const auto defaultPath = sampleFile.getParentDirectory().getChildFile ("Custom.sfz");
+    zoneSaveOverlay = std::make_unique<SaveSfzOverlay> (defaultPath);
+
+    zoneSaveOverlay->onResult = [this, sampleFile] (const juce::File& dest, bool confirmed)
+    {
+        juce::MessageManager::callAsync ([this] { hideZoneBuilderOverlays(); });
+
+        if (! confirmed || dest == juce::File{})
+            return;
+
+        // Always create a fresh blank SFZ.
+        dest.replaceWithText ("// Custom SFZ — built with SFZ-PLAYER zone builder\n\n");
+
+        zoneBuilderTargetSfz = dest;
+
+        processor.sfzPlayer2.loadFile (dest, processor.fileLoadPool);
+        processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
+        refreshZoneBuilderMatrix (dest);
+        repaint();
+
+        // Now show the key-range dialog with the already-chosen sample.
+        juce::MessageManager::callAsync ([this, sampleFile]
+        {
+            showZoneBuilderAddZoneOverlay (zoneBuilderTargetSfz, sampleFile, zoneBuilderPrevHiKey);
+        });
+    };
+
+    addAndMakeVisible (*zoneSaveOverlay);
+    zoneSaveOverlay->setBounds (getLocalBounds());
+    zoneSaveOverlay->toFront (true);
+}
+
+void DysektEditor::hideZoneBuilderOverlays()
+{
+    if (zoneAddOverlay)
+    {
+        removeChildComponent (zoneAddOverlay.get());
+        zoneAddOverlay.reset();
+    }
+    if (zoneSaveOverlay)
+    {
+        removeChildComponent (zoneSaveOverlay.get());
+        zoneSaveOverlay.reset();
+    }
 }
