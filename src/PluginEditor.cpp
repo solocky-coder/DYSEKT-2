@@ -110,11 +110,14 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      showZoneBuilder = on;
      if (on)
      {
-         // Reflect whatever's currently loaded in sfzPlayer2 the moment the
-         // view opens, in case it changed while the view was hidden.
-         const auto loaded = processor.sfzPlayer2.isLoaded()
-                            ? processor.sfzPlayer2.getLoadedFile()
-                            : juce::File{};
+         // sfzPlayer2 (the SfzPlayer/sfizz instance) is never actually
+         // .process()'d anywhere in PluginProcessor -- audio for the
+         // SFZ-PLAYER runs entirely through sliceManager2/voicePool2, fed
+         // by sampleData2's async decode. sfzPlayer2.isLoaded() therefore
+         // never becomes true; sampleData2.getFilePath() is the real,
+         // reliably-populated source (same one the LCD's zone count/name
+         // display reads from), so key off that instead.
+         const juce::File loaded (processor.sampleData2.getFilePath());
          zoneBuilderTargetSfz = (loaded.getFileExtension().toLowerCase() == ".sfz") ? loaded : juce::File{};
          refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
      }
@@ -1469,19 +1472,13 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
 
 void DysektEditor::timerCallback()
 {
- // Zone builder: sfzPlayer2.loadFile() only queues a pending load — it's
- // actually applied inside SfzPlayer::process(), which only runs while the
- // host is calling processBlock() (i.e. transport running / not suspended
- // for power-saving). If ZONES was toggled on before that completed,
- // isLoaded() read false at that moment and the matrix was left empty.
- // Poll here so it catches up the moment the load actually lands, and so
- // it also follows along if a different .sfz is loaded while the view
- // stays open.
+ // Zone builder: sampleData2's decode is applied asynchronously (see
+ // PluginProcessor's pendingPreviewZones2 handling), so poll here to catch
+ // it landing while ZONES is open, and to follow along if a different
+ // .sfz gets loaded while the view stays open.
  if (showZoneBuilder)
  {
-     const auto loadedNow = processor.sfzPlayer2.isLoaded()
-                           ? processor.sfzPlayer2.getLoadedFile()
-                           : juce::File{};
+     const juce::File loadedNow (processor.sampleData2.getFilePath());
      const auto resolved = (loadedNow.getFileExtension().toLowerCase() == ".sfz")
                           ? loadedNow : juce::File{};
      if (resolved != zoneBuilderTargetSfz)
@@ -1927,10 +1924,11 @@ void DysektEditor::refreshZoneBuilderMatrix (const juce::File& sfzFile)
 void DysektEditor::openZoneBuilderAddZone()
 {
     // Resolve the target SFZ (may be empty if nothing is loaded yet).
+    // See onZoneViewToggle's comment: sfzPlayer2 is never actually processed,
+    // so sampleData2's tracked path is the real source of truth here too.
     juce::File targetSfz;
-    if (processor.sfzPlayer2.isLoaded())
     {
-        const auto loaded = processor.sfzPlayer2.getLoadedFile();
+        const juce::File loaded (processor.sampleData2.getFilePath());
         if (loaded.getFileExtension().toLowerCase() == ".sfz")
             targetSfz = loaded;
     }
