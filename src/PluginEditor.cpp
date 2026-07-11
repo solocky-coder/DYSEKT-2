@@ -1469,6 +1469,28 @@ bool DysektEditor::keyPressed (const juce::KeyPress& key)
 
 void DysektEditor::timerCallback()
 {
+ // Zone builder: sfzPlayer2.loadFile() only queues a pending load — it's
+ // actually applied inside SfzPlayer::process(), which only runs while the
+ // host is calling processBlock() (i.e. transport running / not suspended
+ // for power-saving). If ZONES was toggled on before that completed,
+ // isLoaded() read false at that moment and the matrix was left empty.
+ // Poll here so it catches up the moment the load actually lands, and so
+ // it also follows along if a different .sfz is loaded while the view
+ // stays open.
+ if (showZoneBuilder)
+ {
+     const auto loadedNow = processor.sfzPlayer2.isLoaded()
+                           ? processor.sfzPlayer2.getLoadedFile()
+                           : juce::File{};
+     const auto resolved = (loadedNow.getFileExtension().toLowerCase() == ".sfz")
+                          ? loadedNow : juce::File{};
+     if (resolved != zoneBuilderTargetSfz)
+     {
+         zoneBuilderTargetSfz = resolved;
+         refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
+     }
+ }
+
  bool uiChanged = false, viewportChanged = false;
  const bool previewActive = waveformView.hasActiveSlicePreview();
  const bool waveformInteracting = waveformView.isInteracting();
