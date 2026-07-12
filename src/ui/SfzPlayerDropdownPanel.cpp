@@ -428,6 +428,10 @@ SfzPlayerDropdownPanel::SfzPlayerDropdownPanel (DysektProcessor& p)
     : processor (p),
       keysPanel (p)
 {
+    // This strip's keyboard previews/highlights sfzPlayer2's notes (this panel
+    // IS the SFZ-Player, ch2 default), not the legacy SF-Player's — must be
+    // set before any note requests are made.
+    keysPanel.setEngineSource (KeysPanel::EngineSource::SfzPlayer2);
     addChildComponent (keysPanel);
 
     // ── Inline file browser ───────────────────────────────────────────────────

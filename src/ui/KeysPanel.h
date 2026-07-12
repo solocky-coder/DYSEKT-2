@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -43,6 +44,21 @@ public:
     void setKeyzones      (std::vector<Keyzone> zones);
     void clearKeyzones    ();
     void autoScrollToZones();
+
+    /** Which processor engine this keyboard previews notes for and displays
+     *  live MIDI activity from. Default is SfPlayer (legacy SF2/SFZ engine)
+     *  for backward compatibility with existing call sites. */
+    enum class EngineSource { SfPlayer, SfzPlayer2 };
+
+    /** Selects the engine this panel is bound to. Call once, right after
+     *  construction — SfPlayer routes note preview/highlighting through
+     *  processor.sfzUiNoteOn/OffRequest + processor.sfzActiveNotes (the
+     *  legacy SF2/SFZ "SF-Player" engine); SfzPlayer2 routes through
+     *  processor.sfz2UiNoteOn/OffRequest + processor.sfz2ActiveNotes (the
+     *  "SFZ-Player" engine, sfzPlayer2, which is channel-filtered separately
+     *  via sfzPlayer2ChannelMask). Using the wrong source here is what causes
+     *  a keyboard to show activity from — or be filtered by — the wrong engine. */
+    void setEngineSource (EngineSource src) { engineSource = src; }
 
     /** Call with true when the SF-player panel is active, false when the
      *  slicer is active.  Prevents slicer MIDI-note highlights from bleeding
@@ -182,6 +198,17 @@ private:
     int pendingNoteOff = -1;
 
     uint64_t sfzActiveSnap[2] = { 0, 0 };
+
+    EngineSource engineSource = EngineSource::SfPlayer;
+
+    /** Returns processor.sfzUiNoteOnRequest/OffRequest or
+     *  processor.sfz2UiNoteOnRequest/OffRequest depending on engineSource. */
+    std::atomic<int>& uiNoteOnAtomic()  const;
+    std::atomic<int>& uiNoteOffAtomic() const;
+
+    /** Returns processor.sfzActiveNotes or processor.sfz2ActiveNotes
+     *  depending on engineSource. */
+    std::atomic<uint64_t>* activeNotesAtomics() const;
 
     juce::TextButton transposeDownBtn { "<" };
     juce::TextButton transposeUpBtn   { ">" };

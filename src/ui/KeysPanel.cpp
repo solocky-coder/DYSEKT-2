@@ -629,7 +629,7 @@ void KeysPanel::ZoneMatrixContent::mouseDown (const juce::MouseEvent& e)
     dragRow = -1;
 
     const int note = rows[(size_t) clickedRow].zone.loKey;
-    owner.processor.sfzUiNoteOnRequest.store (note, std::memory_order_relaxed);
+    owner.uiNoteOnAtomic().store (note, std::memory_order_relaxed);
     owner.scheduleNoteOff (note);
 }
 
@@ -826,6 +826,37 @@ void KeysPanel::setAddZoneButtonVisible (bool visible)
 }
 
 // =============================================================================
+// KeysPanel — engine-source atomic selection
+// =============================================================================
+// Picks which pair of note-request atomics / active-note bitmask this panel
+// reads and writes, based on engineSource (see setEngineSource()). Every
+// call site that used to reach straight for processor.sfzUiNoteOnRequest /
+// processor.sfzActiveNotes now goes through these so a panel bound to
+// SfzPlayer2 previews and displays that engine's notes instead of always
+// showing the legacy SF-Player's.
+
+std::atomic<int>& KeysPanel::uiNoteOnAtomic() const
+{
+    return engineSource == EngineSource::SfzPlayer2
+         ? processor.sfz2UiNoteOnRequest
+         : processor.sfzUiNoteOnRequest;
+}
+
+std::atomic<int>& KeysPanel::uiNoteOffAtomic() const
+{
+    return engineSource == EngineSource::SfzPlayer2
+         ? processor.sfz2UiNoteOffRequest
+         : processor.sfzUiNoteOffRequest;
+}
+
+std::atomic<uint64_t>* KeysPanel::activeNotesAtomics() const
+{
+    return engineSource == EngineSource::SfzPlayer2
+         ? processor.sfz2ActiveNotes
+         : processor.sfzActiveNotes;
+}
+
+// =============================================================================
 // KeysPanel
 // =============================================================================
 
@@ -865,8 +896,8 @@ KeysPanel::~KeysPanel()
                             : -1;
     if (noteToRelease >= 0)
     {
-        processor.sfzUiNoteOffRequest.store (noteToRelease, std::memory_order_relaxed);
-        processor.sfzUiNoteOnRequest .store (-1,            std::memory_order_relaxed);
+        uiNoteOffAtomic().store (noteToRelease, std::memory_order_relaxed);
+        uiNoteOnAtomic() .store (-1,            std::memory_order_relaxed);
     }
 }
 
@@ -1266,7 +1297,7 @@ void KeysPanel::mouseDown (const juce::MouseEvent& e)
         if (it->isBlack && it->bounds.contains (e.getPosition()))
         {
             lastActiveNote = it->note;
-            processor.sfzUiNoteOnRequest.store (lastActiveNote, std::memory_order_relaxed);
+            uiNoteOnAtomic().store (lastActiveNote, std::memory_order_relaxed);
             repaint();
             return;
         }
@@ -1276,7 +1307,7 @@ void KeysPanel::mouseDown (const juce::MouseEvent& e)
         if (! kr.isBlack && kr.bounds.contains (e.getPosition()))
         {
             lastActiveNote = kr.note;
-            processor.sfzUiNoteOnRequest.store (lastActiveNote, std::memory_order_relaxed);
+            uiNoteOnAtomic().store (lastActiveNote, std::memory_order_relaxed);
             repaint();
             return;
         }
@@ -1303,7 +1334,7 @@ void KeysPanel::mouseDrag (const juce::MouseEvent& e)
     {
         releaseLastNote();
         lastActiveNote = found;
-        processor.sfzUiNoteOnRequest.store (lastActiveNote, std::memory_order_relaxed);
+        uiNoteOnAtomic().store (lastActiveNote, std::memory_order_relaxed);
         repaint();
     }
 }
@@ -1336,7 +1367,7 @@ void KeysPanel::releaseLastNote()
         // unconsumed value from a prior release, park this one in pendingNoteOff
         // so the timer delivers it on the next tick rather than losing it.
         int expected = -1;
-        if (! processor.sfzUiNoteOffRequest.compare_exchange_strong (
+        if (! uiNoteOffAtomic().compare_exchange_strong (
                 expected, lastActiveNote, std::memory_order_relaxed))
             pendingNoteOff = lastActiveNote;   // retry via timer
 
@@ -1358,14 +1389,15 @@ void KeysPanel::timerCallback()
     if (pendingNoteOff >= 0)
     {
         int expected = -1;
-        if (processor.sfzUiNoteOffRequest.compare_exchange_strong (
+        if (uiNoteOffAtomic().compare_exchange_strong (
                 expected, pendingNoteOff, std::memory_order_relaxed))
             pendingNoteOff = -1;
         // else: slot busy, will retry next tick
     }
 
-    const uint64_t lo = processor.sfzActiveNotes[0].load (std::memory_order_relaxed);
-    const uint64_t hi = processor.sfzActiveNotes[1].load (std::memory_order_relaxed);
+    std::atomic<uint64_t>* const activeNotes = activeNotesAtomics();
+    const uint64_t lo = activeNotes[0].load (std::memory_order_relaxed);
+    const uint64_t hi = activeNotes[1].load (std::memory_order_relaxed);
     if (lo != sfzActiveSnap[0] || hi != sfzActiveSnap[1])
     {
         sfzActiveSnap[0] = lo;

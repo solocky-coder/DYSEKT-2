@@ -118,6 +118,9 @@ DysektEditor::DysektEditor (DysektProcessor& p)
      resized();
      repaint(); // clear waveform/overview areas vacated by the old view
  };
+ // SFZ-PLAYER Zones view previews/highlights sfzPlayer2's notes, not the
+ // legacy SF-Player's — must be set before any note requests are made.
+ zoneBuilderKeysPanel.setEngineSource (KeysPanel::EngineSource::SfzPlayer2);
  zoneBuilderKeysPanel.setSfzEditable (true);
  zoneBuilderKeysPanel.setAddZoneButtonVisible (true);
  zoneBuilderKeysPanel.onAddZoneRequested = [this] { openZoneBuilderAddZone(); };

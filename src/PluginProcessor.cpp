@@ -2477,6 +2477,16 @@ void DysektProcessor::processMidi2 (const juce::MidiBuffer& midi)
             heldNotes2[note] = true;
             sfz2MidiActivity.fetch_add (1, std::memory_order_relaxed);
 
+            // Update the active-note bitmask the SFZ-Player keyboard(s) poll
+            // for highlighting — populated here so it only ever reflects
+            // notes actually on sfzPlayer2's own channel(s), never bleeding
+            // in activity from other channels/engines.
+            {
+                const int w = note < 64 ? 0 : 1;
+                const int b = note < 64 ? note : note - 64;
+                sfz2ActiveNotes[w].fetch_or ((uint64_t) 1 << b, std::memory_order_relaxed);
+            }
+
             const int sliceIdx = sliceManager2.midiNoteToSlice (note);
             if (sliceIdx >= 0)
             {
@@ -2517,6 +2527,11 @@ void DysektProcessor::processMidi2 (const juce::MidiBuffer& midi)
             {
                 voicePool2.releaseNoteForced (note);
             }
+            {
+                const int w = note < 64 ? 0 : 1;
+                const int b = note < 64 ? note : note - 64;
+                sfz2ActiveNotes[w].fetch_and (~((uint64_t) 1 << b), std::memory_order_relaxed);
+            }
             int prev = sfz2MidiActivity.load (std::memory_order_relaxed);
             while (prev > 0 &&
                    !sfz2MidiActivity.compare_exchange_weak (prev, prev - 1,
@@ -2527,11 +2542,15 @@ void DysektProcessor::processMidi2 (const juce::MidiBuffer& midi)
         {
             voicePool2.releaseAll();
             std::fill (std::begin (heldNotes2), std::end (heldNotes2), false);
+            sfz2ActiveNotes[0].store (0, std::memory_order_relaxed);
+            sfz2ActiveNotes[1].store (0, std::memory_order_relaxed);
         }
         else if (msg.isAllSoundOff())
         {
             voicePool2.killAll();
             std::fill (std::begin (heldNotes2), std::end (heldNotes2), false);
+            sfz2ActiveNotes[0].store (0, std::memory_order_relaxed);
+            sfz2ActiveNotes[1].store (0, std::memory_order_relaxed);
         }
     }
 }
@@ -2982,6 +3001,37 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     sfzActiveNotes[w].fetch_and (~((uint64_t)1 << b), std::memory_order_relaxed);
                 }
                 sfzPlayer.juceAdsrNoteOff();   // release JUCE ADSR envelope
+            }
+        }
+    }
+
+    // ── SFZ-Player (sfzPlayer2) keyboard UI note injection ───────────────────
+    // Inject on the lowest set channel of sfzPlayer2's own channel mask
+    // (sfzPlayer2ChannelMask, ch 2 by default) so the note is picked up and
+    // dispatched by processMidi2() below — which also updates sfz2ActiveNotes
+    // for the SFZ-Player keyboard's highlighting. Kept entirely separate from
+    // the sfPlayerChannelMask-driven block above so this engine's preview
+    // notes and note display never get mixed up with the legacy SF-Player's.
+    {
+        const uint32_t sfz2MaskInject = sfzPlayer2ChannelMask.load (std::memory_order_relaxed);
+        int injectCh2 = 2;
+        for (int c = 1; c <= 16; ++c)
+            if (sfz2MaskInject & (1u << c)) { injectCh2 = c; break; }
+        const bool sfz2Enabled = (sfz2MaskInject != 0);
+
+        const int noteOn  = sfz2UiNoteOnRequest .exchange (-1, std::memory_order_relaxed);
+        const int noteOff = sfz2UiNoteOffRequest.exchange (-1, std::memory_order_relaxed);
+
+        if (sfz2Enabled)
+        {
+            if (noteOn >= 0 && noteOn <= 127)
+                midi.addEvent (juce::MidiMessage::noteOn (injectCh2, noteOn, (juce::uint8) 100), 0);
+            if (noteOff >= 0 && noteOff <= 127)
+            {
+                const int offSample = (noteOn == noteOff)
+                                    ? juce::jmax (0, buffer.getNumSamples() - 1)
+                                    : 0;
+                midi.addEvent (juce::MidiMessage::noteOff (injectCh2, noteOff, (juce::uint8) 0), offSample);
             }
         }
     }
