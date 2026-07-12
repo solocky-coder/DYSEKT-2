@@ -9,6 +9,30 @@
 
 class DysektProcessor;
 
+// ── Themed folder glyph ───────────────────────────────────────────────────────
+// Colour-emoji glyphs (like U+1F4C1) render from their own embedded colour
+// palette in most font backends, so Graphics::setColour() has no effect on
+// them — that's why the folder icon was stuck yellow regardless of theme.
+// This draws a simple vector folder outline that actually respects setColour().
+static inline void drawFolderGlyph (juce::Graphics& g, juce::Rectangle<float> box, juce::Colour colour)
+{
+    const float tabW  = box.getWidth()  * 0.45f;
+    const float tabH  = box.getHeight() * 0.30f;
+    const float bodyY = box.getY() + tabH;
+
+    juce::Path p;
+    p.startNewSubPath (box.getX(),                      box.getBottom());
+    p.lineTo           (box.getX(),                      bodyY);
+    p.lineTo           (box.getX() + tabW,               bodyY);
+    p.lineTo           (box.getX() + tabW + tabH * 0.8f, box.getY());
+    p.lineTo           (box.getRight(),                  box.getY());
+    p.lineTo           (box.getRight(),                  box.getBottom());
+    p.closeSubPath();
+
+    g.setColour (colour);
+    g.strokePath (p, juce::PathStrokeType (1.3f));
+}
+
 // ── Tiny LookAndFeel override to shrink the file-list font ───────────────────
 class SmallListLookAndFeel : public juce::LookAndFeel_V4
 {
@@ -118,13 +142,19 @@ public:
 
         const auto textCol = isItemSelected ? t.accent : t.foreground.withAlpha (0.80f);
 
-        // Folder / file icon — same emoji + size as SfzFileBrowser
+        // Self-computed scale factor — same pattern as SliceLcdDisplay/DualLcdControlFrame.
+        // Derived from the actual row height JUCE gives us vs. the design row height.
+        const float sf = (float) height / (float) kRowHeight;
+        const int   iconColW = juce::roundToInt (kIconWidth * sf);
+
+        // Folder / file icon — same layout as SfzFileBrowser
         if (isDirectory)
         {
-            g.setColour (t.accent.withAlpha (0.55f));
-            g.setFont (juce::Font (juce::FontOptions{}.withHeight (kIconSize)));
-            g.drawText (u8"\U0001F4C1", 3, 0, kIconWidth, height,
-                        juce::Justification::centredLeft, false);
+            // Vector folder glyph — colour-emoji icons ignore setColour() and were
+            // stuck yellow regardless of theme; this respects t.accent properly.
+            auto iconBox = juce::Rectangle<float> (3.0f * sf, (float) height * 0.28f,
+                                                    (float) iconColW - 6.0f * sf, (float) height * 0.46f);
+            drawFolderGlyph (g, iconBox, t.accent.withAlpha (0.55f));
         }
         else
         {
@@ -132,23 +162,24 @@ public:
             const auto ext = file.getFileExtension().toUpperCase().trimCharactersAtStart (".");
             if (! ext.isEmpty())
             {
-                const int  badgeW    = 36;
-                const auto badgeRect = juce::Rectangle<int> (width - badgeW - 4,
-                                                              (height - 14) / 2, badgeW, 14);
+                const int  badgeW    = juce::roundToInt (36 * sf);
+                const int  badgeH    = juce::roundToInt (14 * sf);
+                const auto badgeRect = juce::Rectangle<int> (width - badgeW - juce::roundToInt (4 * sf),
+                                                              (height - badgeH) / 2, badgeW, badgeH);
                 g.setColour (t.accent.withAlpha (0.18f));
-                g.fillRoundedRectangle (badgeRect.toFloat(), 2.0f);
-                g.setFont (juce::Font (juce::FontOptions{}.withHeight (10.0f)));
+                g.fillRoundedRectangle (badgeRect.toFloat(), 2.0f * sf);
+                g.setFont (juce::Font (juce::FontOptions{}.withHeight (10.0f * sf)));
                 g.setColour (t.accent.withAlpha (0.80f));
                 g.drawText (ext, badgeRect, juce::Justification::centred, false);
             }
         }
 
-        // Filename — same font size as SfzFileBrowser (13pt)
-        g.setFont (juce::Font (juce::FontOptions{}.withHeight (kTextSize)));
+        // Filename — same font size as SfzFileBrowser (13pt design), scaled by sf
+        g.setFont (juce::Font (juce::FontOptions{}.withHeight (kTextSize * sf)));
         g.setColour (textCol);
-        const int textX = isDirectory ? kIconWidth + 4 : 6;
-        const int textW = isDirectory ? width - textX - 4
-                                      : width - 36 - 12;
+        const int textX = isDirectory ? iconColW + juce::roundToInt (4 * sf) : juce::roundToInt (6 * sf);
+        const int textW = isDirectory ? width - textX - juce::roundToInt (4 * sf)
+                                      : width - juce::roundToInt (36 * sf) - juce::roundToInt (12 * sf);
         g.drawText (filename, textX, 0, textW, height,
                     juce::Justification::centredLeft, true);
     }

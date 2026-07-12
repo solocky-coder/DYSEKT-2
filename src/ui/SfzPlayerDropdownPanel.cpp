@@ -17,6 +17,30 @@ static constexpr int kFolderIconW  = 20;
 static constexpr int kPad          = 6;
 static constexpr int kKnobGap      = 4;
 
+// ── Themed folder glyph ───────────────────────────────────────────────────────
+// Colour-emoji glyphs (like U+1F4C1) render from their own embedded colour
+// palette in most font backends, so Graphics::setColour() has no effect on
+// them — that's why the folder icon was stuck yellow regardless of theme.
+// This draws a simple vector folder outline that actually respects theme.accent.
+static void drawFolderGlyph (juce::Graphics& g, juce::Rectangle<float> box, juce::Colour colour)
+{
+    const float tabW  = box.getWidth()  * 0.45f;
+    const float tabH  = box.getHeight() * 0.30f;
+    const float bodyY = box.getY() + tabH;
+
+    juce::Path p;
+    p.startNewSubPath (box.getX(),                      box.getBottom());
+    p.lineTo           (box.getX(),                      bodyY);
+    p.lineTo           (box.getX() + tabW,               bodyY);
+    p.lineTo           (box.getX() + tabW + tabH * 0.8f, box.getY());
+    p.lineTo           (box.getRight(),                  box.getY());
+    p.lineTo           (box.getRight(),                  box.getBottom());
+    p.closeSubPath();
+
+    g.setColour (colour);
+    g.strokePath (p, juce::PathStrokeType (1.3f));
+}
+
 // =============================================================================
 //  SfzFileBrowser
 // =============================================================================
@@ -52,6 +76,13 @@ void SfzFileBrowser::paint (juce::Graphics& g)
 {
     const auto& theme = getTheme();
 
+    // Self-computed scale factor — same pattern as SliceLcdDisplay/DualLcdControlFrame.
+    // Derived from the breadcrumb bar's actual height vs. its design height, so it
+    // tracks whatever resized() decided (which itself tracks overall UI scale).
+    const float sf = breadcrumbZone.getHeight() > 0
+                        ? (float) breadcrumbZone.getHeight() / (float) kBreadcrumbH
+                        : 1.0f;
+
     // Background
     g.setColour (theme.darkBar.darker (0.45f));
     g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
@@ -69,6 +100,7 @@ void SfzFileBrowser::paint (juce::Graphics& g)
             g.setColour (theme.accent.withAlpha (0.18f));
             g.fillRoundedRectangle (upBtnZone.toFloat(), 2.0f);
         }
+        g.setFont (DysektLookAndFeel::makeFont (14.0f * sf));
         g.setColour (canGoUp ? theme.accent.withAlpha (0.90f)
                              : theme.accent.withAlpha (0.30f));
         g.drawText (u8"\u2190", upBtnZone, juce::Justification::centred, false);
@@ -78,7 +110,7 @@ void SfzFileBrowser::paint (juce::Graphics& g)
     {
         const auto pathArea = breadcrumbZone.withTrimmedLeft (upBtnZone.getWidth() + 4)
                                             .withTrimmedRight (4);
-        g.setFont (DysektLookAndFeel::makeFont (12.0f));
+        g.setFont (DysektLookAndFeel::makeFont (12.0f * sf));
         g.setColour (theme.foreground.withAlpha (0.55f));
 
         // Show last 2 path segments so it fits; show "Drives" in virtual-root mode
@@ -111,11 +143,20 @@ void SfzFileBrowser::paint (juce::Graphics& g)
 
 void SfzFileBrowser::resized()
 {
-    constexpr int upW = 24;
-    breadcrumbZone = { 0, 0, getWidth(), kBreadcrumbH };
-    upBtnZone      = { 0, 1, upW, kBreadcrumbH - 2 };
+    // Self-computed scale factor — same pattern as SliceLcdDisplay/DualLcdControlFrame.
+    // This browser fills the width of its parent module panel, which itself is laid
+    // out proportional to overall UI/window scale, so getWidth() tracks that scale.
+    const float sf = juce::jlimit (0.75f, 2.5f, (float) getWidth() / 1114.0f);
 
-    list.setBounds (0, kBreadcrumbH + 1, getWidth(), getHeight() - kBreadcrumbH - 1);
+    const int breadcrumbH = juce::roundToInt (kBreadcrumbH * sf);
+    const int rowH        = juce::roundToInt (kRowH        * sf);
+    const int upW         = juce::roundToInt (24.0f        * sf);
+
+    breadcrumbZone = { 0, 0, getWidth(), breadcrumbH };
+    upBtnZone      = { 0, 1, upW, breadcrumbH - 2 };
+
+    list.setRowHeight (rowH);
+    list.setBounds (0, breadcrumbH + 1, getWidth(), getHeight() - breadcrumbH - 1);
 }
 
 // ── mouseDown ────────────────────────────────────────────────────────────────
@@ -283,21 +324,31 @@ void SfzFileBrowser::paintListBoxItem (int row, juce::Graphics& g,
     const auto& f     = rows[row];
     const bool  isDir = f.isDirectory();
 
+    // Self-computed scale factor — same pattern as SliceLcdDisplay/DualLcdControlFrame.
+    // Derived straight from the actual row height JUCE gives us, so it always matches
+    // whatever resized() set via list.setRowHeight(), with no shared state needed.
+    const float sf = (float) h / (float) kRowH;
+
     if (selected)
     {
         g.setColour (theme.accent.withAlpha (0.14f));
         g.fillAll();
     }
 
-    g.setFont (DysektLookAndFeel::makeFont (16.0f));  // icon size — matches FileBrowserPanel::kIconSize
+    const int   iconColW = juce::roundToInt (22.0f * sf);
+    const float textSize = 13.0f * sf;
 
     if (isDir)
     {
-        g.setColour (theme.accent.withAlpha (0.55f));
-        g.drawText (u8"\U0001F4C1", 3, 0, 22, h, juce::Justification::centredLeft, false);
-        g.setFont (DysektLookAndFeel::makeFont (13.0f));
+        // Vector folder glyph — replaces the color-emoji icon, which ignored
+        // setColour() and was stuck yellow regardless of theme.
+        auto iconBox = juce::Rectangle<float> (3.0f * sf, (float) h * 0.28f,
+                                                (float) iconColW - 6.0f * sf, (float) h * 0.46f);
+        drawFolderGlyph (g, iconBox, theme.accent.withAlpha (0.75f));
+
+        g.setFont (DysektLookAndFeel::makeFont (textSize));
         g.setColour (selected ? theme.accent : theme.foreground.withAlpha (0.80f));
-        g.drawText (f.getFileName(), 28, 0, w - 32, h,
+        g.drawText (f.getFileName(), iconColW + 6, 0, w - iconColW - 10, h,
                     juce::Justification::centredLeft, true);
     }
     else
@@ -306,25 +357,29 @@ void SfzFileBrowser::paintListBoxItem (int row, juce::Graphics& g,
         const auto ext = f.getFileExtension().toUpperCase().trimCharactersAtStart (".");
         if (ext.isEmpty())
         {
-            g.setFont (DysektLookAndFeel::makeFont (13.0f));
+            g.setFont (DysektLookAndFeel::makeFont (textSize));
             g.setColour (selected ? theme.accent : theme.foreground.withAlpha (0.80f));
-            g.drawText (f.getFileName(), 6, 0, w - 10, h,
+            g.drawText (f.getFileName(), juce::roundToInt (6 * sf), 0,
+                        w - juce::roundToInt (10 * sf), h,
                         juce::Justification::centredLeft, true);
         }
         else
         {
-            const int  badgeW = 36;
-            const auto badgeRect = juce::Rectangle<int> (w - badgeW - 4, (h - 14) / 2, badgeW, 14);
+            const int  badgeW    = juce::roundToInt (36 * sf);
+            const int  badgeH    = juce::roundToInt (14 * sf);
+            const auto badgeRect = juce::Rectangle<int> (w - badgeW - juce::roundToInt (4 * sf),
+                                                          (h - badgeH) / 2, badgeW, badgeH);
             g.setColour (theme.accent.withAlpha (0.18f));
-            g.fillRoundedRectangle (badgeRect.toFloat(), 2.0f);
-            g.setFont (DysektLookAndFeel::makeFont (10.0f));
+            g.fillRoundedRectangle (badgeRect.toFloat(), 2.0f * sf);
+            g.setFont (DysektLookAndFeel::makeFont (10.0f * sf));
             g.setColour (theme.accent.withAlpha (0.80f));
             g.drawText (ext, badgeRect, juce::Justification::centred, false);
 
             // Filename
-            g.setFont (DysektLookAndFeel::makeFont (13.0f));
+            g.setFont (DysektLookAndFeel::makeFont (textSize));
             g.setColour (selected ? theme.accent : theme.foreground.withAlpha (0.80f));
-            g.drawText (f.getFileNameWithoutExtension(), 6, 0, w - badgeW - 14, h,
+            g.drawText (f.getFileNameWithoutExtension(), juce::roundToInt (6 * sf), 0,
+                        w - badgeW - juce::roundToInt (14 * sf), h,
                         juce::Justification::centredLeft, true);
         }
     }
