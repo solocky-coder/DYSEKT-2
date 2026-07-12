@@ -14,7 +14,7 @@ class DysektProcessor;
 // palette in most font backends, so Graphics::setColour() has no effect on
 // them — that's why the folder icon was stuck yellow regardless of theme.
 // This draws a simple vector folder outline that actually respects setColour().
-static inline void drawFolderGlyph (juce::Graphics& g, juce::Rectangle<float> box, juce::Colour colour)
+static inline void drawFileListFolderGlyph (juce::Graphics& g, juce::Rectangle<float> box, juce::Colour colour)
 {
     const float tabW  = box.getWidth()  * 0.45f;
     const float tabH  = box.getHeight() * 0.30f;
@@ -154,7 +154,7 @@ public:
             // stuck yellow regardless of theme; this respects t.accent properly.
             auto iconBox = juce::Rectangle<float> (3.0f * sf, (float) height * 0.28f,
                                                     (float) iconColW - 6.0f * sf, (float) height * 0.46f);
-            drawFolderGlyph (g, iconBox, t.accent.withAlpha (0.55f));
+            drawFileListFolderGlyph (g, iconBox, t.accent.withAlpha (0.55f));
         }
         else
         {
