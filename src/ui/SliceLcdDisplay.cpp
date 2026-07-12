@@ -394,17 +394,24 @@ void SliceLcdDisplay::drawFlagsRow (juce::Graphics& g, int /*row*/)
 
     struct Flag { juce::String text; bool on; int fieldId; bool isCycle; };
     juce::String loopStr = data.loopMode == 1 ? "LOOP" : (data.loopMode == 2 ? "PING" : "LOOP");
-    Flag flags[] = {
+    const bool sfzModeFlags = isSfzPlayer2Mode();
+
+    std::vector<Flag> flags = {
         { "REV",  data.reverse,        DysektProcessor::FieldReverse,        false },
         { loopStr, data.loopMode > 0,  DysektProcessor::FieldLoop,           true  },
         { "1SH",  data.oneShot,        DysektProcessor::FieldOneShot,        false },
-        { data.globalMono ? "MONO" : "POLY",
-                  data.globalMono,     DysektProcessor::FieldGlobalMono,     false },
-        { "STR",  data.stretchEnabled, DysektProcessor::FieldStretchEnabled,  false },
-        { "TAIL", data.releaseTail,    DysektProcessor::FieldReleaseTail,    false },
     };
+    // FieldGlobalMono is a true global APVTS param for the whole Slicer
+    // engine with no SFZ-PLAYER equivalent (processMidi2 never reads it) —
+    // see the guard in mouseDown(). Rather than show a dead button, omit it
+    // entirely here so the remaining flags redistribute across the strip.
+    if (! sfzModeFlags)
+        flags.push_back ({ data.globalMono ? "MONO" : "POLY",
+                            data.globalMono, DysektProcessor::FieldGlobalMono, false });
+    flags.push_back ({ "STR",  data.stretchEnabled, DysektProcessor::FieldStretchEnabled, false });
+    flags.push_back ({ "TAIL", data.releaseTail,    DysektProcessor::FieldReleaseTail,    false });
 
-    const int numFlags  = (int) std::size (flags);
+    const int numFlags  = (int) flags.size();
     const int lPad      = juce::roundToInt (kLeftPad * sf);
     const int availW    = screen.getWidth() - 2 * lPad - flagGap * (numFlags - 1);
     const int flagW     = availW / numFlags;
@@ -523,9 +530,10 @@ void SliceLcdDisplay::mouseDown (const juce::MouseEvent& e)
             juce::String newName = nameTextEditor->getText().trim();
             nameTextEditor.reset();
             DysektProcessor::Command cmd;
-            cmd.type        = DysektProcessor::CmdSetSliceName;
-            cmd.intParam1   = sliceIdx;
-            cmd.stringParam = newName;
+            cmd.type          = DysektProcessor::CmdSetSliceName;
+            cmd.intParam1     = sliceIdx;
+            cmd.stringParam   = newName;
+            cmd.targetEngine2 = isSfzPlayer2Mode();
             processor.pushCommand (cmd);
             repaint();
         };

@@ -1518,8 +1518,9 @@ void DysektProcessor::handleCommand (const Command& cmd)
         case CmdSetSliceName:
         {
             int idx = cmd.intParam1;
-            if (idx >= 0 && idx < sliceManager.getNumSlices())
-                sliceManager.getSlice (idx).name = cmd.stringParam.toUpperCase();
+            SliceManager& sm = cmd.targetEngine2 ? sliceManager2 : sliceManager;
+            if (idx >= 0 && idx < sm.getNumSlices())
+                sm.getSlice (idx).name = cmd.stringParam.toUpperCase();
             break;
         }
 
