@@ -79,6 +79,7 @@ public:
      *    otherwise                   → Slicer
      */
     void syncMidiRouteMode();
+    void syncBrowserMode();   // keeps browserPanel's file-type filter matched to uiMode — see toggleBrowserPanel
 
     /** The editor's full local bounds. No aspect-ratio lock and no letterbox —
      *  the editor accepts whatever size/aspect the host gives it. Kept as a

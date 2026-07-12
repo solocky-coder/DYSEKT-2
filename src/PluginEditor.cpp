@@ -448,6 +448,15 @@ void DysektEditor::syncMidiRouteMode()
     processor.setMidiRouteMode (mode);
 }
 
+void DysektEditor::syncBrowserMode()
+{
+    // Filter browser files to match the active tab:
+    // Slicer → audio files only, SFZ-PLAYER → .sfz only, SF2-PLAYER → .sf2 only
+    browserPanel.setBrowserMode (uiMode == 0 ? SfzFileBrowser::Mode::kAddZone
+                                : uiMode == 1 ? SfzFileBrowser::Mode::kSfz
+                                             : SfzFileBrowser::Mode::kSf2);
+}
+
 // ── Interface mode switch ─────────────────────────────────────────────────────
 void DysektEditor::setUiMode (int mode)
 {
@@ -456,11 +465,7 @@ void DysektEditor::setUiMode (int mode)
  // Leaving slicer mode — reset pad view to waveform
  if (uiMode != 0) { showPadGrid = false; sliceControlBar.setPadViewActive (false); }
 
- // Filter browser files to match the active tab:
- // Slicer → audio files only, SFZ-PLAYER → .sfz only, SF2-PLAYER → .sf2 only
- browserPanel.setBrowserMode (uiMode == 0 ? SfzFileBrowser::Mode::kAddZone
-                             : uiMode == 1 ? SfzFileBrowser::Mode::kSfz
-                                          : SfzFileBrowser::Mode::kSf2);
+ syncBrowserMode();
 
  // Keep the tab strip in sync (0=SLICER, 1=SFZ-PLAYER, 2=SF2-PLAYER)
  headerBar.dualFrame().setUiTab (uiMode);
@@ -552,6 +557,11 @@ void DysektEditor::toggleBrowserPanel()
             headerBar.setSeqActive (false);
         }
         activeSlot = SlotContent::Browser;
+        syncBrowserMode();   // browserPanel's mode is only otherwise set on an actual
+                              // uiMode change (see setUiMode) — without this, opening
+                              // the browser while staying on the same tab could leave
+                              // it filtering for the wrong file type / previous tab's
+                              // mode, so file selection silently failed to load.
         browserPanel.setVisible (true);
         headerBar.setBrowserActive (true);
     }
