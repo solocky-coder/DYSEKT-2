@@ -1164,7 +1164,12 @@ void DysektEditor::resized()
  waveformOverview.setBounds ({});
  } else {
  // SCB first (bottommost), then overview row sits immediately above it.
- if (hasRealSample && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
+ // NOTE: showZoneBuilder is included here (in addition to hasRealSample) so
+ // the SCB — and its ZONES toggle — stays reachable while zone-builder view
+ // is active, even for a not-yet-populated SFZ-PLAYER kit. Without this,
+ // hasRealSample being false hides the SCB entirely and there is no other
+ // way to exit zone view back to the waveform.
+ if ((hasRealSample || showZoneBuilder) && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
  {
      {
          const int scbH = si (kSliceCtrlH);
