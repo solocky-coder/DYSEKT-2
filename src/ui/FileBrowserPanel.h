@@ -318,7 +318,7 @@ private:
     void saveCustomBookmarks();
     void rebuildBookmarkBar();
 
-    static constexpr int kBmH = 28;
+    static constexpr int kBmH = 34;
 
     // ── Internet Archive bookmarks ────────────────────────────────────────────
     struct ArchiveBookmark

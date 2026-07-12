@@ -268,8 +268,9 @@ FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
 
     addBmBtn.setButtonText ("+");
     addBmBtn.setTooltip    ("Add folder bookmark");
-    addBmBtn.setColour (juce::TextButton::buttonColourId,  getTheme().darkBar.darker (0.5f));
-    addBmBtn.setColour (juce::TextButton::textColourOffId, getTheme().accent.withAlpha (0.90f));
+    addBmBtn.setColour (juce::TextButton::buttonColourId,  getTheme().button);
+    addBmBtn.setColour (juce::TextButton::textColourOnId,  getTheme().foreground);
+    addBmBtn.setColour (juce::TextButton::textColourOffId, getTheme().foreground);
     addBmBtn.onClick = [this]
     {
         fileChooser = std::make_unique<juce::FileChooser> (
@@ -297,8 +298,9 @@ FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
     // ── Internet Archive bookmarks ────────────────────────────────────────────
     addArchiveBtn.setButtonText ("IA");
     addArchiveBtn.setTooltip    ("Add Internet Archive bookmark");
-    addArchiveBtn.setColour (juce::TextButton::buttonColourId,  getTheme().darkBar.darker (0.5f));
-    addArchiveBtn.setColour (juce::TextButton::textColourOffId, getTheme().accent.withAlpha (0.90f));
+    addArchiveBtn.setColour (juce::TextButton::buttonColourId,  getTheme().button);
+    addArchiveBtn.setColour (juce::TextButton::textColourOnId,  getTheme().foreground);
+    addArchiveBtn.setColour (juce::TextButton::textColourOffId, getTheme().foreground);
     addArchiveBtn.onClick = [this] { showArchiveUrlDialog(); };
     addAndMakeVisible (addArchiveBtn);
 
@@ -349,7 +351,7 @@ void FileBrowserPanel::resized()
     // ── Bookmark bar row 1: local folders ────────────────────────────────────
     {
         auto bmBar = inner.removeFromTop (kBmH);
-        const int addW  = 22;
+        const int addW  = 30;
         const int gap   = 3;
         const int n     = bmBtns.size();
         const int avail = bmBar.getWidth() - addW - gap - 4;
@@ -358,17 +360,17 @@ void FileBrowserPanel::resized()
         int bx = bmBar.getX() + 2;
         for (auto* btn : bmBtns)
         {
-            btn->setBounds (bx, bmBar.getY() + 4, btnW, bmBar.getHeight() - 8);
+            btn->setBounds (bx, bmBar.getY() + 3, btnW, bmBar.getHeight() - 6);
             bx += btnW + gap;
         }
         addBmBtn.setBounds (bmBar.getRight() - addW - 2,
-                            bmBar.getY() + 4, addW, bmBar.getHeight() - 8);
+                            bmBar.getY() + 3, addW, bmBar.getHeight() - 6);
     }
 
     // ── Bookmark bar row 2: archive bookmarks ─────────────────────────────────
     {
         auto archBar = inner.removeFromTop (kBmH);
-        const int addW  = 22;
+        const int addW  = 30;
         const int gap   = 3;
         const int n     = archiveBtns.size();
         const int avail = archBar.getWidth() - addW - gap - 4;
@@ -377,11 +379,11 @@ void FileBrowserPanel::resized()
         int bx = archBar.getX() + 2;
         for (auto* btn : archiveBtns)
         {
-            btn->setBounds (bx, archBar.getY() + 4, btnW, archBar.getHeight() - 8);
+            btn->setBounds (bx, archBar.getY() + 3, btnW, archBar.getHeight() - 6);
             bx += btnW + gap;
         }
         addArchiveBtn.setBounds (archBar.getRight() - addW - 2,
-                                 archBar.getY() + 4, addW, archBar.getHeight() - 8);
+                                 archBar.getY() + 3, addW, archBar.getHeight() - 6);
     }
 
     // ── Main content area: archive list or local browser ──────────────────────
@@ -879,9 +881,9 @@ void FileBrowserPanel::rebuildBookmarkBar()
         auto* btn = bmBtns.add (new RemovableButton());
         btn->setButtonText (bookmarks[i].name);
         btn->setTooltip    (bookmarks[i].path.getFullPathName());
-        btn->setColour (juce::TextButton::buttonColourId,  T.darkBar.darker (0.3f));
+        btn->setColour (juce::TextButton::buttonColourId,  T.button);
         btn->setColour (juce::TextButton::buttonOnColourId,T.accent.withAlpha (0.2f));
-        btn->setColour (juce::TextButton::textColourOffId, T.accent.withAlpha (0.85f));
+        btn->setColour (juce::TextButton::textColourOffId, T.foreground);
         btn->setColour (juce::TextButton::textColourOnId,  T.accent);
 
         btn->onClick = [this, i]
@@ -1023,9 +1025,9 @@ void FileBrowserPanel::rebuildArchiveButtons()
             btn->setEnabled (true);
         }
 
-        btn->setColour (juce::TextButton::buttonColourId,   T.darkBar.darker (0.3f));
+        btn->setColour (juce::TextButton::buttonColourId,   T.button);
         btn->setColour (juce::TextButton::buttonOnColourId,  T.accent.withAlpha (0.2f));
-        btn->setColour (juce::TextButton::textColourOffId,   T.accent.withAlpha (bm.pending ? 0.4f : 0.85f));
+        btn->setColour (juce::TextButton::textColourOffId,   T.foreground.withAlpha (bm.pending ? 0.4f : 1.0f));
         btn->setColour (juce::TextButton::textColourOnId,    T.accent);
 
         if (! bm.pending)
