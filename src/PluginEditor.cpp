@@ -1181,7 +1181,7 @@ void DysektEditor::resized()
  }
 
  // Overview row: allocate space and show only when waveform view is active.
- if ((uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen && hasRealSample && !showPadGrid)
+ if ((uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen && hasRealSample && !showPadGrid && !showZoneBuilder)
  {
      auto overviewRow = area.removeFromBottom (kOverviewRowH);
      const int overviewY = overviewRow.getY() + kInterGap;
