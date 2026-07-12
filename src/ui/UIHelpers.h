@@ -16,9 +16,18 @@ namespace UIHelpers
 // Secondary = the neutral/dismissive action (e.g. "Cancel", "No Thanks", "Clear")
 inline void stylePrimaryPopupButton (juce::TextButton& b, const ThemeData& T)
 {
-    b.setColour (juce::TextButton::buttonColourId,  T.accent.withAlpha (0.85f));
-    b.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
-    b.setColour (juce::TextButton::textColourOnId,  juce::Colours::black);
+    const auto bg = T.accent.withAlpha (0.85f);
+
+    // Pick black or white text based on the accent's actual brightness rather
+    // than assuming accents are always light — some themes (e.g. "hack") use
+    // a dark, saturated accent that black text disappears against.
+    const auto textCol = bg.getPerceivedBrightness() > 0.55f
+                        ? juce::Colours::black
+                        : juce::Colours::white;
+
+    b.setColour (juce::TextButton::buttonColourId,  bg);
+    b.setColour (juce::TextButton::textColourOffId, textCol);
+    b.setColour (juce::TextButton::textColourOnId,  textCol);
 }
 
 inline void styleSecondaryPopupButton (juce::TextButton& b, const ThemeData& T)

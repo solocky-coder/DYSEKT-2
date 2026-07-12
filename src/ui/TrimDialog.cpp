@@ -1,5 +1,6 @@
 ﻿#include "TrimDialog.h"
 #include "DysektLookAndFeel.h"
+#include "UIHelpers.h"
 #include "WaveformView.h"
 #include "../PluginProcessor.h"
 #include "../PluginEditor.h"
@@ -7,13 +8,11 @@
 TrimDialog::TrimDialog (DysektProcessor& proc, WaveformView& wv)
     : processor (proc), waveformView (wv)
 {
-    applyBtn.setColour (juce::TextButton::buttonColourId,  getTheme().accent.withAlpha (0.85f));
-    applyBtn.setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+    UIHelpers::stylePrimaryPopupButton (applyBtn, getTheme());
     applyBtn.onClick = [this] { onApply(); };
     addAndMakeVisible (applyBtn);
 
-    cancelBtn.setColour (juce::TextButton::buttonColourId,  getTheme().button);
-    cancelBtn.setColour (juce::TextButton::textColourOffId, getTheme().foreground);
+    UIHelpers::styleSecondaryPopupButton (cancelBtn, getTheme());
     cancelBtn.onClick = [this] { onCancel(); };
     addAndMakeVisible (cancelBtn);
 
