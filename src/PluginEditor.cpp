@@ -478,6 +478,10 @@ void DysektEditor::setUiMode (int mode)
  uiMode = mode;
  // Leaving slicer mode — reset pad view to waveform
  if (uiMode != 0) { showPadGrid = false; sliceControlBar.setPadViewActive (false); }
+ // Leaving SFZ-PLAYER — reset zone-builder view so it can't leak into other
+ // tabs (e.g. keep the SCB spuriously visible in Slicer; see the SCB
+ // visibility gate in resized() for why this previously mattered).
+ if (uiMode != 1) { showZoneBuilder = false; sliceControlBar.setZoneViewActive (false); }
 
  syncBrowserMode();
 
@@ -1175,20 +1179,20 @@ void DysektEditor::resized()
  waveformOverview.setBounds ({});
  } else {
  // SCB first (bottommost), then overview row sits immediately above it.
- // NOTE: showZoneBuilder is included here (in addition to hasRealSample) so
- // the SCB — and its ZONES toggle — stays reachable while zone-builder view
- // is active, even for a not-yet-populated SFZ-PLAYER kit.
  //
- // uiMode == 1 is ALSO included on its own: for SFZ-PLAYER, hasRealSample
- // requires sampleData2 to already contain decoded sample data, and
- // showZoneBuilder starts false — so with nothing loaded yet, both were
- // false and the SCB (the only way to reach the ZONES toggle and enter
- // add-zone mode) was hidden entirely. There was no way to get in. SFZ-PLAYER's
- // SCB must always be reachable so the user can open ZONES / add a zone
- // without loading an .sfz first. Slicer (uiMode == 0) keeps the original
- // hasRealSample gate — that tab's SCB genuinely has nothing useful to do
- // until a sample is loaded.
- if ((hasRealSample || showZoneBuilder || uiMode == 1) && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
+ // uiMode == 1 makes SFZ-PLAYER's SCB always reachable, regardless of
+ // hasRealSample: for SFZ-PLAYER, hasRealSample requires sampleData2 to
+ // already contain decoded sample data, and with nothing loaded yet that's
+ // false — so without this, the SCB (the only way to reach the ZONES toggle
+ // and enter add-zone mode) was hidden entirely and there was no way in.
+ // Slicer (uiMode == 0) keeps the original hasRealSample-only gate — that
+ // tab's SCB genuinely has nothing useful to do until a sample is loaded.
+ // NOTE: showZoneBuilder is deliberately NOT included here — uiMode == 1
+ // already covers reachability while zone-builder view is active, and
+ // showZoneBuilder is never reset on tab switch (see setUiMode), so
+ // including it here let a stale showZoneBuilder=true from a prior
+ // SFZ-PLAYER session keep the SCB visible after switching to Slicer.
+ if ((hasRealSample || uiMode == 1) && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
  {
      {
          const int scbH = si (kSliceCtrlH);
