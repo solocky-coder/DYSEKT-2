@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #include "ui/DysektLookAndFeel.h"
 #include "ui/PluginEditorConstants.h"
+#include "ui/LogoIcon.h"
 
 #if JUCE_WINDOWS && ! DYSEKT_STANDALONE
  #ifndef NOMINMAX
