@@ -3,6 +3,7 @@
 #include "../sequencer/SequencerEngine.h"
 #include "../sequencer/AbletonLink.h"
 #include "DysektLookAndFeel.h"
+#include "UIHelpers.h"
 
 //==============================================================================
 //  TransportLAF  —  flat tile buttons with a small coloured indicator dot
@@ -234,7 +235,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (getTheme().darkBar);
+        UIHelpers::drawTexturedPanel (g, getLocalBounds().toFloat(), getTheme().darkBar,
+                                       UIHelpers::PanelZone::Chassis);
         g.setColour (getTheme().separator);
         g.fillRect (getLocalBounds().removeFromBottom (1));
     }

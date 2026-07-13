@@ -24,6 +24,7 @@
 #include "../PluginProcessor.h"
 #include "ThemeData.h"
 #include "DysektLookAndFeel.h"
+#include "UIHelpers.h"
 
 class Sf2ChannelFxPanel  : public juce::Component,
                             public juce::Timer
@@ -63,7 +64,8 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto theme = ThemeData::darkTheme();
-        g.fillAll (theme.darkBar);
+        UIHelpers::drawTexturedPanel (g, getLocalBounds().toFloat(), theme.darkBar,
+                                       UIHelpers::PanelZone::Chassis);
 
         const int numActive = countActiveBits();
         if (numActive == 0)

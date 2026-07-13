@@ -2,6 +2,7 @@
 #include "ui/DysektLookAndFeel.h"
 #include "ui/PluginEditorConstants.h"
 #include "ui/LogoIcon.h"
+#include "ui/UIHelpers.h"
 
 #if JUCE_WINDOWS && ! DYSEKT_STANDALONE
  #ifndef NOMINMAX
@@ -800,12 +801,8 @@ void DysektEditor::paint (juce::Graphics& g)
 
  const float sf = (float) designArea.getHeight() / (float) kTotalH;
  const auto screenF = outerF.reduced (4.0f * sf);
- g.setColour (getTheme().darkBar.darker (0.55f));
- g.fillRoundedRectangle (screenF, 2.0f);
-
- g.setColour (juce::Colours::black.withAlpha (0.18f));
- for (int y = juce::roundToInt (screenF.getY()); y < juce::roundToInt (screenF.getBottom()); y += 2)
- g.drawHorizontalLine (y, screenF.getX(), screenF.getRight());
+ UIHelpers::drawTexturedPanel (g, screenF, getTheme().darkBar.darker (0.55f),
+                                UIHelpers::PanelZone::Instrument, 2.0f);
 
  juce::ColourGradient glow (getTheme().accent.withAlpha (0.06f), 0.f, screenF.getY(),
  juce::Colours::transparentBlack, 0.f, screenF.getY() + 20.f, false);

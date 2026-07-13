@@ -1,5 +1,6 @@
 #include "FileBrowserPanel.h"
 #include "DysektLookAndFeel.h"
+#include "UIHelpers.h"
 #include "../PluginProcessor.h"
 
 #include <windows.h>
@@ -415,23 +416,21 @@ void FileBrowserPanel::paint (juce::Graphics& g)
     g.setGradientFill (outerGrad);
     g.fillRoundedRectangle (b.toFloat(), 4.0f);
 
+    // Cheap win: soft glow behind the border, drawn before the hairline
+    // stroke, so the border reads as lit from within rather than just
+    // outlined.
+    UIHelpers::drawPanelGlow (g, b.toFloat(), ac, 4.0f);
+
     g.setColour (ac.withAlpha (0.65f));
     g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.0f);
 
     // ── Inner screen area (inset 4 px all around) ────────────────────────────
     const auto screen = b.reduced (4);
 
-    g.setColour (T.darkBar.darker (0.55f));
-    g.fillRoundedRectangle (screen.toFloat(), 2.0f);
-
-    // Scanlines
-    g.setColour (juce::Colours::black.withAlpha (0.18f));
-    {
-        juce::Graphics::ScopedSaveState ss (g);
-        g.reduceClipRegion (screen);
-        for (int y = screen.getY(); y < screen.getBottom(); y += 2)
-            g.drawHorizontalLine (y, (float) screen.getX(), (float) screen.getRight());
-    }
+    // Faint graph-paper grid rather than noise/scanlines, so the texture
+    // doesn't fight with row scanning while browsing files.
+    UIHelpers::drawTexturedPanel (g, screen.toFloat(), T.darkBar.darker (0.55f),
+                                   UIHelpers::PanelZone::FileBrowser, 2.0f);
 
     // Top glow
     juce::ColourGradient glow (ac.withAlpha (0.06f), 0, (float) screen.getY(),
