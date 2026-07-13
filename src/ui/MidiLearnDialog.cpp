@@ -267,7 +267,6 @@ MidiLearnDialog::MidiLearnDialog (MidiLearnManager& ml,
     const auto& th = getTheme();
     mappingList.setColour (juce::ListBox::backgroundColourId, th.background.brighter (0.06f));
     mappingList.setColour (juce::ListBox::outlineColourId,    juce::Colours::transparentBlack);
-    mappingList.getVerticalScrollBar().setButtonVisibility (false); // no stock arrow caps — flat scrollbar only
 
     saveButton.onClick  = [this] { saveToFile(); };
     loadButton.onClick  = [this] { loadFromFile(); };

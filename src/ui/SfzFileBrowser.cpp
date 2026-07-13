@@ -46,7 +46,6 @@ SfzFileBrowser::SfzFileBrowser()
     list.setRowHeight (kRowH);
     list.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
     list.setColour (juce::ListBox::outlineColourId,    juce::Colours::transparentBlack);
-    list.getVerticalScrollBar().setButtonVisibility (false); // no stock arrow caps — flat scrollbar only
     addAndMakeVisible (list);
 
     // Don't call navigateTo() in the constructor — layout isn't ready yet.
