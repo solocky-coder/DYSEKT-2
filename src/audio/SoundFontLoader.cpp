@@ -364,6 +364,15 @@ private:
                 + "\") -> " + (ok ? "OK" : "FAILED")
                 + "  [preset override " + juce::String (presetBank) + "/" + juce::String (presetProgram) + "]"
                 + "  regions=" + juce::String (ok ? sfizz_get_num_regions (sfz) : -1));
+        else if (target == SoundFontLoadTarget::SfzPlayer2)
+            // SFZ-PLAYER zone-builder preview has no failure UI of its own (see
+            // postFailure() below) so a bad scratch/target file previously failed
+            // completely silently — matrix (parseSfzZones, a lenient text scan)
+            // could show zones that sfizz's real parser rejects outright, with
+            // zero indication why the LCD/waveform/slice-count stayed empty.
+            processor.crashLogger.log ("SFZ-PLAYER zone preview: sfizz_load_file(\"" + file.getFullPathName()
+                + "\") -> " + (ok ? "OK" : "FAILED")
+                + "  regions=" + juce::String (ok ? sfizz_get_num_regions (sfz) : -1));
 
         if (! ok || shouldExit())
         {

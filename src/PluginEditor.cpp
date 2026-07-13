@@ -2159,18 +2159,25 @@ void DysektEditor::refreshZoneBuilderScratch()
     if (! zoneBuilderTargetSfz.existsAsFile())
         return;
 
-    juce::String scratchContent = zoneBuilderTargetSfz.loadFileAsString();
-    for (const auto& pz : zoneBuilderPendingZones)
-        scratchContent += buildZoneRegionText (zoneBuilderTargetSfz, pz.sampleFile,
-                                                pz.loKey, pz.hiKey, pz.rootKey);
-
     // Scratch file lives alongside the real target (hidden, dot-prefixed) so
-    // the relative sample= paths computed above — which are relative to
-    // zoneBuilderTargetSfz's directory, not the scratch file's — still
-    // resolve correctly when this file is loaded/parsed.
+    // relative sample= paths — computed relative to whichever file is being
+    // loaded — resolve identically whether sfizz opens this file or the real
+    // target.
     zoneBuilderScratchFile = zoneBuilderTargetSfz.getSiblingFile (
         "." + zoneBuilderTargetSfz.getFileNameWithoutExtension() + ".zonebuilder_scratch.sfz");
-    zoneBuilderScratchFile.replaceWithText (scratchContent);
+
+    // Start from a byte-for-byte copy of the real on-disk target — NOT a
+    // loadFileAsString() + juce::String concatenation + replaceWithText
+    // rebuild — then append each staged zone through the exact same
+    // FileOutputStream-based appendZoneToSfz() that SAVE itself uses. That
+    // keeps the preview's bytes and the eventual real commit's bytes
+    // mechanically identical, so a sfizz-strict-parser-vs-app-lenient-parser
+    // mismatch (matrix shows zones sfizz refuses to load) can't be introduced
+    // by the scratch-rebuild step itself.
+    zoneBuilderTargetSfz.copyFileTo (zoneBuilderScratchFile);
+
+    for (const auto& pz : zoneBuilderPendingZones)
+        appendZoneToSfz (zoneBuilderScratchFile, pz.sampleFile, pz.loKey, pz.hiKey, pz.rootKey);
 
     processor.sfzPlayer2.loadFile (zoneBuilderScratchFile, processor.fileLoadPool);
     processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
