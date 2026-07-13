@@ -36,6 +36,15 @@ public:
     /// Fired when the user clicks the ZONES toggle button (SFZ-PLAYER mode only).
     std::function<void (bool zoneActive)> onZoneViewToggle;
 
+    // SAVE button — appears to the left of ZONES (SFZ-PLAYER mode only) while
+    // there are staged-but-unsaved zone-builder changes. Set externally by the
+    // editor whenever its pending-zone list goes from empty <-> non-empty.
+    void setZoneDirty (bool dirty) { zoneDirty = dirty; repaint(); }
+    bool getZoneDirty() const noexcept { return zoneDirty; }
+
+    /// Fired when the user clicks the SAVE button.
+    std::function<void()> onZoneSaveRequested;
+
 private:
     void timerCallback() override;
     float pulsePhase    = 0.0f;   // 0..1, advances each timer tick
@@ -47,6 +56,9 @@ private:
 
     bool  zoneViewActive = false;   // mirrors editor showZoneBuilder
     juce::Rectangle<int> zoneToggleBtnArea; // hit-tested in mouseDown — ZONES button (SFZ-PLAYER only)
+
+    bool  zoneDirty = false;        // mirrors editor zoneBuilderDirty — shows/hides the SAVE button
+    juce::Rectangle<int> zoneSaveBtnArea; // hit-tested in mouseDown — SAVE button (SFZ-PLAYER only, when dirty)
 
     // True when the SFZ-PLAYER tab (sliceManager2/voicePool2 — a full second
     // Slicer instance) is the active engine. Mirrors SliceLcdDisplay's

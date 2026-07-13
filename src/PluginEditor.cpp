@@ -109,17 +109,54 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  };
  sliceControlBar.onZoneViewToggle = [this] (bool on)
  {
+     if (! on && zoneBuilderDirty)
+     {
+         // SliceControlBar already flipped its own zoneViewActive to false
+         // before calling us (see its mouseDown) — put it back to true until
+         // the user actually resolves the prompt below, so the toggle keeps
+         // reading as "on" while Save/Discard is pending.
+         sliceControlBar.setZoneViewActive (true);
+
+         confirmOverlay = std::make_unique<ConfirmOverlay> (
+             "Unsaved Zones",
+             "You have zones staged that haven't been saved yet. Save them before leaving?",
+             "Save",
+             "Discard");
+         addAndMakeVisible (*confirmOverlay);
+         confirmOverlay->setBounds (getLocalBounds());
+         confirmOverlay->toFront (true);
+         confirmOverlay->onResult = [this] (bool save)
+         {
+             confirmOverlay.reset();
+             if (save)
+                 commitZoneBuilderPendingZones();
+             else
+                 discardZoneBuilderPendingZones();
+
+             showZoneBuilder = false;
+             sliceControlBar.setZoneViewActive (false);
+             resized();
+             repaint();
+         };
+         return;
+     }
+
      showZoneBuilder = on;
      if (on)
      {
          // zoneBuilderTargetSfz is set synchronously in onLoadRequest at
          // load time (see comment there) — just reflect it here, no engine
-         // query needed.
-         refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
+         // query needed. Staged pending zones (if any survived a tab switch
+         // back in) still need the scratch preview, not the raw on-disk file.
+         if (zoneBuilderDirty)
+             refreshZoneBuilderScratch();
+         else
+             refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
      }
      resized();
      repaint(); // clear waveform/overview areas vacated by the old view
  };
+ sliceControlBar.onZoneSaveRequested = [this] { commitZoneBuilderPendingZones(); };
  // SFZ-PLAYER Zones view previews/highlights sfzPlayer2's notes, not the
  // legacy SF-Player's — must be set before any note requests are made.
  zoneBuilderKeysPanel.setEngineSource (KeysPanel::EngineSource::SfzPlayer2);
@@ -253,6 +290,18 @@ DysektEditor::DysektEditor (DysektProcessor& p)
              // already known right here though, so just remember it directly
              // rather than querying engine state that doesn't carry it.
              zoneBuilderTargetSfz = f;
+
+             // A different .sfz just became the target — any zones staged
+             // against the previous target no longer apply. Drop them rather
+             // than silently carrying them (and their scratch file, which was
+             // built against the old file's contents) across the switch.
+             zoneBuilderPendingZones.clear();
+             zoneBuilderDirty = false;
+             sliceControlBar.setZoneDirty (false);
+             if (zoneBuilderScratchFile.existsAsFile())
+                 zoneBuilderScratchFile.deleteFile();
+             zoneBuilderScratchFile = juce::File();
+
              if (showZoneBuilder)
                  refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
          }
@@ -481,7 +530,24 @@ void DysektEditor::setUiMode (int mode)
  // Leaving SFZ-PLAYER — reset zone-builder view so it can't leak into other
  // tabs (e.g. keep the SCB spuriously visible in Slicer; see the SCB
  // visibility gate in resized() for why this previously mattered).
- if (uiMode != 1) { showZoneBuilder = false; sliceControlBar.setZoneViewActive (false); }
+ if (uiMode != 1)
+ {
+     showZoneBuilder = false;
+     sliceControlBar.setZoneViewActive (false);
+
+     // Known limitation: unlike the ZONES toggle-off gate (onZoneViewToggle),
+     // switching tabs away from SFZ-PLAYER drops any staged-but-unsaved zones
+     // with no Save/Discard prompt. Tab switches aren't gated the same way
+     // the ZONES button is, so silently discarding here (rather than leaving
+     // stale pending zones pointed at a scratch file the user can no longer
+     // reach) is the safer of the two bad options.
+     zoneBuilderPendingZones.clear();
+     zoneBuilderDirty = false;
+     sliceControlBar.setZoneDirty (false);
+     if (zoneBuilderScratchFile.existsAsFile())
+         zoneBuilderScratchFile.deleteFile();
+     zoneBuilderScratchFile = juce::File();
+ }
 
  syncBrowserMode();
 
@@ -1966,6 +2032,12 @@ void DysektEditor::openZoneBuilderAddZone()
         for (const auto& z : existing)
             prevHiKey = juce::jmax (prevHiKey, z.hiKey);
     }
+    // Zones staged-but-not-yet-saved won't appear in targetSfz's on-disk
+    // content yet, but the new zone's default range still needs to start
+    // above them, or a second staged Add Zone would silently overlap the
+    // first.
+    for (const auto& pz : zoneBuilderPendingZones)
+        prevHiKey = juce::jmax (prevHiKey, pz.hiKey);
 
     zoneBuilderTargetSfz  = targetSfz;
     zoneBuilderPrevHiKey  = prevHiKey;
@@ -2016,28 +2088,18 @@ void DysektEditor::showZoneBuilderAddZoneOverlay (const juce::File& sfzFile,
         if (! confirmed)
             return;
 
-        if (! appendZoneToSfz (sfzFile, sampleFile, lo, hi, root))
-        {
-            messageOverlay = std::make_unique<MessageOverlay> (
-                "Add Zone Failed",
-                "Could not write to:\n" + sfzFile.getFullPathName(),
-                MessageOverlay::Kind::Warning);
-            addAndMakeVisible (*messageOverlay);
-            messageOverlay->setBounds (getLocalBounds());
-            messageOverlay->toFront (true);
-            messageOverlay->onDismiss = [this] { messageOverlay.reset(); };
-            return;
-        }
+        // Stage rather than write straight to sfzFile — appendZoneToSfz is
+        // now only called from commitZoneBuilderPendingZones (SAVE), so
+        // several zones can be added/auditioned before deciding to keep them.
+        zoneBuilderPendingZones.push_back ({ sampleFile, lo, hi, root });
+        zoneBuilderDirty = true;
+        sliceControlBar.setZoneDirty (true);
 
-        processor.sfzPlayer2.loadFile (sfzFile, processor.fileLoadPool);
-        processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
-        // sfzPlayer2.loadFile() alone does NOT reach the slice view: sliceManager2/
-        // sampleData2 (what the waveform/slice view actually reads) are only
-        // populated by the async soundfont decode below. Without this call the new
-        // zone is written to disk and shows in the zone-builder matrix, but never
-        // appears as a slice after exiting zone mode.
-        processor.loadSoundFontAsync (sfzFile, SoundFontLoadTarget::SfzPlayer2);
-        refreshZoneBuilderMatrix (sfzFile);
+        // refreshZoneBuilderScratch() drives both the matrix and the
+        // sliceManager2/sampleData2 preview from the rebuilt scratch file —
+        // see its doc comment for why sfzPlayer2.loadFile() alone isn't
+        // enough to reach the slice view.
+        refreshZoneBuilderScratch();
         zoneBuilderKeysPanel.autoScrollToZones();
         repaint();
     };
@@ -2047,8 +2109,12 @@ void DysektEditor::showZoneBuilderAddZoneOverlay (const juce::File& sfzFile,
     zoneAddOverlay->toFront (true);
 }
 
-bool DysektEditor::appendZoneToSfz (const juce::File& sfzFile, const juce::File& sampleFile,
-                                     int loKey, int hiKey, int rootKey)
+// Builds the raw "<region>...</region>"-style text block for one zone.
+// Shared by appendZoneToSfz (the real on-disk write, at SAVE time) and
+// refreshZoneBuilderScratch (the in-memory preview) so the two paths can
+// never drift out of sync with each other.
+juce::String DysektEditor::buildZoneRegionText (const juce::File& sfzFile, const juce::File& sampleFile,
+                                                 int loKey, int hiKey, int rootKey)
 {
     juce::String samplePath;
     const auto sfzDir = sfzFile.getParentDirectory();
@@ -2057,16 +2123,21 @@ bool DysektEditor::appendZoneToSfz (const juce::File& sfzFile, const juce::File&
     else
         samplePath = sampleFile.getFullPathName().replaceCharacter ('\\', '/');
 
-    const juce::String region =
-        "\n<region>\n"
-        "sample="          + samplePath              + "\n"
-        "lokey="           + juce::String (loKey)    + "\n"
-        "hikey="           + juce::String (hiKey)    + "\n"
-        "pitch_keycenter=" + juce::String (rootKey)  + "\n"
-        "volume=-7\n"
-        "pan=0\n"
-        "tune=0\n"
-        "ampeg_release=0.664\n";
+    return "\n<region>\n"
+           "sample="          + samplePath              + "\n"
+           "lokey="           + juce::String (loKey)    + "\n"
+           "hikey="           + juce::String (hiKey)    + "\n"
+           "pitch_keycenter=" + juce::String (rootKey)  + "\n"
+           "volume=-7\n"
+           "pan=0\n"
+           "tune=0\n"
+           "ampeg_release=0.664\n";
+}
+
+bool DysektEditor::appendZoneToSfz (const juce::File& sfzFile, const juce::File& sampleFile,
+                                     int loKey, int hiKey, int rootKey)
+{
+    const juce::String region = buildZoneRegionText (sfzFile, sampleFile, loKey, hiKey, rootKey);
 
     juce::FileOutputStream stream (sfzFile);
     if (stream.failedToOpen())
@@ -2076,6 +2147,105 @@ bool DysektEditor::appendZoneToSfz (const juce::File& sfzFile, const juce::File&
     stream.writeText (region, false, false, nullptr);
     stream.flush();
     return ! stream.getStatus().failed();
+}
+
+// Rebuilds the scratch preview file — zoneBuilderTargetSfz's real on-disk
+// content plus one <region> block per staged-but-unsaved pending zone — and
+// points sfzPlayer2/the zone matrix at it. Called every time a zone is
+// staged so the KeysPanel matrix and the slice/waveform preview both reflect
+// all pending zones without ever touching zoneBuilderTargetSfz itself.
+void DysektEditor::refreshZoneBuilderScratch()
+{
+    if (! zoneBuilderTargetSfz.existsAsFile())
+        return;
+
+    juce::String scratchContent = zoneBuilderTargetSfz.loadFileAsString();
+    for (const auto& pz : zoneBuilderPendingZones)
+        scratchContent += buildZoneRegionText (zoneBuilderTargetSfz, pz.sampleFile,
+                                                pz.loKey, pz.hiKey, pz.rootKey);
+
+    // Scratch file lives alongside the real target (hidden, dot-prefixed) so
+    // the relative sample= paths computed above — which are relative to
+    // zoneBuilderTargetSfz's directory, not the scratch file's — still
+    // resolve correctly when this file is loaded/parsed.
+    zoneBuilderScratchFile = zoneBuilderTargetSfz.getSiblingFile (
+        "." + zoneBuilderTargetSfz.getFileNameWithoutExtension() + ".zonebuilder_scratch.sfz");
+    zoneBuilderScratchFile.replaceWithText (scratchContent);
+
+    processor.sfzPlayer2.loadFile (zoneBuilderScratchFile, processor.fileLoadPool);
+    processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
+    // See showZoneBuilderAddZoneOverlay's onResult (and the older comment
+    // that used to live there) for why this call is required: sliceManager2/
+    // sampleData2 are only populated by the async soundfont decode, not by
+    // sfzPlayer2.loadFile() alone.
+    processor.loadSoundFontAsync (zoneBuilderScratchFile, SoundFontLoadTarget::SfzPlayer2);
+    refreshZoneBuilderMatrix (zoneBuilderScratchFile);
+}
+
+// SAVE — commit every staged pending zone to the real zoneBuilderTargetSfz
+// on disk (via the same appendZoneToSfz used before staging existed), then
+// clear staging state and point the live preview back at the real file.
+void DysektEditor::commitZoneBuilderPendingZones()
+{
+    if (zoneBuilderPendingZones.empty())
+        return;
+
+    if (! zoneBuilderTargetSfz.existsAsFile())
+        return;
+
+    for (const auto& pz : zoneBuilderPendingZones)
+    {
+        if (! appendZoneToSfz (zoneBuilderTargetSfz, pz.sampleFile, pz.loKey, pz.hiKey, pz.rootKey))
+        {
+            messageOverlay = std::make_unique<MessageOverlay> (
+                "Save Failed",
+                "Could not write to:\n" + zoneBuilderTargetSfz.getFullPathName(),
+                MessageOverlay::Kind::Warning);
+            addAndMakeVisible (*messageOverlay);
+            messageOverlay->setBounds (getLocalBounds());
+            messageOverlay->toFront (true);
+            messageOverlay->onDismiss = [this] { messageOverlay.reset(); };
+            return; // leave everything staged so the user can retry SAVE
+        }
+    }
+
+    zoneBuilderPendingZones.clear();
+    zoneBuilderDirty = false;
+    sliceControlBar.setZoneDirty (false);
+
+    // The scratch file's job is done now that its contents are for real.
+    if (zoneBuilderScratchFile.existsAsFile())
+        zoneBuilderScratchFile.deleteFile();
+    zoneBuilderScratchFile = juce::File();
+
+    processor.sfzPlayer2.loadFile (zoneBuilderTargetSfz, processor.fileLoadPool);
+    processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed);
+    processor.loadSoundFontAsync (zoneBuilderTargetSfz, SoundFontLoadTarget::SfzPlayer2);
+    refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
+    repaint();
+}
+
+// DISCARD — drop every staged pending zone without writing anything, and
+// restore the live preview back to zoneBuilderTargetSfz's actual on-disk
+// state.
+void DysektEditor::discardZoneBuilderPendingZones()
+{
+    zoneBuilderPendingZones.clear();
+    zoneBuilderDirty = false;
+    sliceControlBar.setZoneDirty (false);
+
+    if (zoneBuilderScratchFile.existsAsFile())
+        zoneBuilderScratchFile.deleteFile();
+    zoneBuilderScratchFile = juce::File();
+
+    if (zoneBuilderTargetSfz.existsAsFile())
+    {
+        processor.sfzPlayer2.loadFile (zoneBuilderTargetSfz, processor.fileLoadPool);
+        processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed);
+        processor.loadSoundFontAsync (zoneBuilderTargetSfz, SoundFontLoadTarget::SfzPlayer2);
+    }
+    refreshZoneBuilderMatrix (zoneBuilderTargetSfz);
+    repaint();
 }
 
 // Called after the user has already picked a sample but no SFZ is loaded yet.
@@ -2096,6 +2266,14 @@ void DysektEditor::openZoneBuilderSaveAsNew (const juce::File& sampleFile)
         dest.replaceWithText ("// Custom SFZ — built with SFZ-PLAYER zone builder\n\n");
 
         zoneBuilderTargetSfz = dest;
+
+        // Brand-new target — nothing can possibly be staged against it yet.
+        zoneBuilderPendingZones.clear();
+        zoneBuilderDirty = false;
+        sliceControlBar.setZoneDirty (false);
+        if (zoneBuilderScratchFile.existsAsFile())
+            zoneBuilderScratchFile.deleteFile();
+        zoneBuilderScratchFile = juce::File();
 
         processor.sfzPlayer2.loadFile (dest, processor.fileLoadPool);
         processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default

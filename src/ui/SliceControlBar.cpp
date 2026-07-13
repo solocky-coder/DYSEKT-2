@@ -1373,8 +1373,9 @@ void SliceControlBar::drawViewToggleButtons (juce::Graphics& g)
      drawBtn (padToggleBtnArea,  "PADS",  padViewActive);
      drawBtn (waveToggleBtnArea, "WAVE", !padViewActive);
 
-     // Not SFZ-PLAYER mode — ZONES toggle doesn't apply here.
+     // Not SFZ-PLAYER mode — ZONES/SAVE toggles don't apply here.
      zoneToggleBtnArea = {};
+     zoneSaveBtnArea   = {};
  }
  else
  {
@@ -1386,6 +1387,7 @@ void SliceControlBar::drawViewToggleButtons (juce::Graphics& g)
 
      const int btnY   = si (9);
      const int btnH   = si (24);
+     const int gap    = si (4);
      const int rightX = getWidth() - si (8);
 
      zoneToggleBtnArea = juce::Rectangle<int> (rightX - kToggleBtnW, btnY, kToggleBtnW, btnH);
@@ -1393,34 +1395,53 @@ void SliceControlBar::drawViewToggleButtons (juce::Graphics& g)
      g.setFont (DysektLookAndFeel::makeFont (9.5f * paintSf, true));
 
      // Same chrome formula as the PADS/WAVE drawBtn lambda above, kept local
-     // to this branch since it's only ever drawn one button at a time here.
-     juce::Rectangle<float> rf = zoneToggleBtnArea.toFloat().reduced (0.5f);
-     const float r = 4.0f;
-     const auto accent  = getTheme().accent;
-     auto baseBg  = getTheme().button;
-     auto fillCol = zoneViewActive ? baseBg.interpolatedWith (accent, 0.18f) : baseBg;
+     // to this branch since it's only ever drawn one/two buttons at a time here.
+     auto drawZoneBtn = [&] (const juce::Rectangle<int>& area, const juce::String& label, bool active)
+     {
+         juce::Rectangle<float> rf = area.toFloat().reduced (0.5f);
+         const float r = 4.0f;
+         const auto accent  = getTheme().accent;
+         auto baseBg  = getTheme().button;
+         auto fillCol = active ? baseBg.interpolatedWith (accent, 0.18f) : baseBg;
 
-     auto stateDrawable = zoneViewActive ? IconManager::getButtonActive()
-                                          : IconManager::getButtonIdle();
+         auto stateDrawable = active ? IconManager::getButtonActive()
+                                      : IconManager::getButtonIdle();
 
-     if (stateDrawable != nullptr)
-         stateDrawable->drawWithin (g, rf, juce::RectanglePlacement::stretchToFit, 1.0f);
+         if (stateDrawable != nullptr)
+             stateDrawable->drawWithin (g, rf, juce::RectanglePlacement::stretchToFit, 1.0f);
+         else
+         {
+             g.setColour (fillCol);
+             g.fillRoundedRectangle (rf, r);
+         }
+
+         const auto border = active
+             ? accent.withAlpha (0.80f)
+             : getTheme().separator.withAlpha (0.35f);
+         g.setColour (border);
+         g.drawRoundedRectangle (rf, r, 1.0f);
+
+         g.setColour (active
+             ? accent
+             : getTheme().foreground.withAlpha (0.50f));
+         g.drawText (label, area, juce::Justification::centred);
+     };
+
+     drawZoneBtn (zoneToggleBtnArea, "ZONES", zoneViewActive);
+
+     // SAVE sits in the PADS-equivalent slot, but only takes up that space
+     // (and is only drawn/hit-testable) while there are staged, unsaved
+     // zone-builder changes — otherwise the ZONES button is the sole control,
+     // same as before this feature existed.
+     if (zoneDirty)
+     {
+         zoneSaveBtnArea = juce::Rectangle<int> (rightX - kToggleBtnW * 2 - gap, btnY, kToggleBtnW, btnH);
+         drawZoneBtn (zoneSaveBtnArea, "SAVE", true); // always drawn "active"/accented — it's a call to action
+     }
      else
      {
-         g.setColour (fillCol);
-         g.fillRoundedRectangle (rf, r);
+         zoneSaveBtnArea = {};
      }
-
-     const auto border = zoneViewActive
-         ? accent.withAlpha (0.80f)
-         : getTheme().separator.withAlpha (0.35f);
-     g.setColour (border);
-     g.drawRoundedRectangle (rf, r, 1.0f);
-
-     g.setColour (zoneViewActive
-         ? accent
-         : getTheme().foreground.withAlpha (0.50f));
-     g.drawText ("ZONES", zoneToggleBtnArea, juce::Justification::centred);
  }
 }
 
@@ -1449,6 +1470,16 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
         }
         if (padToggleBtnArea.contains (e.getPosition()) || waveToggleBtnArea.contains (e.getPosition()))
             return; // already active — swallow click, no-op
+    }
+
+    // ── SAVE — SFZ-PLAYER-only, only present/hit-testable while zoneDirty ──
+    // Checked before ZONES since the two buttons sit side by side and must
+    // not both react to the same click.
+    if (e.mods.isLeftButtonDown() && isSfzPlayer2Mode() && zoneDirty
+        && zoneSaveBtnArea.contains (e.getPosition()))
+    {
+        if (onZoneSaveRequested) onZoneSaveRequested();
+        return;
     }
 
     // ── ZONES — SFZ-PLAYER-only toggle, opposite gate from PADS/WAVE above ──

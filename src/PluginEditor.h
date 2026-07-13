@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -151,15 +152,43 @@ private:
     std::unique_ptr<AddZoneOverlay>    zoneAddOverlay;
     std::unique_ptr<SaveSfzOverlay>    zoneSaveOverlay;
 
+    // ── Staged-but-unsaved zones ─────────────────────────────────────────────
+    // Zones added via AddZoneOverlay are no longer written straight to
+    // zoneBuilderTargetSfz — they're held here and only committed to disk when
+    // the user clicks SAVE (or confirms "Save" on the ZONES toggle-off
+    // prompt). This lets several zones be staged/auditioned in one sitting
+    // before deciding whether to keep them.
+    struct PendingZone
+    {
+        juce::File sampleFile;
+        int loKey    = 0;
+        int hiKey    = 0;
+        int rootKey  = 0;
+    };
+    std::vector<PendingZone> zoneBuilderPendingZones;
+    bool                     zoneBuilderDirty = false;   // true while zoneBuilderPendingZones is non-empty
+
+    // In-memory preview file: original zoneBuilderTargetSfz content plus one
+    // <region> block per staged pending zone, rebuilt on every stage/discard/
+    // commit so the matrix and slice preview always reflect the staged state
+    // without ever touching the real target file until SAVE.
+    juce::File zoneBuilderScratchFile;
+
     void openZoneBuilderAddZone();               // [+ ZONE] click -> pick sample -> AddZoneOverlay
     void showZoneBuilderAddZoneOverlay (const juce::File& sfzFile,
                                          const juce::File& sampleFile,
                                          int prevHiKey);
     void openZoneBuilderSaveAsNew (const juce::File& sampleFile); // no SFZ loaded yet -> name one first
+    static juce::String buildZoneRegionText (const juce::File& sfzFile, const juce::File& sampleFile,
+                                              int loKey, int hiKey, int rootKey);
     static bool appendZoneToSfz (const juce::File& sfzFile, const juce::File& sampleFile,
                                   int loKey, int hiKey, int rootKey);
     void hideZoneBuilderOverlays();
     void refreshZoneBuilderMatrix (const juce::File& sfzFile); // re-parse + push into zoneBuilderKeysPanel
+
+    void refreshZoneBuilderScratch();       // rebuild scratch file from pending zones, reload preview + matrix
+    void commitZoneBuilderPendingZones();   // SAVE: write pending zones to zoneBuilderTargetSfz, clear staging
+    void discardZoneBuilderPendingZones();  // DISCARD: drop pending zones, restore preview to on-disk state
 
     /// The editor's full local bounds, cached each resized() so paint()/
     /// paintOverChildren()/waveformFrameRect() can read it. See
