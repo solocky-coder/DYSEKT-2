@@ -113,6 +113,10 @@ private:
                    juce::Colour tintOverride = {}, bool hovered = false);
 
     void drawLockIcon (juce::Graphics& g, int x, int y, bool locked);
+    // PADS/WAVE (Slicer) or ZONES (SFZ-PLAYER) toggle button(s), top-right corner.
+    // Independent of per-slice state — must be drawn even when no slice is
+    // selected, so ZONES stays reachable on an empty/not-yet-populated kit.
+    void drawViewToggleButtons (juce::Graphics& g);
     void showTextEditor (const ParamCell& cell, float currentValue);
     void showMidiLearnMenu (int fieldId, juce::Point<int> screenPos);
 

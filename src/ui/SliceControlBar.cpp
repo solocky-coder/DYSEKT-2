@@ -886,6 +886,9 @@ void SliceControlBar::paint (juce::Graphics& g)
  g.setFont (DysektLookAndFeel::makeFont (15.0f * paintSf));
  g.setColour (getTheme().foreground.withAlpha (0.35f));
  g.drawText ("No slice selected", si (8), si (24), si (220), si (18), juce::Justification::centredLeft);
+ // Toggle buttons (PADS/WAVE or ZONES) are independent of slice selection —
+ // draw them even here, or ZONES becomes unreachable on an empty kit.
+ drawViewToggleButtons (g);
  return;
  }
 
@@ -1305,6 +1308,21 @@ locked, kLockRelease, F::FieldRelease, 0.f, relMaxSec, 0.001f, cw);
  // ── PAD / WAVE — two separate toggle buttons side by side ────────────────────────────────────
  // PAD MODE is a Slicer-only feature. The SFZ-PLAYER SCB has no pad grid, so
  // we skip drawing (and hit-testing, see mouseDown) the toggle entirely there.
+ drawViewToggleButtons (g);
+}
+
+// =============================================================================
+// drawViewToggleButtons
+// =============================================================================
+// Extracted so it can be called both from paint()'s normal path AND from the
+// early "No slice selected" branch above — this button row must stay visible
+// regardless of slice selection, otherwise ZONES becomes unreachable on an
+// empty/not-yet-populated SFZ-PLAYER kit.
+void SliceControlBar::drawViewToggleButtons (juce::Graphics& g)
+{
+ auto si = [this] (int v) { return juce::roundToInt ((float) v * paintSf); };
+ const int kToggleBtnW = si (52);
+
  if (! isSfzPlayer2Mode())
  {
      const int btnY   = si (9);  // centred in row1 (y=7..35): (7+35-24)/2 = 9
