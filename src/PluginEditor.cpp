@@ -441,6 +441,15 @@ DysektEditor::~DysektEditor()
  setLookAndFeel (nullptr);
 }
 
+void DysektEditor::visibilityChanged()
+{
+ // applyWindowIcon() requires a peer (see LogoIcon.h) — the editor doesn't
+ // have one yet during construction, so set the icon here once it's
+ // actually shown rather than relying solely on the applyTheme() call sites.
+ if (isVisible())
+     applyWindowIcon (this);
+}
+
 // ── MIDI route mode helper ────────────────────────────────────────────────────
 void DysektEditor::syncMidiRouteMode()
 {
