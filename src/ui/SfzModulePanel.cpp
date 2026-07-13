@@ -1591,5 +1591,8 @@ void SfzModulePanel::reloadZones (const juce::File& f)
     // case by prompting Save-As after the sample is picked.
     const bool isSf2 = (ext == ".sf2");
     keysPanel.setAddZoneButtonVisible (! isSf2);
-    keysPanel.onAddZoneRequested = isSf2 ? nullptr : [this] { openAddZoneChooser(); };
+    if (isSf2)
+        keysPanel.onAddZoneRequested = nullptr;
+    else
+        keysPanel.onAddZoneRequested = [this] { openAddZoneChooser(); };
 }
