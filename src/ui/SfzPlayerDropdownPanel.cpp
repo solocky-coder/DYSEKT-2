@@ -1830,11 +1830,17 @@ void SfzPlayerDropdownPanel::reloadZones (const juce::File& f)
         // decide whether to add an extra row).  Setting it after setKeyzones()
         // means rebuild() runs with the wrong value and the component is too short
         // to display the button even though repaint() draws it.
-        keysPanel.setAddZoneButtonVisible (isSfz);
-        if (isSfz)
-            keysPanel.onAddZoneRequested = [this] { openAddZoneChooser(); };
-        else
-            keysPanel.onAddZoneRequested = nullptr;
+        //
+        // [+ ZONE] is available whenever nothing is loaded OR an .sfz is loaded.
+        // It must stay HIDDEN when an .sf2 is loaded: this same panel/engine is
+        // shared with the SF2-PLAYER tab (see PluginEditor::onLoadRequest, uiMode==2,
+        // which routes .sf2 files here via sfzDropdown.onFileChosen()), and SF2 zones
+        // are read-only — adding a zone on top of a loaded SF2 makes no sense.
+        // openAddZoneChooser() handles the "nothing loaded yet" case by prompting
+        // Save-As after the sample is picked, creating a new .sfz target.
+        const bool isSf2 = (ext == ".sf2");
+        keysPanel.setAddZoneButtonVisible (! isSf2);
+        keysPanel.onAddZoneRequested = isSf2 ? nullptr : [this] { openAddZoneChooser(); };
 
         keysPanel.onRowClicked      = nullptr;
         keysPanel.onRowRightClicked = nullptr;

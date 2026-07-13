@@ -1584,15 +1584,12 @@ void SfzModulePanel::reloadZones (const juce::File& f)
         processor.sfzPlayer.setZoneTune   (zoneIndex, tuneCents);
     };
 
-    // [+ ZONE] button is only available when we're in SFZ mode (editable)
-    const bool isSfz = (f.getFileExtension().toLowerCase() == ".sfz");
-    keysPanel.setAddZoneButtonVisible (isSfz);
-    if (isSfz)
-    {
-        keysPanel.onAddZoneRequested = [this] { openAddZoneChooser(); };
-    }
-    else
-    {
-        keysPanel.onAddZoneRequested = nullptr;
-    }
+    // [+ ZONE] is available whenever nothing is loaded OR an .sfz is loaded.
+    // It must stay HIDDEN when an .sf2 is loaded — SF2 zones are read-only
+    // (see parseSf2Zones above), so adding a zone on top of a loaded SF2
+    // makes no sense. openAddZoneChooser() handles the "nothing loaded yet"
+    // case by prompting Save-As after the sample is picked.
+    const bool isSf2 = (ext == ".sf2");
+    keysPanel.setAddZoneButtonVisible (! isSf2);
+    keysPanel.onAddZoneRequested = isSf2 ? nullptr : [this] { openAddZoneChooser(); };
 }

@@ -1177,10 +1177,18 @@ void DysektEditor::resized()
  // SCB first (bottommost), then overview row sits immediately above it.
  // NOTE: showZoneBuilder is included here (in addition to hasRealSample) so
  // the SCB — and its ZONES toggle — stays reachable while zone-builder view
- // is active, even for a not-yet-populated SFZ-PLAYER kit. Without this,
- // hasRealSample being false hides the SCB entirely and there is no other
- // way to exit zone view back to the waveform.
- if ((hasRealSample || showZoneBuilder) && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
+ // is active, even for a not-yet-populated SFZ-PLAYER kit.
+ //
+ // uiMode == 1 is ALSO included on its own: for SFZ-PLAYER, hasRealSample
+ // requires sampleData2 to already contain decoded sample data, and
+ // showZoneBuilder starts false — so with nothing loaded yet, both were
+ // false and the SCB (the only way to reach the ZONES toggle and enter
+ // add-zone mode) was hidden entirely. There was no way to get in. SFZ-PLAYER's
+ // SCB must always be reachable so the user can open ZONES / add a zone
+ // without loading an .sfz first. Slicer (uiMode == 0) keeps the original
+ // hasRealSample gate — that tab's SCB genuinely has nothing useful to do
+ // until a sample is loaded.
+ if ((hasRealSample || showZoneBuilder || uiMode == 1) && (uiMode == 0 || uiMode == 1) && activeSlot != SlotContent::Mixer && !normalBrowserOpen)
  {
      {
          const int scbH = si (kSliceCtrlH);
@@ -2019,6 +2027,12 @@ void DysektEditor::showZoneBuilderAddZoneOverlay (const juce::File& sfzFile,
 
         processor.sfzPlayer2.loadFile (sfzFile, processor.fileLoadPool);
         processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
+        // sfzPlayer2.loadFile() alone does NOT reach the slice view: sliceManager2/
+        // sampleData2 (what the waveform/slice view actually reads) are only
+        // populated by the async soundfont decode below. Without this call the new
+        // zone is written to disk and shows in the zone-builder matrix, but never
+        // appears as a slice after exiting zone mode.
+        processor.loadSoundFontAsync (sfzFile, SoundFontLoadTarget::SfzPlayer2);
         refreshZoneBuilderMatrix (sfzFile);
         zoneBuilderKeysPanel.autoScrollToZones();
         repaint();
@@ -2081,6 +2095,10 @@ void DysektEditor::openZoneBuilderSaveAsNew (const juce::File& sampleFile)
 
         processor.sfzPlayer2.loadFile (dest, processor.fileLoadPool);
         processor.sfzPlayer2ChannelMask.store (1u << 2, std::memory_order_relaxed); // ch2 default
+        // See showZoneBuilderAddZoneOverlay's onResult for why this call is
+        // required: sliceManager2/sampleData2 are only populated by the async
+        // soundfont decode, not by sfzPlayer2.loadFile() alone.
+        processor.loadSoundFontAsync (dest, SoundFontLoadTarget::SfzPlayer2);
         refreshZoneBuilderMatrix (dest);
         repaint();
 
