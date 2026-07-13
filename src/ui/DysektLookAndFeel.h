@@ -46,6 +46,19 @@ public:
                            float sliderPos, float minSliderPos, float maxSliderPos,
                            const juce::Slider::SliderStyle, juce::Slider&) override;
 
+    // Only hit if a real rotary juce::Slider is ever instantiated (current knob
+    // strips in SliceControlBar are hand-painted cells, not Slider components) —
+    // added so any future rotary Slider still matches the flat "Midnight" look
+    // instead of falling back to LookAndFeel_V4's default 3D knob.
+    void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height,
+                           float sliderPosProportional, float rotaryStartAngle,
+                           float rotaryEndAngle, juce::Slider&) override;
+
+    // Flat fill + 2px-radius outline to match drawButtonBackground, instead of
+    // LookAndFeel_V4's default text-editor chrome.
+    void fillTextEditorBackground (juce::Graphics&, int width, int height, juce::TextEditor&) override;
+    void drawTextEditorOutline    (juce::Graphics&, int width, int height, juce::TextEditor&) override;
+
     void drawTooltip (juce::Graphics&, const juce::String& text, int width, int height) override;
     juce::Rectangle<int> getTooltipBounds (const juce::String& text, juce::Point<int> screenPos,
                                            juce::Rectangle<int> parentArea) override;

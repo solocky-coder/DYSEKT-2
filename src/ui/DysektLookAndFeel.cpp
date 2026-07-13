@@ -507,6 +507,93 @@ void DysektLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w
     g.fillEllipse (thumb.reduced (thumb.getWidth() * 0.32f).translated (-thumb.getWidth() * 0.10f, -thumb.getHeight() * 0.12f));
 }
 
+// ── Rotary slider ─────────────────────────────────────────────────────────────
+// Only reached if a real rotary juce::Slider is ever instantiated — current
+// knob strips in SliceControlBar are hand-painted cells. Mirrors drawLinearSlider:
+// recessed track arc, accent fill arc with soft glow, glassy raised thumb dot.
+void DysektLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+                                          float sliderPosProportional, float rotaryStartAngle,
+                                          float rotaryEndAngle, juce::Slider& slider)
+{
+    const auto& t = getTheme();
+    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height).reduced (2.0f);
+    const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
+    const auto centre = bounds.getCentre();
+    const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
+    const float lineW = juce::jmin (4.0f, radius * 0.22f);
+    const float arcR  = radius - lineW * 0.5f;
+
+    // ── Recessed track arc — same dark-to-slightly-lighter gradient as the track
+    juce::Path track;
+    track.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
+    g.setColour (t.darkBar.darker (0.35f));
+    g.strokePath (track, juce::PathStrokeType (lineW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour (t.separator.withAlpha (0.5f));
+    g.strokePath (track, juce::PathStrokeType (1.0f));
+
+    // ── Filled arc — accent, with the same soft glow used by the linear slider's fill
+    if (angle > rotaryStartAngle)
+    {
+        juce::Path fill;
+        fill.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, rotaryStartAngle, angle, true);
+
+        g.setColour (t.accent.withAlpha (0.20f));
+        g.strokePath (fill, juce::PathStrokeType (lineW + 3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        g.setColour (t.accent);
+        g.strokePath (fill, juce::PathStrokeType (lineW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // ── Glassy raised thumb dot at the pointer tip ─────────────────────────
+    const bool isDown = slider.isMouseButtonDown();
+    const bool isOver = slider.isMouseOverOrDragging();
+    auto thumbBase = t.button.brighter (isDown ? 0.30f : isOver ? 0.18f : 0.10f);
+    const float thumbD = juce::jmin (14.0f, radius * 0.5f);
+    juce::Point<float> tip (centre.x + std::sin (angle) * arcR, centre.y - std::cos (angle) * arcR);
+    auto thumb = juce::Rectangle<float> (thumbD, thumbD).withCentre (tip);
+
+    if (isOver || isDown)
+    {
+        g.setColour (t.accent.withAlpha (isDown ? 0.30f : 0.18f));
+        g.fillEllipse (thumb.expanded (2.0f));
+    }
+
+    juce::ColourGradient thumbGrad (thumbBase.brighter (0.25f), thumb.getX(), thumb.getY(),
+                                    thumbBase.darker (0.15f), thumb.getX(), thumb.getBottom(), false);
+    g.setGradientFill (thumbGrad);
+    g.fillEllipse (thumb);
+    g.setColour (t.accent.withAlpha (0.75f));
+    g.drawEllipse (thumb, 1.2f);
+    g.setColour (juce::Colours::white.withAlpha (0.18f));
+    g.fillEllipse (thumb.reduced (thumb.getWidth() * 0.32f).translated (-thumb.getWidth() * 0.10f, -thumb.getHeight() * 0.12f));
+}
+
+// ── TextEditor ────────────────────────────────────────────────────────────────
+// Flat fill + 2px-radius outline, matching drawButtonBackground's "Midnight"
+// direction, instead of LookAndFeel_V4's default inset chrome.
+void DysektLookAndFeel::fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor& te)
+{
+    auto bg = te.findColour (juce::TextEditor::backgroundColourId);
+    if (bg.isTransparent())
+        bg = getTheme().darkBar.brighter (0.04f);
+
+    auto bounds = juce::Rectangle<float> (0, 0, (float) width, (float) height).reduced (0.5f);
+    g.setColour (bg);
+    g.fillRoundedRectangle (bounds, 2.0f);
+}
+
+void DysektLookAndFeel::drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& te)
+{
+    if (te.isReadOnly())
+        return;
+
+    auto bounds = juce::Rectangle<float> (0, 0, (float) width, (float) height).reduced (0.5f);
+    const bool focused = te.hasKeyboardFocus (true);
+    g.setColour (focused ? getTheme().accent.withAlpha (0.70f)
+                          : getTheme().separator.withAlpha (0.60f));
+    g.drawRoundedRectangle (bounds, 2.0f, focused ? 1.4f : 1.0f);
+}
+
 //==============================================================================
 // AlertWindow overrides — make every SF-player popup readable
 //==============================================================================

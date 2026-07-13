@@ -148,6 +148,7 @@ FileBrowserPanel::FileBrowserPanel (DysektProcessor& p)
     archiveList.setRowHeight (26);
     archiveList.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
     archiveList.setColour (juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
+    archiveList.getVerticalScrollBar().setButtonVisibility (false); // no stock arrow caps — flat scrollbar only
     addChildComponent (archiveList);
 
     // ── Audio preview setup ───────────────────────────────────────────────────

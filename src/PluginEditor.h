@@ -16,6 +16,7 @@
 #include "ui/MidiLearnDialog.h"
 #include "ui/ConfirmOverlay.h"
 #include "ui/RenameOverlay.h"
+#include "ui/MessageOverlay.h"
 #include "ui/ThemeEditorPanel.h"
 #include "TrimSession.h"
 #include "ui/SliceLcdDisplay.h"
@@ -171,6 +172,7 @@ private:
     std::unique_ptr<MidiLearnDialog>   midiLearnDialog;
     std::unique_ptr<ConfirmOverlay>    confirmOverlay;
     std::unique_ptr<RenameOverlay>     renameOverlay;
+    std::unique_ptr<MessageOverlay>    messageOverlay;   // themed replacement for AlertWindow::showMessageBoxAsync
     std::unique_ptr<ThemeEditorPanel>  themeEditorPanel;
 
     DysektLookAndFeel lnf;

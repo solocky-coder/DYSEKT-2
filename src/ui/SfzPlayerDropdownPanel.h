@@ -24,6 +24,7 @@
 #include "KeysPanel.h"
 #include "AddZoneOverlay.h"
 #include "SaveSfzOverlay.h"
+#include "MessageOverlay.h"
 #include "../audio/SfzPlayer.h"
 
 class DysektProcessor;
@@ -207,6 +208,7 @@ private:
 
     std::unique_ptr<AddZoneOverlay>    addZoneOverlay;
     std::unique_ptr<SaveSfzOverlay>    saveSfzOverlay;
+    std::unique_ptr<MessageOverlay>    messageOverlay;
 
     // ── Mouse events ──────────────────────────────────────────────────────────
     void mouseDown        (const juce::MouseEvent&) override;

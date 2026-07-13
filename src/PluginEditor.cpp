@@ -820,6 +820,7 @@ void DysektEditor::paintOverChildren (juce::Graphics& g)
  || shortcutsPanel.isVisible()
  || (confirmOverlay != nullptr)
  || (renameOverlay != nullptr)
+ || (messageOverlay != nullptr)
  || (themeEditorPanel != nullptr);
  if (modalActive) return;
 
@@ -1346,6 +1347,8 @@ void DysektEditor::resized()
  confirmOverlay->setBounds (getLocalBounds());
  if (renameOverlay != nullptr)
  renameOverlay->setBounds (getLocalBounds());
+ if (messageOverlay != nullptr)
+ messageOverlay->setBounds (getLocalBounds());
  if (themeEditorPanel != nullptr)
  themeEditorPanel->setBounds (getLocalBounds());
 }
@@ -2006,10 +2009,14 @@ void DysektEditor::showZoneBuilderAddZoneOverlay (const juce::File& sfzFile,
 
         if (! appendZoneToSfz (sfzFile, sampleFile, lo, hi, root))
         {
-            juce::AlertWindow::showMessageBoxAsync (
-                juce::MessageBoxIconType::WarningIcon,
+            messageOverlay = std::make_unique<MessageOverlay> (
                 "Add Zone Failed",
-                "Could not write to:\n" + sfzFile.getFullPathName());
+                "Could not write to:\n" + sfzFile.getFullPathName(),
+                MessageOverlay::Kind::Warning);
+            addAndMakeVisible (*messageOverlay);
+            messageOverlay->setBounds (getLocalBounds());
+            messageOverlay->toFront (true);
+            messageOverlay->onDismiss = [this] { messageOverlay.reset(); };
             return;
         }
 

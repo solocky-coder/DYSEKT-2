@@ -2014,10 +2014,11 @@ void SfzPlayerDropdownPanel::showAddZoneOverlay (const juce::File& sfzFile,
 
         if (! appendZoneToSfz (sfzFile, sampleFile, lo, hi, root))
         {
-            juce::AlertWindow::showMessageBoxAsync (
-                juce::MessageBoxIconType::WarningIcon,
+            showOverlay (messageOverlay, std::make_unique<MessageOverlay> (
                 "Add Zone Failed",
-                "Could not write to:\n" + sfzFile.getFullPathName());
+                "Could not write to:\n" + sfzFile.getFullPathName(),
+                MessageOverlay::Kind::Warning));
+            messageOverlay->onDismiss = [this] { juce::MessageManager::callAsync ([this] { hideOverlays(); }); };
             return;
         }
 
@@ -2122,10 +2123,11 @@ void SfzPlayerDropdownPanel::openSaveAsOverlay()
             const bool ok = currentFile.copyFileTo (dest);
             if (! ok)
             {
-                juce::AlertWindow::showMessageBoxAsync (
-                    juce::MessageBoxIconType::WarningIcon,
+                showOverlay (messageOverlay, std::make_unique<MessageOverlay> (
                     "Save Failed",
-                    "Could not write:\n" + dest.getFullPathName());
+                    "Could not write:\n" + dest.getFullPathName(),
+                    MessageOverlay::Kind::Warning));
+                messageOverlay->onDismiss = [this] { juce::MessageManager::callAsync ([this] { hideOverlays(); }); };
                 return;
             }
         }
@@ -2155,5 +2157,11 @@ void SfzPlayerDropdownPanel::hideOverlays()
         if (auto* p = saveSfzOverlay->getParentComponent())
             p->removeChildComponent (saveSfzOverlay.get());
         saveSfzOverlay.reset();
+    }
+    if (messageOverlay)
+    {
+        if (auto* p = messageOverlay->getParentComponent())
+            p->removeChildComponent (messageOverlay.get());
+        messageOverlay.reset();
     }
 }

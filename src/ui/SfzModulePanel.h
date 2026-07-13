@@ -13,6 +13,7 @@
 #include "KeysPanel.h"
 #include "AddZoneOverlay.h"
 #include "SaveSfzOverlay.h"
+#include "MessageOverlay.h"
 #include "SfzFileBrowser.h"
 
 class DysektProcessor;
@@ -109,6 +110,7 @@ private:
 
     std::unique_ptr<AddZoneOverlay> addZoneOverlay;
     std::unique_ptr<SaveSfzOverlay> saveSfzOverlay;
+    std::unique_ptr<MessageOverlay> messageOverlay;
     void drawKnob (juce::Graphics& g, juce::Rectangle<int> bounds,
                    float normalised, const juce::String& label,
                    const juce::String& valueStr) const;
