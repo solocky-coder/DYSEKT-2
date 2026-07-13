@@ -1814,6 +1814,7 @@ void DysektEditor::applyTheme (const juce::String& themeName)
  setTheme (t);
  processor.sliceManager.setSlicePalette (getTheme().slicePalette);
  saveUserSettings (themeName);
+ applyWindowIcon (this);
  repaint(); return;
  }
  }
@@ -1830,6 +1831,7 @@ void DysektEditor::applyTheme (const juce::String& themeName)
  else setTheme (ThemeData::darkTheme());
  processor.sliceManager.setSlicePalette (getTheme().slicePalette);
  saveUserSettings (themeName);
+ applyWindowIcon (this);
  repaint();
 }
 

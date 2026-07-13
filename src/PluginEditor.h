@@ -50,6 +50,7 @@ public:
     void paintOverChildren  (juce::Graphics&) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& key) override;
+    void visibilityChanged() override;
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
@@ -137,6 +138,7 @@ private:
     bool showZoneBuilder = false;  ///< true = zoneBuilderKeysPanel, false = WaveformView (within uiMode 1 / SFZ-PLAYER)
     bool hasSampleLoaded = false;   // true once a sample with audio is loaded
     bool hasSampleLoaded2 = false;  // true once SFZ-PLAYER (sliceManager2/sampleData2) has a real sample loaded
+    bool iconNeedsApplying = true;   // set icon once peer is available
 
     // ── SFZ-PLAYER zone builder (ZONES toggle in SliceControlBar) ──────────────
     // Ported from SfzPlayerDropdownPanel's existing (but never-shown) Add Zone /
