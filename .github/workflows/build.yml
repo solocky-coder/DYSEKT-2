@@ -8,7 +8,8 @@ on:
 jobs:
   build-windows:
     name: Windows Standalone + VST3
-    runs-on: windows-latest
+    # Pin the stable VS 2022 image. windows-latest now resolves to the VS 2026 preview image.
+    runs-on: windows-2022
 
     steps:
       - name: Checkout repository
@@ -83,7 +84,7 @@ jobs:
       - name: Configure CMake
         shell: pwsh
         run: |
-          cmake -B build -G "Visual Studio 18 2026" -A x64 `
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
@@ -92,11 +93,11 @@ jobs:
 
       - name: Build Standalone
         shell: pwsh
-        run: cmake --build build --config RelWithDebInfo --target DysektStandalone --parallel
+        run: cmake --build build --config RelWithDebInfo --target DysektStandalone --parallel 2
 
       - name: Build VST3
         shell: pwsh
-        run: cmake --build build --config RelWithDebInfo --target Dysekt_VST3 --parallel
+        run: cmake --build build --config RelWithDebInfo --target Dysekt_VST3 --parallel 2
 
       - name: Verify PDBs exist
         shell: pwsh
