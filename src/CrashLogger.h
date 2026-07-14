@@ -110,6 +110,13 @@ public:
         installHandlers();
 
         log ("DysektProcessor constructed — session started");
+        // Version marker for the zone-builder diagnostics added to
+        // SoundFontLoader.cpp (discoverActiveNotes/finishAndPost logging for
+        // the SfzPlayer2 target, full-0-127 empty-discovery fallback). If a
+        // session's log is missing this line, the running binary predates
+        // those changes — most likely a stale/incremental build that didn't
+        // actually recompile SoundFontLoader.cpp — rebuild clean and retest.
+        log ("Build marker: zonebuilder-diagnostics-v1");
     }
 
     ~CrashLogger()
