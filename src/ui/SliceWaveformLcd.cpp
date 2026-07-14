@@ -5,18 +5,27 @@
 #include "../audio/Slice.h"
 #include <vector>
 
-// ── Theme-derived colours ─────────────────────────────────────────────────────
-static juce::Colour lcd2Bg() { return getTheme().darkBar.darker (0.55f); }
-static juce::Colour lcd2Phosphor() { return getTheme().accent; }
-static juce::Colour lcd2Dim() { return getTheme().accent.withAlpha (0.15f).overlaidWith (lcd2Bg()); }
-static juce::Colour lcd2Bright() { return getTheme().accent.brighter (0.45f); }
+// ── Fixed blue STN-LCD palette ───────────────────────────────────────────────
+// This panel simulates a physical blue-tinted STN LCD scope display (classic
+// Roland hardware style). Colours are fixed "hardware" values rather than
+// theme-derived, since a real LCD doesn't change colour with the host's
+// light/dark mode. Background and ink share one hue family: background at
+// full brightness, ink pushed to a near-black shade of the same hue.
+static const juce::Colour kLcd2BgLight { 0xFF6BA9FF };
+static const juce::Colour kLcd2BgMid   { 0xFF4A95FF };
+static const juce::Colour kLcd2BgDark  { 0xFF3A82F0 };
 
-const juce::Colour SliceWaveformLcd::kBg { 0xFF050F0E };
-const juce::Colour SliceWaveformLcd::kBezel { 0xFF0D1E1C };
-const juce::Colour SliceWaveformLcd::kPhosphor { 0xFF2AFFD0 };
-const juce::Colour SliceWaveformLcd::kDim { 0xFF0A2A22 };
-const juce::Colour SliceWaveformLcd::kBright { 0xFF8AFFF0 };
-const juce::Colour SliceWaveformLcd::kLabel { 0xFF1A7060 };
+const juce::Colour SliceWaveformLcd::kBg { 0xFF4A95FF };
+const juce::Colour SliceWaveformLcd::kBezel { 0xFF12294A };
+const juce::Colour SliceWaveformLcd::kPhosphor { 0xFF16324A };   // dark ink / trace colour
+const juce::Colour SliceWaveformLcd::kDim { 0xFF16324A };
+const juce::Colour SliceWaveformLcd::kBright { 0xFF0D1E33 };     // slightly darker ink for emphasis
+const juce::Colour SliceWaveformLcd::kLabel { 0xFF16324A };
+
+static juce::Colour lcd2Bg() { return SliceWaveformLcd::kBg; }
+static juce::Colour lcd2Phosphor() { return SliceWaveformLcd::kPhosphor; }
+static juce::Colour lcd2Dim() { return SliceWaveformLcd::kDim.withAlpha (0.55f).overlaidWith (lcd2Bg()); }
+static juce::Colour lcd2Bright() { return SliceWaveformLcd::kBright; }
 
 // Toxic Candy node colours (match ThemeData palette)
 static const juce::Colour kColAttack { 0xFF00FF87 }; // Toxic Lime
@@ -620,33 +629,37 @@ void SliceWaveformLcd::mouseUp (const juce::MouseEvent&)
 
 void SliceWaveformLcd::drawBackground (juce::Graphics& g)
 {
- const auto ac = getTheme().accent;
  auto b = getLocalBounds();
 
+ // ── Outer chassis frame — unchanged dark plastic surround ──────────────
  auto bgTop = getTheme().darkBar.darker (0.45f);
  auto bgBot = getTheme().darkBar.darker (0.65f);
  juce::ColourGradient outerGrad (bgTop, 0, 0, bgBot, 0, (float) b.getHeight(), false);
  g.setGradientFill (outerGrad);
  g.fillRoundedRectangle (b.toFloat(), 4.0f);
- g.setColour (ac.withAlpha (0.18f));
- g.drawRoundedRectangle (b.toFloat().expanded (1.0f), 5.0f, 1.0f);
- g.setColour (ac.withAlpha (0.60f));
+ g.setColour (SliceWaveformLcd::kBezel);
  g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.5f);
 
+ // ── Outer backlight glow — ambient spill onto the surrounding chassis ──
+ g.setColour (juce::Colour (0x804A95FF));      // tight, higher opacity
+ g.drawRoundedRectangle (b.toFloat().expanded (1.0f), 5.0f, 3.0f);
+ g.setColour (juce::Colour (0x384A95FF));      // wide, lower opacity
+ g.drawRoundedRectangle (b.toFloat().expanded (4.0f), 7.0f, 6.0f);
+
+ // ── Inner screen — diagonal backlight gradient, light → mid → dark ──────
  auto screen = b.reduced (4);
- g.setColour (lcd2Bg());
+ juce::ColourGradient bgGrad (kLcd2BgLight, screen.getX(), screen.getY(),
+                               kLcd2BgDark, screen.getRight(), screen.getBottom(), false);
+ bgGrad.addColour (0.5, kLcd2BgMid);
+ g.setGradientFill (bgGrad);
  g.fillRoundedRectangle (screen.toFloat(), 2.0f);
 
- juce::ColourGradient glow (lcd2Phosphor().withAlpha (0.07f), 0, (float) screen.getY(),
- juce::Colours::transparentBlack, 0, (float) (screen.getY() + 18), false);
- g.setGradientFill (glow);
- g.fillRoundedRectangle (screen.toFloat(), 2.0f);
-
+ // ── Scanline texture — subtle physical-screen feel ──────────────────────
  g.setColour (juce::Colour (0xFF000000).withAlpha ((uint8_t) kScanlineAlpha));
  for (int y = screen.getY(); y < screen.getBottom(); y += 2)
  g.drawHorizontalLine (y, (float) screen.getX(), (float) screen.getRight());
 
- g.setColour (ac.withAlpha (0.30f));
+ g.setColour (SliceWaveformLcd::kBezel.withAlpha (0.5f));
  g.drawRoundedRectangle (screen.toFloat().expanded (0.5f), 2.0f, 1.0f);
 }
 

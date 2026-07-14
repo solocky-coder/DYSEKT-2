@@ -2,11 +2,23 @@
 #include "DysektLookAndFeel.h"
 #include "../PluginProcessor.h"
 
-// ── Theme-derived LCD palette ──────────────────────────────────────────────────
-// All colours are computed from getTheme() at paint time so they update when
-// the user switches theme.  The helper is called once per paint() call.
+// ── Fixed green STN-LCD palette ─────────────────────────────────────────────────
+// This panel simulates a physical green-tinted STN LCD readout (classic Roland
+// hardware style), so its colours are fixed "hardware" values rather than being
+// derived from the app theme — a real LCD doesn't change colour when the host
+// app switches between light/dark mode.
 namespace LcdColours
 {
+    // Background gradient edges (light → mid → dark). Ink is a near-black shade
+    // of the same source hue as the background, so the panel reads as one lit
+    // material rather than two unrelated colours.
+    static const juce::Colour kBgLight  { 0xFF8CFF6E };
+    static const juce::Colour kBgMid    { 0xFF6BFF4A };
+    static const juce::Colour kBgDark   { 0xFF5FE83E };
+    static const juce::Colour kInk      { 0xFF0A1208 };
+    static const juce::Colour kOutline  { 0xFF1C3A12 };
+    static const juce::Colour kGlow     { 0xFF6BFF4A };   // used with alpha for glow layers
+
     struct Palette
     {
         juce::Colour background, bezel, phosphor, dim, highlight,
@@ -16,25 +28,25 @@ namespace LcdColours
 
     static Palette fromTheme()
     {
-        const auto& t  = getTheme();
-        const auto  ac = t.accent;                          // main phosphor colour
-        const auto  bg = t.darkBar.darker (0.55f);          // near-black background
+        // Kept the name fromTheme() to minimise churn at call sites, but the
+        // values below are fixed hardware colours, not theme-derived.
+        const auto bg = kBgMid;
+        const auto ac = kInk;                                 // ink / "phosphor" colour
 
         Palette p;
         p.background = bg;
-        p.bezel      = bg.brighter (0.12f);
+        p.bezel      = kOutline;
         p.phosphor   = ac;
-        p.dim        = ac.withAlpha (0.18f).withMultipliedSaturation (0.6f)
-                        .overlaidWith (bg);
-        p.highlight  = ac.brighter (0.5f);
-        p.labelCol   = ac.withAlpha (0.70f);
+        p.dim        = ac.withAlpha (0.55f).overlaidWith (bg);
+        p.highlight  = kInk.brighter (0.35f);                 // slightly lighter ink for emphasis rows
+        p.labelCol   = ac.withAlpha (0.72f).overlaidWith (bg);
         p.scanline   = juce::Colours::black;
         p.cursor     = ac;
-        p.noDataCol  = ac.withAlpha (0.15f).overlaidWith (bg);
-        p.border     = ac.withAlpha (0.12f).overlaidWith (bg);
+        p.noDataCol  = ac.withAlpha (0.35f).overlaidWith (bg);
+        p.border     = kOutline;
         p.flagOn     = ac;
-        p.flagOff    = ac.withAlpha (0.45f);          // dim but visible
-        p.flagBg     = bg.brighter (0.25f);           // visible pill outline against screen bg
+        p.flagOff    = ac.withAlpha (0.45f).overlaidWith (bg);
+        p.flagBg     = bg.darker (0.15f);             // visible pill outline against screen bg
         return p;
     }
 }
@@ -228,37 +240,39 @@ void SliceLcdDisplay::resized() {}
 
 void SliceLcdDisplay::drawLcdBackground (juce::Graphics& g)
 {
+    using namespace LcdColours;
     const auto pal = LcdColours::fromTheme();
-    const auto ac  = getTheme().accent;
     auto b = getLocalBounds();
 
-    // ── Outer frame — matches DualLcdControlFrame style ────────────────────
+    // ── Outer chassis frame — unchanged dark plastic surround ──────────────
     juce::ColourGradient outerGrad (juce::Colour (0xFF131313), 0, 0,
                                      juce::Colour (0xFF0E0E0E), 0, (float) b.getHeight(), false);
     g.setGradientFill (outerGrad);
     g.fillRoundedRectangle (b.toFloat(), 4.0f);
-    // Outer glow halo
-    g.setColour (ac.withAlpha (0.18f));
-    g.drawRoundedRectangle (b.toFloat().expanded (1.0f), 5.0f, 1.0f);
-    // Main LCD frame border
-    g.setColour (ac.withAlpha (0.60f));
+    // Main LCD frame border — dark green bezel
+    g.setColour (kOutline);
     g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.5f);
 
-    // ── Inner screen ────────────────────────────────────────────────────────
+    // ── Outer backlight glow — ambient spill onto the surrounding chassis ──
+    g.setColour (juce::Colour (0x806BFF4A));      // tight, higher opacity
+    g.drawRoundedRectangle (b.toFloat().expanded (1.0f), 5.0f, 3.0f);
+    g.setColour (juce::Colour (0x386BFF4A));      // wide, lower opacity
+    g.drawRoundedRectangle (b.toFloat().expanded (4.0f), 7.0f, 6.0f);
+
+    // ── Inner screen — diagonal backlight gradient, light → mid → dark ─────
     auto screen = b.reduced (4);
-    g.setColour (pal.background);
+    juce::ColourGradient bgGrad (kBgLight, screen.getX(), screen.getY(),
+                                  kBgDark, screen.getRight(), screen.getBottom(), false);
+    bgGrad.addColour (0.5, kBgMid);
+    g.setGradientFill (bgGrad);
     g.fillRoundedRectangle (screen.toFloat(), 2.0f);
 
+    // ── Scanline texture — subtle physical-screen feel ──────────────────────
     g.setColour (pal.scanline.withAlpha ((uint8_t) kScanlineAlpha));
     for (int y = screen.getY(); y < screen.getBottom(); y += 2)
         g.drawHorizontalLine (y, (float) screen.getX(), (float) screen.getRight());
 
-    juce::ColourGradient glow (pal.phosphor.withAlpha (0.06f), 0, (float) screen.getY(),
-                                juce::Colours::transparentBlack, 0, (float) (screen.getY() + 20), false);
-    g.setGradientFill (glow);
-    g.fillRoundedRectangle (screen.toFloat(), 2.0f);
-
-    g.setColour (ac.withAlpha (0.12f));
+    g.setColour (kOutline.withAlpha (0.5f));
     g.drawRoundedRectangle (screen.toFloat().expanded (0.5f), 2.0f, 1.0f);
 }
 
