@@ -19,23 +19,23 @@ void LogoBar::paint (juce::Graphics& g)
 
     static const ThemePng logos[] =
     {
-        { "cr8",      BinaryData::DYSEKT_SF_logo_cr8_png,      BinaryData::DYSEKT_SF_logo_cr8_pngSize      },
-        { "dark",     BinaryData::DYSEKT_SF_logo_dark_png,     BinaryData::DYSEKT_SF_logo_dark_pngSize     },
-        { "dysekt",   BinaryData::DYSEKT_SF_logo_dysekt_png,   BinaryData::DYSEKT_SF_logo_dysekt_pngSize   },
-        { "ghost",    BinaryData::DYSEKT_SF_logo_ghost_png,    BinaryData::DYSEKT_SF_logo_ghost_pngSize    },
-        { "hack",     BinaryData::DYSEKT_SF_logo_hack_png,     BinaryData::DYSEKT_SF_logo_hack_pngSize     },
-        { "lazy",     BinaryData::DYSEKT_SF_logo_lazy_png,     BinaryData::DYSEKT_SF_logo_lazy_pngSize     },
-        { "midnight", BinaryData::DYSEKT_SF_logo_midnight_png, BinaryData::DYSEKT_SF_logo_midnight_pngSize },
-        { "opendaw",  BinaryData::DYSEKT_SF_logo_opendaw_png,  BinaryData::DYSEKT_SF_logo_opendaw_pngSize  },
-        { "pigments", BinaryData::DYSEKT_SF_logo_pigments_png, BinaryData::DYSEKT_SF_logo_pigments_pngSize },
-        { "serum",    BinaryData::DYSEKT_SF_logo_serum_png,    BinaryData::DYSEKT_SF_logo_serum_pngSize    },
-        { "shell",    BinaryData::DYSEKT_SF_logo_shell_png,    BinaryData::DYSEKT_SF_logo_shell_pngSize    },
-        { "snow",     BinaryData::DYSEKT_SF_logo_snow_png,     BinaryData::DYSEKT_SF_logo_snow_pngSize     },
+        { "cr8",      BinaryData::DYSEKTSF_logo_cr8_png,      BinaryData::DYSEKTSF_logo_cr8_pngSize      },
+        { "dark",     BinaryData::DYSEKTSF_logo_dark_png,     BinaryData::DYSEKTSF_logo_dark_pngSize     },
+        { "dysekt",   BinaryData::DYSEKTSF_logo_dysekt_png,   BinaryData::DYSEKTSF_logo_dysekt_pngSize   },
+        { "ghost",    BinaryData::DYSEKTSF_logo_ghost_png,    BinaryData::DYSEKTSF_logo_ghost_pngSize    },
+        { "hack",     BinaryData::DYSEKTSF_logo_hack_png,     BinaryData::DYSEKTSF_logo_hack_pngSize     },
+        { "lazy",     BinaryData::DYSEKTSF_logo_lazy_png,     BinaryData::DYSEKTSF_logo_lazy_pngSize     },
+        { "midnight", BinaryData::DYSEKTSF_logo_midnight_png, BinaryData::DYSEKTSF_logo_midnight_pngSize },
+        { "opendaw",  BinaryData::DYSEKTSF_logo_opendaw_png,  BinaryData::DYSEKTSF_logo_opendaw_pngSize  },
+        { "pigments", BinaryData::DYSEKTSF_logo_pigments_png, BinaryData::DYSEKTSF_logo_pigments_pngSize },
+        { "serum",    BinaryData::DYSEKTSF_logo_serum_png,    BinaryData::DYSEKTSF_logo_serum_pngSize    },
+        { "shell",    BinaryData::DYSEKTSF_logo_shell_png,    BinaryData::DYSEKTSF_logo_shell_pngSize    },
+        { "snow",     BinaryData::DYSEKTSF_logo_snow_png,     BinaryData::DYSEKTSF_logo_snow_pngSize     },
     };
 
     const auto& themeName = getTheme().name;
-    const void* imgData = BinaryData::DYSEKT_SF_logo_dysekt_png;   // fallback for custom themes
-    int         imgSize = BinaryData::DYSEKT_SF_logo_dysekt_pngSize;
+    const void* imgData = BinaryData::DYSEKTSF_logo_dysekt_png;   // fallback for custom themes
+    int         imgSize = BinaryData::DYSEKTSF_logo_dysekt_pngSize;
 
     for (const auto& lp : logos)
     {
