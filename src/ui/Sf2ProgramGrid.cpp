@@ -8,6 +8,37 @@
 // ── Helper: theme access (same pattern used throughout the codebase) ──────────
 static const ThemeData& gridTheme() { return getTheme(); }
 
+// ── Helper: GM instrument-family colour ────────────────────────────────────
+// General MIDI bank 0 groups presets into fixed 8-wide family blocks
+// (0-7 Piano, 8-15 Chromatic Perc, 16-23 Organ, 24-31 Guitar, 32-39 Bass,
+// 40-47 Strings, 48-55 Ensemble, 56-63 Brass, 64-71 Reed, 72-79 Pipe,
+// 80-87 Synth Lead, 88-95 Synth Pad, 96-103 Synth FX, 104-111 Ethnic,
+// 112-119 Percussive, 120-127 Sound FX). Same palette-lookup pattern as
+// MixerPanel's kChanPalette, applied here so the preset grid reads as
+// 16 distinct instrument neighbourhoods instead of one flat block.
+static juce::Colour gmFamilyColour (int preset)
+{
+    static const juce::Colour kFamilyPalette[16] = {
+        juce::Colour (0xFF4060A0), // Piano
+        juce::Colour (0xFF60A0A0), // Chromatic Perc
+        juce::Colour (0xFFA07840), // Organ
+        juce::Colour (0xFF60A040), // Guitar
+        juce::Colour (0xFFA04060), // Bass
+        juce::Colour (0xFF8060C0), // Strings
+        juce::Colour (0xFFA0A040), // Ensemble
+        juce::Colour (0xFFC08040), // Brass
+        juce::Colour (0xFF40A0A0), // Reed
+        juce::Colour (0xFF60C080), // Pipe
+        juce::Colour (0xFFC04080), // Synth Lead
+        juce::Colour (0xFF8080C0), // Synth Pad
+        juce::Colour (0xFF40C0C0), // Synth FX
+        juce::Colour (0xFFC0A040), // Ethnic
+        juce::Colour (0xFF808080), // Percussive
+        juce::Colour (0xFFC06060), // Sound FX
+    };
+    return kFamilyPalette[(juce::jmax (0, preset) / 8) % 16];
+}
+
 // =============================================================================
 Sf2ProgramGrid::Sf2ProgramGrid()
 {
@@ -278,6 +309,14 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                         g.fillRoundedRectangle (cell.toFloat(), 3.0f);
                     }
 
+                    // Family tint wash + left accent stripe, kept subtle so
+                    // hover state still reads as the dominant treatment.
+                    const juce::Colour famColHover = gmFamilyColour (info.preset);
+                    g.setColour (famColHover.withAlpha (0.08f));
+                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (famColHover.withAlpha (0.7f));
+                    g.fillRect (cell.getX(), cell.getY(), 3, cell.getHeight());
+
                     g.setColour (theme.separator.brighter (0.30f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
                 }
@@ -296,6 +335,17 @@ void Sf2ProgramGrid::paint (juce::Graphics& g)
                         g.setColour (theme.button);
                         g.fillRoundedRectangle (cell.toFloat(), 3.0f);
                     }
+
+                    // Family tint wash + left accent stripe — same visual
+                    // language as MixerPanel's slice-colour rows, so each
+                    // GM instrument family (piano/organ/guitar/bass/etc.)
+                    // reads as its own neighbourhood in the grid instead of
+                    // a wall of identical grey tiles.
+                    const juce::Colour famCol = gmFamilyColour (info.preset);
+                    g.setColour (famCol.withAlpha (0.10f));
+                    g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+                    g.setColour (famCol.withAlpha (0.7f));
+                    g.fillRect (cell.getX(), cell.getY(), 3, cell.getHeight());
 
                     g.setColour (theme.separator.withAlpha (0.60f));
                     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
