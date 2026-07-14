@@ -47,7 +47,10 @@ int MixerPanel::sf2TotalH() const
 
 int MixerPanel::sf2ChRowY (int chRowIdx) const
 {
-    return sf2RowY() + kSf2RowH + chRowIdx * kSf2ChRowH - scrollPixels;
+    // sf2RowY() already applies -scrollPixels once; do not subtract it again here
+    // or channel rows creep upward whenever the panel is scrolled, overlapping
+    // the slice rows above them.
+    return sf2RowY() + kSf2RowH + chRowIdx * kSf2ChRowH;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
