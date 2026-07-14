@@ -1262,21 +1262,8 @@ void DysektEditor::resized()
  {
      {
          const int scbH = si (kSliceCtrlH);
-         if (showPadGrid)
-         {
-             // In pad mode reserve the SCB height plus equal padding above and below
-             // so the bar sits visually centred between the pad grid and the
-             // plugin bottom edge rather than flush against the pad grid.
-             const int pad      = si (kMargin);
-             auto scbStrip      = area.removeFromBottom (scbH + pad * 2);
-             const int scbY     = scbStrip.getY() + (scbStrip.getHeight() - scbH) / 2;
-             sliceControlBar.setBounds (kFX, scbY, kFW, scbH);
-         }
-         else
-         {
-             auto scbStrip = area.removeFromBottom (scbH);
-             sliceControlBar.setBounds (kFX, scbStrip.getY(), kFW, scbH);
-         }
+         auto scbStrip = area.removeFromBottom (scbH);
+         sliceControlBar.setBounds (kFX, scbStrip.getY(), kFW, scbH);
      }
  }
  else
