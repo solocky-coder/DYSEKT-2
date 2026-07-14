@@ -1,52 +1,11 @@
 #include "SliceLcdDisplay.h"
 #include "DysektLookAndFeel.h"
+#include "LcdColours.h"
 #include "../PluginProcessor.h"
 
-// ── Fixed black STN-LCD palette ──────────────────────────────────────────────
-// This panel simulates a physical black-tinted STN LCD readout (classic Roland
-// hardware style), so its colours are fixed "hardware" values rather than being
-// derived from the app theme — a real LCD doesn't change colour when the host
-// app switches between light/dark mode.
-namespace LcdColours
-{
-    // Background is a near-black shade; ink is a bright green "phosphor"
-    // colour that reads clearly against it.
-    static const juce::Colour kBgMid    { 0xFF0A0F08 };
-    static const juce::Colour kInk      { 0xFF6BFF4A };
-    static const juce::Colour kOutline  { 0xFF1C3A12 };
-    static const juce::Colour kGlow     { 0xFF6BFF4A };   // used with alpha for glow layers
-
-    struct Palette
-    {
-        juce::Colour background, bezel, phosphor, dim, highlight,
-                     labelCol, scanline, cursor, noDataCol, border,
-                     flagOn, flagOff, flagBg;
-    };
-
-    static Palette fromTheme()
-    {
-        // Kept the name fromTheme() to minimise churn at call sites, but the
-        // values below are fixed hardware colours, not theme-derived.
-        const auto bg = kBgMid;
-        const auto ac = kInk;                                 // ink / "phosphor" colour
-
-        Palette p;
-        p.background = bg;
-        p.bezel      = kOutline;
-        p.phosphor   = ac;
-        p.dim        = ac.withAlpha (0.55f).overlaidWith (bg);
-        p.highlight  = ac.brighter (0.35f);                   // slightly brighter ink for emphasis rows
-        p.labelCol   = ac.withAlpha (0.85f).overlaidWith (bg);
-        p.scanline   = juce::Colours::black;
-        p.cursor     = ac;
-        p.noDataCol  = ac.withAlpha (0.40f).overlaidWith (bg);
-        p.border     = kOutline;
-        p.flagOn     = ac;
-        p.flagOff    = ac.withAlpha (0.55f).overlaidWith (bg);
-        p.flagBg     = bg.brighter (0.15f);           // visible pill outline against screen bg
-        return p;
-    }
-}
+// Palette and chassis rendering now live in LcdColours.h, shared with
+// Sf2LcdDisplay.cpp and SfzLcdDisplay.cpp — see that header for details.
+// Do NOT re-declare a local copy of the LcdColours namespace here.
 
 // ── Phosphor-glow flag fill ─────────────────────────────────────────────────────
 // Mirrors the "glass gradient + glow" treatment used on the FINE/CHRO/LGTO
@@ -237,42 +196,7 @@ void SliceLcdDisplay::resized() {}
 
 void SliceLcdDisplay::drawLcdBackground (juce::Graphics& g)
 {
-    using namespace LcdColours;
-    const auto pal = LcdColours::fromTheme();
-    auto b = getLocalBounds();
-
-    // ── Outer chassis frame — unchanged dark plastic surround ──────────────
-    juce::ColourGradient outerGrad (juce::Colour (0xFF131313), 0, 0,
-                                     juce::Colour (0xFF0E0E0E), 0, (float) b.getHeight(), false);
-    g.setGradientFill (outerGrad);
-    g.fillRoundedRectangle (b.toFloat(), 4.0f);
-    // Main LCD frame border — dark green bezel
-    g.setColour (kOutline);
-    g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.5f);
-
-    // ── Outer backlight glow — faint ink-coloured spill onto the chassis ───
-    g.setColour (juce::Colour (0x306BFF4A));      // tight, low opacity
-    g.drawRoundedRectangle (b.toFloat().expanded (1.0f), 5.0f, 3.0f);
-    g.setColour (juce::Colour (0x186BFF4A));      // wide, lower opacity
-    g.drawRoundedRectangle (b.toFloat().expanded (4.0f), 7.0f, 6.0f);
-
-    // ── Inner screen — solid near-black fill with a subtle top glow ────────
-    auto screen = b.reduced (4);
-    g.setColour (kBgMid);
-    g.fillRoundedRectangle (screen.toFloat(), 2.0f);
-
-    juce::ColourGradient glow (pal.phosphor.withAlpha (0.06f), 0, (float) screen.getY(),
-                                juce::Colours::transparentBlack, 0, (float) (screen.getY() + 20), false);
-    g.setGradientFill (glow);
-    g.fillRoundedRectangle (screen.toFloat(), 2.0f);
-
-    // ── Scanline texture — subtle physical-screen feel ──────────────────────
-    g.setColour (pal.scanline.withAlpha ((uint8_t) kScanlineAlpha));
-    for (int y = screen.getY(); y < screen.getBottom(); y += 2)
-        g.drawHorizontalLine (y, (float) screen.getX(), (float) screen.getRight());
-
-    g.setColour (kOutline.withAlpha (0.5f));
-    g.drawRoundedRectangle (screen.toFloat().expanded (0.5f), 2.0f, 1.0f);
+    LcdColours::drawChassisAndScreen (g, getLocalBounds(), kScanlineAlpha);
 }
 
 void SliceLcdDisplay::drawRow (juce::Graphics& g, int row, const juce::String& label,

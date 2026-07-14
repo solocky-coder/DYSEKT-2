@@ -1,34 +1,11 @@
 #include "Sf2LcdDisplay.h"
 #include "DysektLookAndFeel.h"
+#include "LcdColours.h"
 #include "../PluginProcessor.h"
 
-// ── Theme-derived palette (identical to SfzLcdColours) ────────────────────────
-namespace Sf2LcdColours
-{
-    struct Palette
-    {
-        juce::Colour background, bezel, phosphor, dim, highlight,
-                     labelCol, scanline, noDataCol;
-    };
-
-    static Palette fromTheme()
-    {
-        const auto& t  = getTheme();
-        const auto  ac = t.accent;
-        const auto  bg = t.darkBar.darker (0.55f);
-
-        Palette p;
-        p.background = bg;
-        p.bezel      = bg.brighter (0.12f);
-        p.phosphor   = ac;
-        p.dim        = ac.withAlpha (0.18f).withMultipliedSaturation (0.6f).overlaidWith (bg);
-        p.highlight  = ac.brighter (0.5f);
-        p.labelCol   = ac.withAlpha (0.70f);
-        p.scanline   = juce::Colours::black;
-        p.noDataCol  = ac.withAlpha (0.15f).overlaidWith (bg);
-        return p;
-    }
-}
+// Palette and chassis rendering now live in LcdColours.h, shared with
+// SliceLcdDisplay.cpp and SfzLcdDisplay.cpp — see that header for details.
+// Do NOT re-declare a local copy of the LcdColours namespace here.
 
 // ── Static formatters ─────────────────────────────────────────────────────────
 
@@ -121,34 +98,7 @@ void Sf2LcdDisplay::buildDisplayData()
 
 void Sf2LcdDisplay::drawLcdBackground (juce::Graphics& g)
 {
-    const auto pal = Sf2LcdColours::fromTheme();
-    const auto ac  = getTheme().accent;
-    const auto b   = getLocalBounds();
-
-    juce::ColourGradient outerGrad (juce::Colour (0xFF131313), 0, 0,
-                                    juce::Colour (0xFF0E0E0E), 0, (float) b.getHeight(), false);
-    g.setGradientFill (outerGrad);
-    g.fillRoundedRectangle (b.toFloat(), 4.0f);
-    g.setColour (ac.withAlpha (0.18f));
-    g.drawRoundedRectangle (b.toFloat().expanded (1.0f), 5.0f, 1.0f);
-    g.setColour (ac.withAlpha (0.60f));
-    g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.5f);
-
-    const auto screen = b.reduced (4);
-    g.setColour (pal.background);
-    g.fillRoundedRectangle (screen.toFloat(), 2.0f);
-
-    g.setColour (pal.scanline.withAlpha ((uint8_t) kScanlineAlpha));
-    for (int y = screen.getY(); y < screen.getBottom(); y += 2)
-        g.drawHorizontalLine (y, (float) screen.getX(), (float) screen.getRight());
-
-    juce::ColourGradient glow (pal.phosphor.withAlpha (0.06f), 0, (float) screen.getY(),
-                                juce::Colours::transparentBlack, 0, (float) (screen.getY() + 20), false);
-    g.setGradientFill (glow);
-    g.fillRoundedRectangle (screen.toFloat(), 2.0f);
-
-    g.setColour (ac.withAlpha (0.12f));
-    g.drawRoundedRectangle (screen.toFloat().expanded (0.5f), 2.0f, 1.0f);
+    LcdColours::drawChassisAndScreen (g, getLocalBounds(), kScanlineAlpha);
 }
 
 void Sf2LcdDisplay::drawRow (juce::Graphics& g, int row,
@@ -156,7 +106,7 @@ void Sf2LcdDisplay::drawRow (juce::Graphics& g, int row,
                               const juce::String& value,
                               bool highlight)
 {
-    const auto  pal  = Sf2LcdColours::fromTheme();
+    const auto  pal  = LcdColours::fromTheme();
     const auto  b    = getLocalBounds().reduced (4);
     const float sf   = (float) getHeight() / (float) kPreferredHeight;
     const int   rowH = effectiveRowH();
@@ -190,7 +140,7 @@ void Sf2LcdDisplay::drawRowPair (juce::Graphics& g, int row,
                                   const juce::String& rightStr,
                                   bool highlight)
 {
-    const auto  pal  = Sf2LcdColours::fromTheme();
+    const auto  pal  = LcdColours::fromTheme();
     const auto  b    = getLocalBounds().reduced (4);
     const float sf   = (float) getHeight() / (float) kPreferredHeight;
     const int   rowH = effectiveRowH();
@@ -239,7 +189,7 @@ void Sf2LcdDisplay::drawRowPair (juce::Graphics& g, int row,
 
 void Sf2LcdDisplay::drawNoInstrument (juce::Graphics& g)
 {
-    const auto  pal = Sf2LcdColours::fromTheme();
+    const auto  pal = LcdColours::fromTheme();
     const auto  b   = getLocalBounds().reduced (4);
     const float sf  = (float) getHeight() / (float) kPreferredHeight;
 
@@ -274,7 +224,7 @@ void Sf2LcdDisplay::paint (juce::Graphics& g)
         return;
     }
 
-    const auto  pal    = Sf2LcdColours::fromTheme();
+    const auto  pal    = LcdColours::fromTheme();
     const float sf     = (float) getHeight() / (float) kPreferredHeight;
     const int   rowH   = effectiveRowH();
     const auto  screen = getLocalBounds().reduced (4);
