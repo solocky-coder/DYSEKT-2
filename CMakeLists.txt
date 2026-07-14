@@ -144,6 +144,18 @@ juce_add_binary_data(DysektFonts SOURCES
     src/ui/assets/knobs/knob_pointer.svg
     src/ui/assets/knobs/knob_sprite_64x64_64frames.svg
     src/ui/assets/knobs/knob_sprite_64x64_64frames.png
+    src/ui/assets/logos/DYSEKT-SF_logo_cr8.png
+    src/ui/assets/logos/DYSEKT-SF_logo_dark.png
+    src/ui/assets/logos/DYSEKT-SF_logo_dysekt.png
+    src/ui/assets/logos/DYSEKT-SF_logo_ghost.png
+    src/ui/assets/logos/DYSEKT-SF_logo_hack.png
+    src/ui/assets/logos/DYSEKT-SF_logo_lazy.png
+    src/ui/assets/logos/DYSEKT-SF_logo_midnight.png
+    src/ui/assets/logos/DYSEKT-SF_logo_opendaw.png
+    src/ui/assets/logos/DYSEKT-SF_logo_pigments.png
+    src/ui/assets/logos/DYSEKT-SF_logo_serum.png
+    src/ui/assets/logos/DYSEKT-SF_logo_shell.png
+    src/ui/assets/logos/DYSEKT-SF_logo_snow.png
 )
 
 target_sources(Dysekt PRIVATE
