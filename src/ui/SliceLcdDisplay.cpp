@@ -34,15 +34,15 @@ namespace LcdColours
         p.background = bg;
         p.bezel      = kOutline;
         p.phosphor   = ac;
-        p.dim        = ac.withAlpha (0.35f).overlaidWith (bg);
+        p.dim        = ac.withAlpha (0.55f).overlaidWith (bg);
         p.highlight  = ac.brighter (0.35f);                   // slightly brighter ink for emphasis rows
-        p.labelCol   = ac.withAlpha (0.75f).overlaidWith (bg);
+        p.labelCol   = ac.withAlpha (0.85f).overlaidWith (bg);
         p.scanline   = juce::Colours::black;
         p.cursor     = ac;
-        p.noDataCol  = ac.withAlpha (0.25f).overlaidWith (bg);
+        p.noDataCol  = ac.withAlpha (0.40f).overlaidWith (bg);
         p.border     = kOutline;
         p.flagOn     = ac;
-        p.flagOff    = ac.withAlpha (0.40f).overlaidWith (bg);
+        p.flagOff    = ac.withAlpha (0.55f).overlaidWith (bg);
         p.flagBg     = bg.brighter (0.15f);           // visible pill outline against screen bg
         return p;
     }
