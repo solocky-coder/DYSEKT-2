@@ -91,13 +91,24 @@ jobs:
             -DJUCE_BUILD_EXTRAS=OFF `
             -DJUCE_BUILD_EXAMPLES=OFF
 
+      # Build one project/compiler task at a time. JUCE + sfizz exceeds the
+      # hosted runner's memory limit when MSBuild and MSVC compile in parallel.
       - name: Build Standalone
         shell: pwsh
-        run: cmake --build build --config RelWithDebInfo --target DysektStandalone --parallel 2
+        run: cmake --build build --config RelWithDebInfo --target DysektStandalone --parallel 1 -- /m:1 /bl:build\standalone.binlog /v:diag
 
       - name: Build VST3
         shell: pwsh
-        run: cmake --build build --config RelWithDebInfo --target Dysekt_VST3 --parallel 2
+        run: cmake --build build --config RelWithDebInfo --target Dysekt_VST3 --parallel 1 -- /m:1 /bl:build\vst3.binlog /v:diag
+
+      # Always retain MSBuild diagnostics, including when either build fails.
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYSEKT-build-diagnostics
+          path: build/*.binlog
+          if-no-files-found: warn
 
       - name: Verify PDBs exist
         shell: pwsh
