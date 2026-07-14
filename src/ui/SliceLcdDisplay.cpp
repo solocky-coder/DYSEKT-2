@@ -39,7 +39,7 @@ namespace LcdColours
         p.phosphor   = ac;
         p.dim        = ac.withAlpha (0.55f).overlaidWith (bg);
         p.highlight  = kInk.brighter (0.35f);                 // slightly lighter ink for emphasis rows
-        p.labelCol   = ac.withAlpha (0.72f).overlaidWith (bg);
+        p.labelCol   = ac.withAlpha (0.92f).overlaidWith (bg);
         p.scanline   = juce::Colours::black;
         p.cursor     = ac;
         p.noDataCol  = ac.withAlpha (0.35f).overlaidWith (bg);
