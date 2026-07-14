@@ -2,20 +2,17 @@
 #include "DysektLookAndFeel.h"
 #include "../PluginProcessor.h"
 
-// ── Fixed green STN-LCD palette ─────────────────────────────────────────────────
-// This panel simulates a physical green-tinted STN LCD readout (classic Roland
+// ── Fixed black STN-LCD palette ──────────────────────────────────────────────
+// This panel simulates a physical black-tinted STN LCD readout (classic Roland
 // hardware style), so its colours are fixed "hardware" values rather than being
 // derived from the app theme — a real LCD doesn't change colour when the host
 // app switches between light/dark mode.
 namespace LcdColours
 {
-    // Background gradient edges (light → mid → dark). Ink is a near-black shade
-    // of the same source hue as the background, so the panel reads as one lit
-    // material rather than two unrelated colours.
-    static const juce::Colour kBgLight  { 0xFF8CFF6E };
-    static const juce::Colour kBgMid    { 0xFF6BFF4A };
-    static const juce::Colour kBgDark   { 0xFF5FE83E };
-    static const juce::Colour kInk      { 0xFF0A1208 };
+    // Background is a near-black shade; ink is a bright green "phosphor"
+    // colour that reads clearly against it.
+    static const juce::Colour kBgMid    { 0xFF0A0F08 };
+    static const juce::Colour kInk      { 0xFF6BFF4A };
     static const juce::Colour kOutline  { 0xFF1C3A12 };
     static const juce::Colour kGlow     { 0xFF6BFF4A };   // used with alpha for glow layers
 
@@ -37,16 +34,16 @@ namespace LcdColours
         p.background = bg;
         p.bezel      = kOutline;
         p.phosphor   = ac;
-        p.dim        = ac.withAlpha (0.55f).overlaidWith (bg);
-        p.highlight  = kInk.brighter (0.35f);                 // slightly lighter ink for emphasis rows
-        p.labelCol   = ac.withAlpha (0.92f).overlaidWith (bg);
+        p.dim        = ac.withAlpha (0.35f).overlaidWith (bg);
+        p.highlight  = ac.brighter (0.35f);                   // slightly brighter ink for emphasis rows
+        p.labelCol   = ac.withAlpha (0.75f).overlaidWith (bg);
         p.scanline   = juce::Colours::black;
         p.cursor     = ac;
-        p.noDataCol  = ac.withAlpha (0.35f).overlaidWith (bg);
+        p.noDataCol  = ac.withAlpha (0.25f).overlaidWith (bg);
         p.border     = kOutline;
         p.flagOn     = ac;
-        p.flagOff    = ac.withAlpha (0.45f).overlaidWith (bg);
-        p.flagBg     = bg.darker (0.15f);             // visible pill outline against screen bg
+        p.flagOff    = ac.withAlpha (0.40f).overlaidWith (bg);
+        p.flagBg     = bg.brighter (0.15f);           // visible pill outline against screen bg
         return p;
     }
 }
@@ -253,18 +250,20 @@ void SliceLcdDisplay::drawLcdBackground (juce::Graphics& g)
     g.setColour (kOutline);
     g.drawRoundedRectangle (b.toFloat().reduced (0.5f), 4.0f, 1.5f);
 
-    // ── Outer backlight glow — ambient spill onto the surrounding chassis ──
-    g.setColour (juce::Colour (0x806BFF4A));      // tight, higher opacity
+    // ── Outer backlight glow — faint ink-coloured spill onto the chassis ───
+    g.setColour (juce::Colour (0x306BFF4A));      // tight, low opacity
     g.drawRoundedRectangle (b.toFloat().expanded (1.0f), 5.0f, 3.0f);
-    g.setColour (juce::Colour (0x386BFF4A));      // wide, lower opacity
+    g.setColour (juce::Colour (0x186BFF4A));      // wide, lower opacity
     g.drawRoundedRectangle (b.toFloat().expanded (4.0f), 7.0f, 6.0f);
 
-    // ── Inner screen — diagonal backlight gradient, light → mid → dark ─────
+    // ── Inner screen — solid near-black fill with a subtle top glow ────────
     auto screen = b.reduced (4);
-    juce::ColourGradient bgGrad (kBgLight, screen.getX(), screen.getY(),
-                                  kBgDark, screen.getRight(), screen.getBottom(), false);
-    bgGrad.addColour (0.5, kBgMid);
-    g.setGradientFill (bgGrad);
+    g.setColour (kBgMid);
+    g.fillRoundedRectangle (screen.toFloat(), 2.0f);
+
+    juce::ColourGradient glow (pal.phosphor.withAlpha (0.06f), 0, (float) screen.getY(),
+                                juce::Colours::transparentBlack, 0, (float) (screen.getY() + 20), false);
+    g.setGradientFill (glow);
     g.fillRoundedRectangle (screen.toFloat(), 2.0f);
 
     // ── Scanline texture — subtle physical-screen feel ──────────────────────
