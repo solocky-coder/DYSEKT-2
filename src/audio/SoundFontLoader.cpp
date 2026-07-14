@@ -413,12 +413,32 @@ private:
             processor.crashLogger.log ("SF2 preview: discoverActiveNotes found "
                 + juce::String ((int) activeNotes.size()) + " responsive note(s)"
                 + (activeNotes.empty() ? " -> falling back to piano range 21-108" : ""));
+        else if (target == SoundFontLoadTarget::SfzPlayer2)
+        {
+            juce::String notesStr;
+            for (int n : activeNotes) notesStr << n << " ";
+            processor.crashLogger.log ("SFZ-PLAYER zone preview: discoverActiveNotes found "
+                + juce::String ((int) activeNotes.size()) + " responsive note(s)"
+                + (activeNotes.empty() ? " -> falling back to full 0-127 sweep" : ": " + notesStr));
+        }
 
         if (activeNotes.empty())
         {
-            // Fallback: assume standard piano range
-            for (int n = 21; n <= 108; ++n)
-                activeNotes.push_back (n);
+            if (target == SoundFontLoadTarget::SfzPlayer2)
+            {
+                // Zone-builder regions can sit at any key (e.g. the region in
+                // this file is a single key at note 0) — 21-108 assumes a
+                // normal playable instrument range, which doesn't hold here,
+                // so a region outside that range would never be rescued by it.
+                for (int n = 0; n <= 127; ++n)
+                    activeNotes.push_back (n);
+            }
+            else
+            {
+                // Fallback: assume standard piano range
+                for (int n = 21; n <= 108; ++n)
+                    activeNotes.push_back (n);
+            }
         }
 
         // ── Step 2: render each active note ───────────────────────────────────
@@ -619,6 +639,16 @@ private:
     {
         if (target == SoundFontLoadTarget::SfPlayer)
             processor.crashLogger.log ("SF2 preview: " + juce::String ((int) renders.size())
+                + " note(s) produced audio above silence threshold (of "
+                + juce::String (numProbed) + " probed)"
+                + (renders.empty() ? " -> ALL SILENT, render aborted" : ""));
+        else if (target == SoundFontLoadTarget::SfzPlayer2)
+            // Mirrors the SfPlayer log above — this is the exact point where an
+            // all-silent probe (e.g. a region whose key range never actually
+            // produced audible output, or a stale/mismatched sample) causes
+            // postFailure() to no-op and the zone-builder preview to stay
+            // silently empty with no other indication anywhere.
+            processor.crashLogger.log ("SFZ-PLAYER zone preview: " + juce::String ((int) renders.size())
                 + " note(s) produced audio above silence threshold (of "
                 + juce::String (numProbed) + " probed)"
                 + (renders.empty() ? " -> ALL SILENT, render aborted" : ""));

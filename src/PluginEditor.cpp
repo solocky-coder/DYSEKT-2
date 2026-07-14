@@ -2095,6 +2095,19 @@ void DysektEditor::showZoneBuilderAddZoneOverlay (const juce::File& sfzFile,
         zoneBuilderDirty = true;
         sliceControlBar.setZoneDirty (true);
 
+        // A bad/unresolvable sample= path parses fine in sfizz (regions=1,
+        // load "OK") but renders total silence, which looks identical to a
+        // genuine pipeline failure from the outside — matrix populated, LCD/
+        // waveform/slice-count all stay empty, no error anywhere. Log the
+        // exact path that's about to be written and flag it up front if the
+        // source file doesn't even exist, so that silent case is diagnosable
+        // from the log alone instead of requiring a manual file dump.
+        processor.crashLogger.log ("Zone-builder stage: sampleFile=\"" + sampleFile.getFullPathName()
+            + "\" exists=" + (sampleFile.existsAsFile() ? "YES" : "NO")
+            + "  will write sample=\"" + buildZoneRegionText (zoneBuilderTargetSfz, sampleFile, lo, hi, root)
+                  .fromFirstOccurrenceOf ("sample=", false, false)
+                  .upToFirstOccurrenceOf ("\n", false, false) + "\"");
+
         // refreshZoneBuilderScratch() drives both the matrix and the
         // sliceManager2/sampleData2 preview from the rebuilt scratch file —
         // see its doc comment for why sfzPlayer2.loadFile() alone isn't
@@ -2269,8 +2282,10 @@ void DysektEditor::openZoneBuilderSaveAsNew (const juce::File& sampleFile)
         if (! confirmed || dest == juce::File{})
             return;
 
-        // Always create a fresh blank SFZ.
-        dest.replaceWithText ("// Custom SFZ — built with SFZ-PLAYER zone builder\n\n");
+        // Always create a fresh blank SFZ. Plain ASCII only in this comment —
+        // see the file-level note on why non-ASCII source literals are worth
+        // avoiding here specifically.
+        dest.replaceWithText ("// Custom SFZ - built with SFZ-PLAYER zone builder\n\n");
 
         zoneBuilderTargetSfz = dest;
 
