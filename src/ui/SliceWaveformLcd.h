@@ -44,6 +44,15 @@ public:
     void setWaveformMode (int m) { waveformMode = juce::jlimit (0, 7, m); repaint(); }
     int  getWaveformMode() const noexcept { return waveformMode; }
 
+    // ── Fixed blue STN-LCD palette (public: read by free helper functions
+    //    in SliceWaveformLcd.cpp, e.g. lcd2Bg()/lcd2Phosphor()/etc.) ──────────
+    static const juce::Colour kBg;
+    static const juce::Colour kBezel;
+    static const juce::Colour kPhosphor;
+    static const juce::Colour kDim;
+    static const juce::Colour kBright;
+    static const juce::Colour kLabel;
+
 private:
     // ── Snapshot used for one paint pass ─────────────────────────────────────
     struct DisplayData
@@ -153,13 +162,6 @@ private:
     // Waveform display style — set via setWaveformMode(), driven by the WAVE
     // icon toggle in DualLcdControlFrame (see DysektEditor::toggleSoftWave()).
     int waveformMode = 0;   // 0=Hard 1=Soft 2=Outline 3=Rectified 4=Mirrored 5=Bars 6=RMS 7=Stepped
-
-    static const juce::Colour kBg;
-    static const juce::Colour kBezel;
-    static const juce::Colour kPhosphor;
-    static const juce::Colour kDim;
-    static const juce::Colour kBright;
-    static const juce::Colour kLabel;
 
     static constexpr int   kScanlineAlpha = 18;
     static constexpr int   kLeftPad       = 8;
