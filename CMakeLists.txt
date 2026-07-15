@@ -114,13 +114,10 @@ juce_add_plugin(Dysekt
     COPY_PLUGIN_AFTER_BUILD TRUE
 )
 
-# MSVC compile + link flags:
-#   /source-charset:utf-8  — consistent source encoding (do NOT add /execution-charset)
-#   /Zi                    — write debug info to a separate .pdb file
-#   /DEBUG                 — linker: produce .pdb alongside the binary
+# Use a consistent source encoding. Release builds deliberately omit /Zi and
+# /DEBUG so public packages do not contain large debugging-symbol files.
 if(MSVC)
-    target_compile_options(Dysekt PRIVATE /source-charset:utf-8 /Zi)
-    target_link_options(Dysekt PRIVATE /DEBUG /PDB:DYSEKT-SF.pdb)
+    target_compile_options(Dysekt PRIVATE /source-charset:utf-8)
 endif()
 
 juce_add_binary_data(DysektFonts SOURCES
@@ -243,10 +240,9 @@ juce_add_gui_app(DysektStandalone
     PRODUCT_NAME "DYSEKT-SF"
 )
 
-# Same PDB flags for the Standalone target
+# Release packages omit debugging symbols.
 if(MSVC)
-    target_compile_options(DysektStandalone PRIVATE /source-charset:utf-8 /Zi)
-    target_link_options(DysektStandalone PRIVATE /DEBUG /PDB:DysektStandalone.pdb)
+    target_compile_options(DysektStandalone PRIVATE /source-charset:utf-8)
 endif()
 
 target_sources(DysektStandalone PRIVATE

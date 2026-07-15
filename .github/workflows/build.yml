@@ -85,7 +85,7 @@ jobs:
         shell: pwsh
         run: |
           cmake -B build -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
             -DJUCE_BUILD_EXTRAS=OFF `
@@ -95,11 +95,11 @@ jobs:
       # hosted runner's memory limit when MSBuild and MSVC compile in parallel.
       - name: Build Standalone
         shell: pwsh
-        run: cmake --build build --config RelWithDebInfo --target DysektStandalone --parallel 1 -- /m:1 /bl:build\standalone.binlog /v:diag
+        run: cmake --build build --config Release --target DysektStandalone --parallel 1 -- /m:1 /bl:build\standalone.binlog /v:diag
 
       - name: Build VST3
         shell: pwsh
-        run: cmake --build build --config RelWithDebInfo --target Dysekt_VST3 --parallel 1 -- /m:1 /bl:build\vst3.binlog /v:diag
+        run: cmake --build build --config Release --target Dysekt_VST3 --parallel 1 -- /m:1 /bl:build\vst3.binlog /v:diag
 
       # Always retain MSBuild diagnostics, including when either build fails.
       - name: Upload build diagnostics
@@ -110,39 +110,22 @@ jobs:
           path: build/*.binlog
           if-no-files-found: warn
 
-      - name: Verify PDBs exist
-        shell: pwsh
-        run: |
-          $pdbs = Get-ChildItem -Recurse -Filter "*.pdb" build/
-          if ($pdbs.Count -eq 0) {
-            Write-Error "NO PDB FILES FOUND — check /Zi and /DEBUG flags in CMakeLists.txt"
-            exit 1
-          }
-          Write-Host "Found $($pdbs.Count) PDB(s):"
-          $pdbs | ForEach-Object { Write-Host "  $($_.FullName)" }
-
       - name: Collect artifacts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/Standalone | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts/VST3 | Out-Null
 
-          # Standalone .exe
-          $exes = Get-ChildItem -Recurse -Filter "DYSEKT.exe" build/
-          foreach ($e in $exes) {
-            Copy-Item -Force $e.FullName artifacts/Standalone/
+          # JUCE writes the standalone to DysektStandalone_artefacts/<config>/
+          # using PRODUCT_NAME (DYSEKT-SF), not the CMake target name.
+          $standaloneExes = @(Get-ChildItem -Recurse -File -Filter "DYSEKT-SF.exe" build/ |
+            Where-Object { $_.FullName -match "DysektStandalone_artefacts" })
+          if ($standaloneExes.Count -ne 1) {
+            Write-Error "Expected exactly one standalone executable; found $($standaloneExes.Count)."
+            $standaloneExes | ForEach-Object { Write-Host "  $($_.FullName)" }
+            exit 1
           }
-
-          # ALL PDBs — route by name: Standalone PDB goes to Standalone folder,
-          # everything else (VST3, DLL-level) goes to VST3 folder
-          $pdbs = Get-ChildItem -Recurse -Filter "*.pdb" build/
-          foreach ($p in $pdbs) {
-            if ($p.Name -like "*Standalone*") {
-              Copy-Item -Force $p.FullName artifacts/Standalone/
-            } else {
-              Copy-Item -Force $p.FullName artifacts/VST3/
-            }
-          }
+          Copy-Item -Force $standaloneExes[0].FullName artifacts/Standalone/
 
           # VST3 bundle (JUCE outputs a .vst3 folder, not a file).
           # NOTE: matched by extension, not a hardcoded product name — the
@@ -162,6 +145,10 @@ jobs:
             if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
             Copy-Item -Recurse -Force $v.FullName "artifacts/VST3/"
           }
+
+          # Debug symbols are retained only in diagnostics, never in user downloads.
+          Get-ChildItem -Path artifacts -Recurse -File -Filter "*.pdb" |
+            Remove-Item -Force
 
           Write-Host "Collected artifacts:"
           Get-ChildItem artifacts/ -Recurse
