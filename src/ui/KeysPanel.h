@@ -113,8 +113,8 @@ private:
     class ZoneMatrixContent : public juce::Component
     {
     public:
-        static constexpr int kRowH    = 20;
-        static constexpr int kHeaderH = 14;
+        static constexpr int kRowH    = 28;
+        static constexpr int kHeaderH = 18;
 
         ZoneMatrixContent (KeysPanel& owner) : owner (owner) {}
 

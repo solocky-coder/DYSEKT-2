@@ -90,16 +90,16 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
     // Right-side fixed columns (anchored from right edge):
     //   LP | REL | VOL | PAN | PITCH | ROOT | loKey | hiKey  — then NAME fills rest
     constexpr int kStripeW  = 4;
-    constexpr int kColGap   = 3;
+    constexpr int kColGap   = 4;
     constexpr int kScrollW  = 10;  // reserve for vertical scrollbar
-    constexpr int kLpW      = 24;
-    constexpr int kRelW     = 58;
-    constexpr int kVolW     = 52;
-    constexpr int kPanW     = 44;
-    constexpr int kPitchW   = 44;
-    constexpr int kRootW    = 44;
-    constexpr int kHiKeyW   = 44;
-    constexpr int kLoKeyW   = 44;
+    constexpr int kLpW      = 30;
+    constexpr int kRelW     = 70;
+    constexpr int kVolW     = 62;
+    constexpr int kPanW     = 52;
+    constexpr int kPitchW   = 52;
+    constexpr int kRootW    = 52;
+    constexpr int kHiKeyW   = 52;
+    constexpr int kLoKeyW   = 52;
 
     const int kLpX    = w - kScrollW - kLpW;
     const int kRelX   = kLpX   - kColGap - kRelW;
@@ -125,8 +125,8 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
         {
             // Draw the [+ ZONE] button in the single placeholder row so the
             // user can build a new SFZ from scratch without loading a file first.
-            constexpr int kBtnW = 60;
-            constexpr int kBtnH = 11;
+            constexpr int kBtnW = 70;
+            constexpr int kBtnH = 16;
             const int bx = 6;
             const int by = (h - kBtnH) / 2;
             const juce::Rectangle<int> btnRect (bx, by, kBtnW, kBtnH);
@@ -135,13 +135,13 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
             g.fillRoundedRectangle (btnRect.toFloat(), 2.5f);
             g.setColour (theme.accent);
             g.drawRoundedRectangle (btnRect.toFloat().reduced (0.5f), 2.5f, 0.8f);
-            g.setFont (DysektLookAndFeel::makeFont (8.0f, true));
+            g.setFont (DysektLookAndFeel::makeFont (9.5f, true));
             g.setColour (theme.accent);
             g.drawText ("+ ZONE", btnRect, juce::Justification::centred, false);
         }
         else
         {
-            g.setFont (DysektLookAndFeel::makeFont (9.0f));
+            g.setFont (DysektLookAndFeel::makeFont (11.0f));
             g.setColour (theme.foreground.withAlpha (0.18f));
             g.drawText ("No zones loaded", 0, 0, w, h, juce::Justification::centred, false);
         }
@@ -154,7 +154,7 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
         // Column header
         g.setColour (theme.darkBar.darker (0.25f));
         g.fillRect (0, 0, w, kHeaderH);
-        g.setFont (DysektLookAndFeel::makeFont (7.5f, true));
+        g.setFont (DysektLookAndFeel::makeFont (9.0f, true));
         g.setColour (theme.foreground.withAlpha (0.30f));
         g.drawText ("BANK / PRESET  \xe2\x80\x94  right-click row to assign MIDI channel",
                     10, 0, w - 20, kHeaderH,
@@ -163,7 +163,7 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
         g.drawHorizontalLine (kHeaderH - 1, 0.f, (float) w);
 
         constexpr int kStripeW = 4;
-        const juce::Font fMain = DysektLookAndFeel::makeFont (10.5f);
+        const juce::Font fMain = DysektLookAndFeel::makeFont (13.0f);
 
         for (int i = 0; i < (int) rows.size(); ++i)
         {
@@ -194,9 +194,9 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
             if (assignedCh >= 1 && assignedCh <= 16)
             {
                 const juce::String chLabel    = "CH " + juce::String (assignedCh);
-                const juce::Font   badgeFont  = DysektLookAndFeel::makeFont (7.5f, true);
-                const int          badgeW     = 28;
-                const int          badgeH     = 13;
+                const juce::Font   badgeFont  = DysektLookAndFeel::makeFont (9.0f, true);
+                const int          badgeW     = 34;
+                const int          badgeH     = 17;
                 const int          badgeX     = w - badgeW - 6;
                 const int          badgeY     = ry + (kRowH - badgeH) / 2;
 
@@ -226,7 +226,7 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
 
         if (rows.empty())
         {
-            g.setFont (DysektLookAndFeel::makeFont (9.0f));
+            g.setFont (DysektLookAndFeel::makeFont (11.0f));
             g.setColour (theme.foreground.withAlpha (0.18f));
             g.drawText ("No presets loaded", 0, kHeaderH, w, h - kHeaderH,
                         juce::Justification::centred, false);
@@ -240,7 +240,7 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white.withAlpha (0.02f));
     g.fillRect (0, 0, kNameColW, kHeaderH);
 
-    g.setFont (DysektLookAndFeel::makeFont (7.5f, true));
+    g.setFont (DysektLookAndFeel::makeFont (9.0f, true));
     g.setColour (theme.foreground.withAlpha (0.30f));
 
     auto hdr = [&] (const char* txt, int x, int cw,
@@ -262,7 +262,7 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
     // SFZ: draw up-down drag hint on editable numeric columns
     if (sfzEditable)
     {
-        g.setFont (DysektLookAndFeel::makeFont (7.0f));
+        g.setFont (DysektLookAndFeel::makeFont (8.5f));
         g.setColour (theme.accent.withAlpha (0.40f));
         for (int cx : { kLoKeyX + kLoKeyW - 10,
                         kHiKeyX + kHiKeyW - 10,
@@ -296,8 +296,8 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
         g.drawHorizontalLine (btnRowY, 0.f, (float) w);
 
         // Pill button left-aligned in the row
-        constexpr int kBtnW = 60;
-        constexpr int kBtnH = 11;
+        constexpr int kBtnW = 70;
+        constexpr int kBtnH = 16;
         const int bx = 6;
         const int by = btnRowY + (kRowH - kBtnH) / 2;
         const juce::Rectangle<int> btnRect (bx, by, kBtnW, kBtnH);
@@ -308,7 +308,7 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
         g.setColour (theme.accent.withAlpha (0.65f));
         g.drawRoundedRectangle (btnRect.toFloat().reduced (0.5f), 3.0f, 0.75f);
 
-        g.setFont (DysektLookAndFeel::makeFont (7.0f, true));
+        g.setFont (DysektLookAndFeel::makeFont (8.5f, true));
         g.setColour (theme.accent.brighter (0.5f));
         g.drawText ("+ ZONE", btnRect, juce::Justification::centred, false);
 
@@ -323,7 +323,7 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
                 return juce::String (names[n % 12]) + juce::String (n / 12 - 2);
             };
             const juce::String hint = noteName (nextLo) + " \u2013 " + noteName (nextHi);
-            g.setFont (DysektLookAndFeel::makeFont (7.5f));
+            g.setFont (DysektLookAndFeel::makeFont (9.0f));
             g.setColour (theme.foreground.withAlpha (0.30f));
             g.drawText (hint, bx + kBtnW + 6, btnRowY, 80, kRowH,
                         juce::Justification::centredLeft, false);
@@ -364,9 +364,9 @@ void KeysPanel::ZoneMatrixContent::paint (juce::Graphics& g)
     };
 
     // ── Rows ──────────────────────────────────────────────────────────────────
-    const juce::Font fMain  = DysektLookAndFeel::makeFont (10.5f);
-    const juce::Font fSmall = DysektLookAndFeel::makeFont (9.0f);
-    const juce::Font fTiny  = DysektLookAndFeel::makeFont (8.0f);
+    const juce::Font fMain  = DysektLookAndFeel::makeFont (13.0f);
+    const juce::Font fSmall = DysektLookAndFeel::makeFont (11.0f);
+    const juce::Font fTiny  = DysektLookAndFeel::makeFont (9.5f);
 
     for (int i = 0; i < (int) rows.size(); ++i)
     {
@@ -641,16 +641,16 @@ KeysPanel::ZoneMatrixContent::EditCol
 KeysPanel::ZoneMatrixContent::hitTestCol (int x, int w) const
 {
     // Must mirror paint() geometry exactly
-    constexpr int kColGap   = 3;
+    constexpr int kColGap   = 4;
     constexpr int kScrollW  = 10;
-    constexpr int kLpW      = 24;
-    constexpr int kRelW     = 58;
-    constexpr int kVolW     = 52;
-    constexpr int kPanW     = 44;
-    constexpr int kPitchW   = 44;
-    constexpr int kRootW    = 44;
-    constexpr int kHiKeyW   = 44;
-    constexpr int kLoKeyW   = 44;
+    constexpr int kLpW      = 30;
+    constexpr int kRelW     = 70;
+    constexpr int kVolW     = 62;
+    constexpr int kPanW     = 52;
+    constexpr int kPitchW   = 52;
+    constexpr int kRootW    = 52;
+    constexpr int kHiKeyW   = 52;
+    constexpr int kLoKeyW   = 52;
 
     const int kLpX    = w - kScrollW - kLpW;
     const int kRelX   = kLpX   - kColGap - kRelW;
