@@ -61,7 +61,16 @@ void TrimDialog::drawTrimKnob (juce::Graphics& g,
         g.setColour (T.separator);
         g.fillRect (bar);
         g.setColour (T.accent);
-        g.fillRect (bar.withWidth (bar.getWidth() * frac));
+        const float filledW = bar.getWidth() * frac;
+        // withWidth() keeps the left edge fixed, which is correct for OUT
+        // (fill grows from the left as outPt increases) but wrong for IN:
+        // the kept audio runs from the IN point to the right edge of the
+        // file, so its fill must stay anchored to the bar's right edge and
+        // erode from the left as inPt moves forward.
+        const auto filled = invertFill
+            ? bar.withLeft (bar.getRight() - filledW)
+            : bar.withWidth (filledW);
+        g.fillRect (filled);
     }
 
     // Label — top half, small caps style
