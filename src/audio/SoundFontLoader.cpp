@@ -26,7 +26,8 @@
 namespace SfzConst
 {
     constexpr int   kBlockSize        = 256;    // sfizz render block size
-    constexpr int   kProbeSize        = 512;    // samples for note-discovery probe
+    constexpr int   kProbeSize        = 512;    // samples for note-discovery probe (FluidSynth path only — see kProbeDurationSec for the sfizz path)
+    constexpr float kProbeDurationSec = 0.08f;  // sfizz note-discovery probe length, in seconds (see discoverActiveNotes)
     constexpr int   kVelocity         = 100;    // MIDI velocity used for all renders
     constexpr float kNoteDurationSec  = 2.0f;   // sustain phase length per note
     constexpr float kReleaseSec       = 0.8f;   // release tail length per note
@@ -406,7 +407,7 @@ private:
         }
 
         // ── Step 1: discover active notes ─────────────────────────────────────
-        std::vector<int> activeNotes = discoverActiveNotes (sfz);
+        std::vector<int> activeNotes = discoverActiveNotes (sfz, sampleRate);
         if (shouldExit()) { sfizz_free (sfz); postFailure(); return jobHasFinished; }
 
         if (target == SoundFontLoadTarget::SfPlayer)
@@ -952,27 +953,53 @@ private:
         R.resize ((size_t) end);
     }
 
-    // Fast pass to find which notes produce audio
-    static std::vector<int> discoverActiveNotes (sfizz_synth_t* sfz)
+    // Fast pass to find which notes produce audio.
+    //
+    // Probe length is time-based (kProbeDurationSec), not a fixed sample
+    // count: the old fixed 512-sample probe was only ~11.6ms at 44.1kHz (and
+    // shorter still at higher sample rates), which is too short to catch a
+    // region with any real attack ramp or a `delay`/`offset` opcode — those
+    // notes render silence for the whole probe window, get marked
+    // "unresponsive", and (if that happens for every note in the file) send
+    // discoverActiveNotes() to 0 results, forcing the caller into the
+    // expensive full-128-note/full-duration fallback sweep even when a
+    // proper probe would have found the real key range directly.
+    static std::vector<int> discoverActiveNotes (sfizz_synth_t* sfz, double sampleRate)
     {
+        const int probeSize = std::max (SfzConst::kProbeSize,
+                                        (int) std::lround (sampleRate * SfzConst::kProbeDurationSec));
+
         std::vector<int> found;
-        std::vector<float> probeL (SfzConst::kProbeSize, 0.f);
-        std::vector<float> probeR (SfzConst::kProbeSize, 0.f);
-        float* outs[2] = { probeL.data(), probeR.data() };
+        // sfizz is configured via sfizz_set_samples_per_block(sfz, kBlockSize)
+        // (see the ctor above), so each render_block call must request no
+        // more than kBlockSize samples — the probe buffer is sized for one
+        // chunk and reused across the multiple chunks needed to cover
+        // probeSize, same pattern as renderPhase().
+        std::vector<float> chunkL (SfzConst::kBlockSize, 0.f);
+        std::vector<float> chunkR (SfzConst::kBlockSize, 0.f);
+        float* outs[2] = { chunkL.data(), chunkR.data() };
 
         for (int n = 0; n <= 127; ++n)
         {
-            std::fill (probeL.begin(), probeL.end(), 0.f);
-            std::fill (probeR.begin(), probeR.end(), 0.f);
-
-            sfizz_send_note_on  (sfz, 0, n, SfzConst::kVelocity);
-            sfizz_render_block  (sfz, outs, 2, SfzConst::kProbeSize);
-            sfizz_all_sound_off (sfz);
+            sfizz_send_note_on (sfz, 0, n, SfzConst::kVelocity);
 
             float peak = 0.f;
-            for (int i = 0; i < SfzConst::kProbeSize; ++i)
-                peak = std::max (peak, std::max (std::abs (probeL[i]),
-                                                 std::abs (probeR[i])));
+            int remaining = probeSize;
+            while (remaining > 0)
+            {
+                const int block = std::min (remaining, SfzConst::kBlockSize);
+                std::fill (chunkL.begin(), chunkL.end(), 0.f);
+                std::fill (chunkR.begin(), chunkR.end(), 0.f);
+                sfizz_render_block (sfz, outs, 2, block);
+
+                for (int i = 0; i < block; ++i)
+                    peak = std::max (peak, std::max (std::abs (chunkL[i]),
+                                                     std::abs (chunkR[i])));
+                remaining -= block;
+            }
+
+            sfizz_all_sound_off (sfz);
+
             if (peak > SfzConst::kSilenceThreshold)
                 found.push_back (n);
         }
