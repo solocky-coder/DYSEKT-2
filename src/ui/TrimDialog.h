@@ -44,7 +44,8 @@ private:
     int  dragStartVal = 0;
 
     void drawTrimKnob (juce::Graphics& g, juce::Rectangle<int> cell,
-                       const char* label, int sampleVal, int totalFrames);
+                       const char* label, int sampleVal, int totalFrames,
+                       bool invertFill);
     void showMidiLearnMenu (int fieldId, juce::Point<int> screenPos);
     void onApply();
     void onCancel();

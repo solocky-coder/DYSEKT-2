@@ -29,7 +29,8 @@ void TrimDialog::timerCallback() { repaint(); }
 // ─────────────────────────────────────────────────────────────────────────────
 void TrimDialog::drawTrimKnob (juce::Graphics& g,
                                 juce::Rectangle<int> cell,
-                                const char* label, int sampleVal, int totalFrames)
+                                const char* label, int sampleVal, int totalFrames,
+                                bool invertFill)
 {
     const auto& T = getTheme();
     const float sf = (float) getHeight() / 34.0f;   // scale relative to nominal 34px bar height
@@ -40,11 +41,16 @@ void TrimDialog::drawTrimKnob (juce::Graphics& g,
     g.setColour (T.accent.withAlpha (0.55f));
     g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 3.0f, 1.0f);
 
-    // Progress bar — inset inside frame, does NOT mutate cell
+    // Progress bar — inset inside frame, does NOT mutate cell.
+    // Both knobs represent "how much audio remains once this trim point is
+    // applied": OUT fills by outPt/total (shrinks as you pull the end in);
+    // IN must fill by the inverse, 1 - inPt/total, so it also reads as fully
+    // lit at the untouched (whole-file, inPt==0) state and shrinks as you
+    // push the start forward, rather than starting empty and filling up.
     if (totalFrames > 0)
     {
-        const float frac   = juce::jlimit (0.0f, 1.0f,
-                                            (float) sampleVal / (float) totalFrames);
+        float frac = juce::jlimit (0.0f, 1.0f, (float) sampleVal / (float) totalFrames);
+        if (invertFill) frac = 1.0f - frac;
         const int   inset  = juce::roundToInt (1.0f * sf);
         const int   barH   = juce::roundToInt (3.0f * sf);
         const auto  bar    = juce::Rectangle<float> (
@@ -88,8 +94,8 @@ void TrimDialog::paint (juce::Graphics& g)
     const int inPt  = processor.trimRegionStart.load (std::memory_order_relaxed);
     const int outPt = processor.trimRegionEnd  .load (std::memory_order_relaxed);
 
-    drawTrimKnob (g, inCell,  "IN",  inPt,  total);
-    drawTrimKnob (g, outCell, "OUT", outPt, total);
+    drawTrimKnob (g, inCell,  "IN",  inPt,  total, true);
+    drawTrimKnob (g, outCell, "OUT", outPt, total, false);
 
     // ── "TRIM SAMPLE" title on the left ──────────────────────────────────────
     if (! labelArea.isEmpty())
