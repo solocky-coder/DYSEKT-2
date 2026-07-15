@@ -2,7 +2,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "../PluginProcessor.h"
-#include "../PluginEditor.h"
+#include "../metro/MetroStandaloneEditor.h"
 #include "../sequencer/MidiClip.h"
 #include "MidiRouter.h"
 
@@ -53,7 +53,7 @@ public:
         processor = std::make_unique<DysektProcessor>();
         processor->prepareToPlay (44100.0, 512);
 
-        editor = std::make_unique<DysektEditor> (*processor);
+        editor = std::make_unique<dysekt::metro::MetroStandaloneEditor> (*processor);
 
         // ── Audio callback ────────────────────────────────────────────────
         player.setProcessor (processor.get());
@@ -518,7 +518,7 @@ private:
 
     std::unique_ptr<MidiRouter>         midiRouter;
     std::unique_ptr<DysektProcessor>    processor;
-    std::unique_ptr<DysektEditor>       editor;
+    std::unique_ptr<dysekt::metro::MetroStandaloneEditor> editor;
     std::unique_ptr<juce::MenuBarComponent> menuBar;
     std::unique_ptr<juce::FileChooser>  fileChooser;
 
