@@ -415,6 +415,17 @@ DysektEditor::DysektEditor (DysektProcessor& p)
  // setUiMode() wasn't called by loadUserSettings(), so we must do this here.
  syncMidiRouteMode();
 
+ // Keep the tab strip in sync with the restored uiMode — without this the
+ // tab highlight defaults to SLICER regardless of which mode was actually
+ // restored, so it visually disagrees with the panels resized() shows.
+ headerBar.dualFrame().setUiTab (uiMode);
+
+ // Match the browser's file-type filter to the restored uiMode too — without
+ // this it stays in kAddZone (Slicer: any audio file) even when uiMode is 1
+ // or 2, so a non-.sf2/.sfz file picked from the browser silently fails to
+ // load once onLoadRequest routes it by the real (restored) uiMode.
+ syncBrowserMode();
+
  if (processor.sampleData.getSnapshot() == nullptr)
  processor.loadDefaultSampleIfNeeded();
 
