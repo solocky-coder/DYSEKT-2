@@ -2582,19 +2582,16 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    // TEMP diagnostic — logs EVERY block where the raw incoming MIDI buffer
-    // (before any port/channel routing to Slicer/SFZ-PLAYER/SF2-PLAYER) has
-    // events, so we can confirm whether MIDI is reaching the plugin at the
-    // host level at all, independent of any downstream engine-specific logic.
-    if (! midi.isEmpty())
-    {
-        juce::String desc;
-        for (const auto meta : midi)
-            desc << "[ch=" << meta.getMessage().getChannel()
-                 << " " << meta.getMessage().getDescription() << "] ";
-        crashLogger.log ("processBlock(): raw midi buffer has " + juce::String (midi.getNumEvents())
-            + " event(s): " + desc);
-    }
+    // NOTE: a prior "TEMP diagnostic" here built a juce::String per MIDI
+    // event and wrote it to disk via crashLogger.log() on every block that
+    // had any MIDI at all. Both the String concatenation (heap allocation)
+    // and the log write (synchronous, locked file I/O) violate this file's
+    // own audio-thread rules — under any sustained burst of MIDI (e.g. fast
+    // mod-wheel movement queuing 60+ CC messages into one block) it stalled
+    // processBlock() long enough that the host force-killed the process,
+    // which is exactly what left session.lock behind. Removed; use a
+    // debugger or a lock-free ring buffer drained on the message thread if
+    // this needs to be re-instrumented.
 
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
@@ -3421,14 +3418,9 @@ void DysektProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             }
         }
 
-        // TEMP diagnostic — shows what ended up in sfzMidiBuf whenever the
-        // raw midi buffer had anything in it.
-        if (! midi.isEmpty())
-        {
-            crashLogger.log ("processBlock(): sf2/sfz split — rawMidi=" + juce::String (midi.getNumEvents())
-                + " sfPlayerChannelMask=0x" + juce::String::toHexString ((int) sfPlayerChannelMask.load (std::memory_order_relaxed))
-                + " -> sfzMidiBuf=" + juce::String (sfzMidiBuf.getNumEvents()) + " event(s)");
-        }
+        // (Second "TEMP diagnostic" — same audio-thread String-build +
+        // synchronous file-write pattern as above — removed for the same
+        // reason; see the note near the top of processBlock().)
 
         // Render into a clean temp buffer — never overwrite main directly
         juce::AudioBuffer<float> sfzBuf (2, numSamples);
