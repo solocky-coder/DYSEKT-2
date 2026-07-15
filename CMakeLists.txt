@@ -238,6 +238,8 @@ target_link_libraries(Dysekt
 # ────────────────────────────────────────────────────────────────────────────
 juce_add_gui_app(DysektStandalone
     PRODUCT_NAME "DYSEKT-SF"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/DYSEKT-SF.ico"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/DYSEKT-SF.ico"
 )
 
 # Release packages omit debugging symbols.
