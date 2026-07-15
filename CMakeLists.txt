@@ -238,8 +238,10 @@ target_link_libraries(Dysekt
 # ────────────────────────────────────────────────────────────────────────────
 juce_add_gui_app(DysektStandalone
     PRODUCT_NAME "DYSEKT-SF"
-    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/DYSEKT-SF.ico"
-    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/DYSEKT-SF.ico"
+    # JUCE's CMake icon generator reads raster source images and generates the
+    # Windows .ico file during configuration. Do not pass an .ico as input.
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/DYSEKT-SF.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/DYSEKT-SF.png"
 )
 
 # Release packages omit debugging symbols.
