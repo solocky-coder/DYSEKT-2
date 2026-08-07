@@ -1542,7 +1542,10 @@ void DysektProcessor::handleCommand (const Command& cmd)
                 {
                     auto trimmed = SampleData::createTrimmed (*snap, tStart, tEnd);
                     if (trimmed != nullptr)
+                    {
+                        clearVoicesBeforeSampleSwap(); // Bug #1 fix: stop voices before swapping buffer
                         sampleData.applyDecodedSample (std::move (trimmed));
+                    }
                 }
 
                 const int totalFrames = sampleData.getNumFrames();
